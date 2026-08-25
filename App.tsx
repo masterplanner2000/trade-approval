@@ -637,7 +637,7 @@ const styles = StyleSheet.create({
   page: { width: "100%", maxWidth: 680, alignSelf: "center", padding: spacing.large, paddingBottom: spacing.large, gap: spacing.medium },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
   eyebrow: { color: green, fontSize: 10, fontWeight: "800", letterSpacing: 1.6 },
-  title: { color: ink, fontSize: 30, fontWeight: "800", letterSpacing: -1, marginTop: 3 },
+  title: { color: ink, fontSize: 30, lineHeight: 38, fontWeight: "800", letterSpacing: -1 },
   pauseButton: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: radius.pill, paddingHorizontal: 13, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 7 },
   pauseButtonActive: { backgroundColor: palette.dangerSoft, borderColor: "#F4C8D0" },
   statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: green },
