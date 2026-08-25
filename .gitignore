@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+.expo/
+.venv-ibkr/
+.venv-ibkr-10.49/
+node_modules/
+vendor/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Runtime trading and shadow state stays on this computer.
+service/data/*.json
+!service/data/*.example.json

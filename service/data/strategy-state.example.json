@@ -1,0 +1,12 @@
+{
+  "id": "example-strategy",
+  "name": "Example Strategy",
+  "status": "paused",
+  "capitalLimit": 0,
+  "perTradeLimit": 0,
+  "maxOpenPositions": 0,
+  "currentExposure": 0,
+  "universe": [],
+  "nextUniverseIndex": 0,
+  "completed": []
+}
