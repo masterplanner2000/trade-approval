@@ -1,22 +1,22 @@
 import { createBox, createText, createTheme } from "@shopify/restyle";
 
 export const palette = {
-  canvas: "#F6F9FC",
+  canvas: "#F5F5F5",
   surface: "#FFFFFF",
-  surfaceMuted: "#F1F5F9",
-  ink: "#0A2540",
-  text: "#425466",
-  muted: "#697386",
-  border: "#E3E8EE",
-  accent: "#635BFF",
-  accentDark: "#4F46E5",
-  accentSoft: "#EEECFF",
-  success: "#087E6A",
-  successSoft: "#E6F6F2",
-  warning: "#9A6700",
-  warningSoft: "#FFF4D6",
-  danger: "#C24156",
-  dangerSoft: "#FCE8EC",
+  surfaceMuted: "#F3F3F3",
+  ink: "#171717",
+  text: "#404040",
+  muted: "#737373",
+  border: "#E5E5E5",
+  accent: "#171717",
+  accentDark: "#171717",
+  accentSoft: "#F3F3F3",
+  success: "#404040",
+  successSoft: "#F3F3F3",
+  warning: "#525252",
+  warningSoft: "#F3F3F3",
+  danger: "#404040",
+  dangerSoft: "#F3F3F3",
 } as const;
 
 export const radius = {

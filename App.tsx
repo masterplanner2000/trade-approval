@@ -508,7 +508,6 @@ export default function App() {
       <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View>
-            <Text style={styles.eyebrow}>TRADE APPROVAL</Text>
             <Text style={styles.title}>Suggested action</Text>
           </View>
           <Pressable
@@ -539,25 +538,6 @@ export default function App() {
             )}
           </View>
         </View>
-
-        {proposal.shadowMode && (
-          <View style={styles.previewBar}>
-            <Text style={styles.previewTitle}>{proposal.signalEligible ? "Provisional checks passed" : "Watchlist observation · checks incomplete"}</Text>
-            <Text style={styles.previewDetail}>No amount, entry, stop, target, or order will be created.</Text>
-          </View>
-        )}
-
-        {strategy && (
-          <View style={styles.strategyStatus}>
-            <View style={styles.strategyStatusHeader}>
-              <Text style={styles.strategyStatusName}>{strategy.name}</Text>
-              <Text style={styles.strategyStatusCount}>{strategy.completedCount} reviewed</Text>
-            </View>
-            <Text style={styles.strategyStatusDetail}>
-              {money(strategy.currentExposure)} allocated · {money(strategy.remainingCapital)} remaining · {strategy.universe.join(" · ")}
-            </Text>
-          </View>
-        )}
 
         {orderPreview && !paperSubmission && !workflowError && (
           <View style={styles.previewBar}>
@@ -595,7 +575,6 @@ export default function App() {
         <View style={styles.card}>
           <View style={styles.cardEyebrowRow}>
             <Badge label={proposal.shadowMode ? "RESEARCH SIGNAL" : "ACTION READY"} tone={proposal.shadowMode ? "accent" : "success"} />
-            <Text style={styles.ruleset}>{proposal.rulesetVersion ?? "Risk checks applied"}</Text>
           </View>
           <View style={styles.quoteHero}>
           <View style={styles.cardTop}>
@@ -614,16 +593,15 @@ export default function App() {
             </View>
           </View>
 
-          <Text style={styles.account}>{proposal.agentName}  /  {proposal.accountLabel}</Text>
           </View>
 
           {proposal.shadowMode && (
             <View style={styles.observationBlock}>
               <Text style={styles.observationLabel}>RESEARCH OBSERVATION</Text>
               <Text style={styles.observationTitle}>
-                {proposal.signalEligible ? "This setup passed the provisional screen." : "This setup is on the watchlist."}
+                {proposal.signalEligible ? "Provisional checks passed" : "Watchlist observation"}
               </Text>
-              <Text style={styles.observationText}>No capital is committed and no order can be sent from this card.</Text>
+              <Text style={styles.observationText}>Research only. No order can be submitted.</Text>
             </View>
           )}
 
@@ -642,17 +620,6 @@ export default function App() {
               <Text style={styles.timeframe}>Expected window: {proposal.targetTimeframe}</Text>
             </View>
           </View>}
-
-          <View style={styles.planBlock}>
-            <Text style={styles.planLabel}>Rough plan to sell</Text>
-            <Text style={styles.planText}>{proposal.exitPlan}</Text>
-          </View>
-
-          <View style={styles.strategyBlock}>
-            <Text style={styles.strategyEyebrow}>STRATEGY CONTEXT</Text>
-            <Text style={styles.strategyName}>{proposal.strategyName}</Text>
-            <Text style={styles.strategyText}>{proposal.strategyContext}</Text>
-          </View>
 
           <Disclosure
             title="Trade details"
@@ -806,21 +773,21 @@ const styles = StyleSheet.create({
   signalBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: palette.accent },
   signalBadgeText: { color: palette.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 0.9 },
   ruleset: { flexShrink: 1, color: palette.muted, fontSize: 9, textAlign: "right" },
-  quoteHero: { backgroundColor: palette.ink, borderRadius: 14, padding: 18 },
+  quoteHero: { backgroundColor: palette.surface, borderRadius: 0, paddingVertical: 6 },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 10 },
   symbolBlock: { flex: 1 },
-  side: { color: "#B8B4FF", fontSize: 11, fontWeight: "900", letterSpacing: 1.4 },
-  symbol: { color: palette.surface, fontSize: 42, lineHeight: 46, fontWeight: "800", letterSpacing: -1.5 },
-  company: { color: "#C9D4DF", fontSize: 13 },
+  side: { color: palette.muted, fontSize: 11, fontWeight: "800", letterSpacing: 1.4 },
+  symbol: { color: palette.ink, fontSize: 42, lineHeight: 46, fontWeight: "800", letterSpacing: -1.5 },
+  company: { color: palette.text, fontSize: 13 },
   currentPriceRow: { flexDirection: "row", alignItems: "baseline", gap: 8, marginTop: 7 },
-  currentPrice: { color: palette.surface, fontSize: 22, fontWeight: "800" },
-  quoteAge: { color: "#9FB3C8", fontSize: 10 },
-  timer: { backgroundColor: "#253B53", paddingHorizontal: 12, paddingVertical: 9, borderRadius: radius.small, minWidth: 74, alignItems: "center" },
-  timerClosed: { backgroundColor: "#253B53" },
-  timerLabel: { color: "#B8B4FF", fontSize: 9, fontWeight: "900", letterSpacing: 1.1 },
-  timerValue: { color: palette.surface, fontSize: 16, fontWeight: "800", marginTop: 2 },
+  currentPrice: { color: palette.ink, fontSize: 22, fontWeight: "800" },
+  quoteAge: { color: palette.muted, fontSize: 10 },
+  timer: { backgroundColor: palette.surfaceMuted, paddingHorizontal: 12, paddingVertical: 9, borderRadius: radius.small, minWidth: 74, alignItems: "center" },
+  timerClosed: { backgroundColor: palette.surfaceMuted },
+  timerLabel: { color: palette.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1.1 },
+  timerValue: { color: palette.ink, fontSize: 16, fontWeight: "800", marginTop: 2 },
   account: { color: "#9FB3C8", fontSize: 11, marginTop: 16, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#314962" },
-  observationBlock: { backgroundColor: palette.accentSoft, borderLeftWidth: 3, borderLeftColor: palette.accent, borderRadius: radius.medium, padding: 16, marginTop: 16 },
+  observationBlock: { backgroundColor: palette.surfaceMuted, borderRadius: radius.medium, padding: 16, marginTop: 16 },
   observationLabel: { color: palette.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
   observationTitle: { color: palette.ink, fontSize: 17, lineHeight: 22, fontWeight: "800", marginTop: 7 },
   observationText: { color: palette.text, fontSize: 12, lineHeight: 18, marginTop: 5 },
