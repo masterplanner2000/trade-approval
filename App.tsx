@@ -266,6 +266,7 @@ export default function App() {
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [strategy, setStrategy] = useState<StrategySummary | null>(null);
+  const [uiPreview, setUiPreview] = useState(false);
 
   function applyShadowScan(scan: ShadowScan) {
     if (!scan.selected) throw new Error(scan.error ?? "shadow_data_unavailable");
@@ -503,6 +504,19 @@ export default function App() {
     setRationaleOpen(false);
   }
 
+  function previewActiveProposal() {
+    setUiPreview(true);
+    setBroker(null);
+    setBrokerUnavailable(false);
+    setProposal({ ...PAPER_PROPOSAL, id: "ui-preview", decision: "pending" });
+  }
+
+  function returnToScanner() {
+    setUiPreview(false);
+    setProposal(SHADOW_LOADING);
+    void createShadowObservation().catch(() => setBrokerUnavailable(true));
+  }
+
   return (
     <ThemeProvider theme={theme}>
     <SafeAreaProvider>
@@ -572,7 +586,16 @@ export default function App() {
                 </View>
               ))}
             </View>
+            <Pressable onPress={previewActiveProposal} style={styles.previewProposalButton}>
+              <Text style={styles.previewProposalButtonText}>Preview a proposed trade</Text>
+            </Pressable>
           </View>
+        )}
+
+        {uiPreview && !proposal.shadowMode && (
+          <Pressable onPress={returnToScanner} style={styles.backToScanner}>
+            <Text style={styles.backToScannerText}>‹ Back to scanner</Text>
+          </Pressable>
         )}
 
         {!proposal.shadowMode && <View style={styles.card}>
@@ -611,6 +634,32 @@ export default function App() {
           </View>}
         </View>}
 
+        {!proposal.shadowMode && (
+          <>
+            <View style={styles.infoCard}>
+              <Text style={styles.infoCardTitle}>Why this trade</Text>
+              <Text style={styles.infoCardBody}>{proposal.companyCatalyst}</Text>
+              {proposal.rationale.slice(0, 2).map((reason) => (
+                <View key={reason} style={styles.infoRow}>
+                  <View style={styles.infoDot} />
+                  <Text style={styles.infoRowText}>{reason}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.infoCard}>
+              <Text style={styles.infoCardTitle}>Strategy</Text>
+              <Text style={styles.strategyCardName}>{proposal.strategyName}</Text>
+              <Text style={styles.infoCardBody}>{proposal.strategyContext}</Text>
+            </View>
+
+            <View style={styles.infoCard}>
+              <Text style={styles.infoCardTitle}>Recent news</Text>
+              <Text style={styles.infoCardMuted}>No verified news source is connected yet.</Text>
+            </View>
+          </>
+        )}
+
       </ScrollView>
 
       {!proposal.shadowMode && <View style={styles.bottomBar}>
@@ -618,20 +667,20 @@ export default function App() {
           <ActionButton
             label={proposal.shadowMode ? "No decision" : "Deny"}
             tone="secondary"
-            disabled={!actionable || processing}
+            disabled={uiPreview || !actionable || processing}
             onPress={() => decide("denied")}
           />
           <ActionButton
             label={proposal.shadowMode ? "Shadow only" : processing ? "Checking…" : "Approve"}
             tone="primary"
             flex={1.5}
-            disabled={!actionable || processing}
+            disabled={uiPreview || !actionable || processing}
             onPress={() => decide("approved")}
           />
         </View> : null}
 
-        {state === "pending" && (!brokerReady || proposal.shadowMode) && (
-          <Text style={styles.connectionRequired}>{proposal.shadowMode ? "Trading controls are intentionally disabled during research." : "IBKR Paper must be connected before you can decide."}</Text>
+        {state === "pending" && (uiPreview || !brokerReady || proposal.shadowMode) && (
+          <Text style={styles.connectionRequired}>{uiPreview ? "Preview only—no order can be submitted." : proposal.shadowMode ? "Trading controls are intentionally disabled during research." : "IBKR Paper must be connected before you can decide."}</Text>
         )}
 
         {state !== "pending" && (
@@ -692,6 +741,18 @@ const styles = StyleSheet.create({
   symbolChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 18 },
   symbolChip: { backgroundColor: palette.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 8 },
   symbolChipText: { color: palette.ink, fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  previewProposalButton: { alignItems: "center", justifyContent: "center", minHeight: 46, borderWidth: 1, borderColor: palette.border, borderRadius: radius.medium, marginTop: 20, paddingHorizontal: 14 },
+  previewProposalButtonText: { color: palette.ink, fontSize: 14, lineHeight: 18, fontWeight: "700" },
+  backToScanner: { alignSelf: "flex-start", paddingVertical: 4, paddingRight: 12 },
+  backToScannerText: { color: palette.text, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  infoCard: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: radius.large, padding: 20 },
+  infoCardTitle: { color: palette.ink, fontSize: 16, lineHeight: 22, fontWeight: "800", marginBottom: 10 },
+  infoCardBody: { color: palette.text, fontSize: 13, lineHeight: 19 },
+  infoCardMuted: { color: palette.muted, fontSize: 13, lineHeight: 19 },
+  strategyCardName: { color: palette.ink, fontSize: 14, lineHeight: 20, fontWeight: "700", marginBottom: 5 },
+  infoRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, marginTop: 10 },
+  infoDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: palette.muted, marginTop: 7 },
+  infoRowText: { flex: 1, color: palette.text, fontSize: 13, lineHeight: 19 },
   card: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: radius.large, padding: 20, shadowColor: "#0A2540", shadowOpacity: 0.07, shadowRadius: 28, shadowOffset: { width: 0, height: 12 }, elevation: 4, overflow: "hidden" },
   cardEyebrowRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18 },
   signalBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: palette.accentSoft, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 7 },
