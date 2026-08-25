@@ -4,12 +4,12 @@ import { ThemeProvider } from "@shopify/restyle";
 import {
   Alert,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
 } from "react-native";
-import { ActionButton, Badge, Disclosure } from "./src/components/ui";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { ActionButton } from "./src/components/ui";
 import { AppText as Text, Box as View, palette, radius, spacing, theme } from "./src/design-system";
 
 type Decision = "pending" | "approved" | "denied" | "expired";
@@ -503,12 +503,13 @@ export default function App() {
 
   return (
     <ThemeProvider theme={theme}>
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaProvider>
+    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View>
-            <Text style={styles.title}>Suggested action</Text>
+            <Text style={styles.title}>Review</Text>
           </View>
           <Pressable
             accessibilityRole="button"
@@ -521,22 +522,6 @@ export default function App() {
               {paused ? "Paused" : "Active"}
             </Text>
           </Pressable>
-        </View>
-
-        <View style={[styles.brokerBar, brokerUnavailable && styles.brokerBarUnavailable]}>
-          <View style={[styles.brokerDot, brokerUnavailable && styles.brokerDotUnavailable]} />
-          <View style={styles.brokerCopy}>
-            <Text style={styles.brokerTitle}>
-              {proposal.shadowMode ? "Shadow mode · orders disabled" : broker ? "IBKR Paper connected" : brokerUnavailable ? "Daily history unavailable" : "Loading completed daily bars…"}
-            </Text>
-            {proposal.shadowMode ? (
-              <Text style={styles.brokerDetail}>{proposal.rulesetVersion} · recorded for observation only</Text>
-            ) : broker && (
-              <Text style={styles.brokerDetail}>
-                {broker.account} · {money(broker.summary.NetLiquidation?.value ?? 0)} account · {broker.quote.symbol} {money(broker.quote.last ?? broker.quote.close ?? 0)}{broker.quote.dataType === 3 ? " delayed" : ""}
-              </Text>
-            )}
-          </View>
         </View>
 
         {orderPreview && !paperSubmission && !workflowError && (
@@ -573,9 +558,6 @@ export default function App() {
         )}
 
         <View style={styles.card}>
-          <View style={styles.cardEyebrowRow}>
-            <Badge label={proposal.shadowMode ? "RESEARCH SIGNAL" : "ACTION READY"} tone={proposal.shadowMode ? "accent" : "success"} />
-          </View>
           <View style={styles.quoteHero}>
           <View style={styles.cardTop}>
             <View style={styles.symbolBlock}>
@@ -597,100 +579,18 @@ export default function App() {
 
           {proposal.shadowMode && (
             <View style={styles.observationBlock}>
-              <Text style={styles.observationLabel}>RESEARCH OBSERVATION</Text>
-              <Text style={styles.observationTitle}>
-                {proposal.signalEligible ? "Provisional checks passed" : "Watchlist observation"}
-              </Text>
-              <Text style={styles.observationText}>Research only. No order can be submitted.</Text>
+              <Text style={styles.observationTitle}>No trade proposed</Text>
+              <Text style={styles.observationText}>This is a research observation only.</Text>
             </View>
           )}
 
           {!proposal.shadowMode && <View style={styles.decisionSummary}>
             <View style={styles.spendBlock}>
-              <Text style={styles.summaryLabel}>You’re committing</Text>
+              <Text style={styles.summaryLabel}>Total commitment</Text>
               <Text style={styles.spendValue}>{money(proposal.positionValue)}</Text>
-              <Text style={styles.feeText}>
-                Estimated broker fees: {money(proposal.estimatedFees)}
-              </Text>
-            </View>
-            <View style={styles.upsideBlock}>
-              <Text style={styles.upsideLabel}>MODELED UPSIDE</Text>
-              <Text style={styles.upsideValue}>+{money(proposal.potentialUpside)}</Text>
-              <Text style={styles.upsidePercent}>+{proposal.potentialUpsidePercent.toFixed(1)}% near {money(proposal.targetPrice)}</Text>
-              <Text style={styles.timeframe}>Expected window: {proposal.targetTimeframe}</Text>
+              <Text style={styles.feeText}>{proposal.quantity} shares · limit {money(proposal.limitPrice)}</Text>
             </View>
           </View>}
-
-          <Disclosure
-            title="Trade details"
-            hint="Order, pricing and risk calculations"
-            open={detailsOpen}
-            onPress={() => setDetailsOpen((value) => !value)}
-          >
-            <View style={styles.accordionBody}>
-              <View style={styles.metrics}>
-                {proposal.shadowMode ? <>
-                  <Metric label="Signal date" value={proposal.signalDate ?? "Unknown"} />
-                  <Metric label="Reference close" value={money(proposal.currentPrice)} />
-                  <Metric label="Order quantity" value="Not calculated" />
-                  <Metric label="Entry / stop" value="Not defined" />
-                  <Metric label="Maximum loss" value="Not defined" />
-                  <Metric label="Order status" value="Disabled" />
-                </> : <>
-                  <Metric label="Quantity" value={`${proposal.quantity} shares`} />
-                  <Metric label="Limit price" value={money(proposal.limitPrice)} />
-                  <Metric label="Current bid / ask" value={`${money(proposal.bid)} / ${money(proposal.ask)}`} />
-                  <Metric label="Protective stop" value={money(proposal.stopPrice)} />
-                  <Metric label="Maximum planned loss" value={money(proposal.maxLoss)} />
-                  <Metric label="Reward / planned risk" value={`${(proposal.potentialUpside / proposal.maxLoss).toFixed(1)} to 1`} />
-                </>}
-              </View>
-
-              <View style={styles.riskRow}>
-                <Text style={styles.riskLabel}>Portfolio after trade</Text>
-                <Text style={styles.riskValue}>{proposal.portfolioPercent.toFixed(1)}%</Text>
-              </View>
-              <View style={styles.riskTrack}>
-                <View style={[styles.riskFill, { width: `${Math.min(100, proposal.portfolioPercent * 8)}%` }]} />
-              </View>
-            </View>
-          </Disclosure>
-
-          <Disclosure
-            title="Why this trade"
-            hint="Industry context, catalyst and risks"
-            open={rationaleOpen}
-            onPress={() => setRationaleOpen((value) => !value)}
-          >
-            <View style={styles.rationaleBody}>
-              <Text style={styles.contextText}>{proposal.industryContext}</Text>
-
-              <View style={styles.contextBlock}>
-                <Text style={styles.contextLabel}>Company catalyst</Text>
-                <Text style={styles.contextBody}>{proposal.companyCatalyst}</Text>
-              </View>
-
-              <View style={[styles.contextBlock, styles.riskBlock]}>
-                <Text style={[styles.contextLabel, styles.riskContextLabel]}>Key risk</Text>
-                <Text style={styles.contextBody}>{proposal.keyRisk}</Text>
-              </View>
-
-              <Text style={styles.signalTitle}>Supporting signals</Text>
-              {proposal.rationale.map((reason) => (
-                <View key={reason} style={styles.reason}>
-                  <View style={styles.check} />
-                  <Text style={styles.reasonText}>{reason}</Text>
-                </View>
-              ))}
-
-              <View style={styles.guardrail}>
-                <Text style={styles.guardrailTitle}>Execution guardrail</Text>
-                <Text style={styles.guardrailText}>
-                  Refresh before ordering. Reject above {money(proposal.limitPrice)} or after expiration.
-                </Text>
-              </View>
-            </View>
-          </Disclosure>
         </View>
 
       </ScrollView>
@@ -723,6 +623,7 @@ export default function App() {
         )}
       </View>
     </SafeAreaView>
+    </SafeAreaProvider>
     </ThemeProvider>
   );
 }
