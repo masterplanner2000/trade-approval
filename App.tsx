@@ -588,7 +588,7 @@ export default function App() {
             <View style={styles.spendBlock}>
               <Text style={styles.summaryLabel}>Total commitment</Text>
               <Text style={styles.spendValue}>{money(proposal.positionValue)}</Text>
-              <Text style={styles.feeText}>{proposal.quantity} shares · limit {money(proposal.limitPrice)}</Text>
+              <Text style={styles.feeText}>{proposal.quantity} shares at a {money(proposal.limitPrice)} limit</Text>
             </View>
           </View>}
         </View>
@@ -696,7 +696,7 @@ const styles = StyleSheet.create({
   spendBlock: { flex: 1.15, backgroundColor: "#F1F5F1", borderRadius: 15, padding: 14 },
   summaryLabel: { color: "#68756D", fontSize: 11, marginBottom: 3 },
   spendValue: { color: ink, fontSize: 25, fontWeight: "900", letterSpacing: -0.6 },
-  feeText: { color: "#68756D", fontSize: 10, marginTop: 5 },
+  feeText: { color: palette.text, fontSize: 13, lineHeight: 18, fontWeight: "600", marginTop: 7 },
   upsideBlock: { flex: 1, backgroundColor: "#EAF5EE", borderRadius: 15, padding: 14 },
   upsideLabel: { color: green, fontSize: 9, fontWeight: "900", letterSpacing: 0.8 },
   upsideValue: { color: green, fontSize: 21, fontWeight: "900", marginTop: 4 },
