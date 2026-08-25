@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import Constants from "expo-constants";
+import { ThemeProvider } from "@shopify/restyle";
 import {
   Alert,
   Pressable,
@@ -7,10 +8,9 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
-  View,
 } from "react-native";
-import { palette, radius, spacing } from "./src/design-system";
+import { ActionButton, Badge, Disclosure } from "./src/components/ui";
+import { AppText as Text, Box as View, palette, radius, spacing, theme } from "./src/design-system";
 
 type Decision = "pending" | "approved" | "denied" | "expired";
 
@@ -502,6 +502,7 @@ export default function App() {
   }
 
   return (
+    <ThemeProvider theme={theme}>
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
@@ -593,10 +594,7 @@ export default function App() {
 
         <View style={styles.card}>
           <View style={styles.cardEyebrowRow}>
-            <View style={styles.signalBadge}>
-              <View style={styles.signalBadgeDot} />
-              <Text style={styles.signalBadgeText}>{proposal.shadowMode ? "RESEARCH SIGNAL" : "ACTION READY"}</Text>
-            </View>
+            <Badge label={proposal.shadowMode ? "RESEARCH SIGNAL" : "ACTION READY"} tone={proposal.shadowMode ? "accent" : "success"} />
             <Text style={styles.ruleset}>{proposal.rulesetVersion ?? "Risk checks applied"}</Text>
           </View>
           <View style={styles.cardTop}>
@@ -654,20 +652,12 @@ export default function App() {
             <Text style={styles.strategyText}>{proposal.strategyContext}</Text>
           </View>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded: detailsOpen }}
+          <Disclosure
+            title="Trade details"
+            hint="Order, pricing and risk calculations"
+            open={detailsOpen}
             onPress={() => setDetailsOpen((value) => !value)}
-            style={styles.accordionHeader}
           >
-            <View>
-              <Text style={styles.accordionTitle}>Trade details</Text>
-              <Text style={styles.accordionHint}>Order, pricing and risk calculations</Text>
-            </View>
-            <Text style={styles.accordionIcon}>{detailsOpen ? "−" : "+"}</Text>
-          </Pressable>
-
-          {detailsOpen && (
             <View style={styles.accordionBody}>
               <View style={styles.metrics}>
                 {proposal.shadowMode ? <>
@@ -695,22 +685,14 @@ export default function App() {
                 <View style={[styles.riskFill, { width: `${Math.min(100, proposal.portfolioPercent * 8)}%` }]} />
               </View>
             </View>
-          )}
+          </Disclosure>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded: rationaleOpen }}
+          <Disclosure
+            title="Why this trade"
+            hint="Industry context, catalyst and risks"
+            open={rationaleOpen}
             onPress={() => setRationaleOpen((value) => !value)}
-            style={styles.accordionHeader}
           >
-            <View>
-              <Text style={styles.accordionTitle}>Why this trade</Text>
-              <Text style={styles.accordionHint}>Industry context, catalyst and risks</Text>
-            </View>
-            <Text style={styles.accordionIcon}>{rationaleOpen ? "−" : "+"}</Text>
-          </Pressable>
-
-          {rationaleOpen && (
             <View style={styles.rationaleBody}>
               <Text style={styles.contextText}>{proposal.industryContext}</Text>
 
@@ -739,27 +721,26 @@ export default function App() {
                 </Text>
               </View>
             </View>
-          )}
+          </Disclosure>
         </View>
 
       </ScrollView>
 
       <View style={styles.bottomBar}>
         {state === "pending" ? <View style={styles.actions}>
-          <Pressable
+          <ActionButton
+            label={proposal.shadowMode ? "No decision" : "Deny"}
+            tone="secondary"
             disabled={!actionable || processing}
             onPress={() => decide("denied")}
-            style={({ pressed }) => [styles.deny, pressed && styles.pressed, (!actionable || processing) && styles.disabled]}
-          >
-            <Text style={styles.denyText}>{proposal.shadowMode ? "No decision" : "Deny"}</Text>
-          </Pressable>
-          <Pressable
+          />
+          <ActionButton
+            label={proposal.shadowMode ? "Shadow only" : processing ? "Checking…" : "Approve"}
+            tone="primary"
+            flex={1.5}
             disabled={!actionable || processing}
             onPress={() => decide("approved")}
-            style={({ pressed }) => [styles.approve, pressed && styles.pressed, (!actionable || processing) && styles.disabled]}
-          >
-            <Text style={styles.approveText}>{proposal.shadowMode ? "Shadow only" : processing ? "Checking…" : "Approve"}</Text>
-          </Pressable>
+          />
         </View> : null}
 
         {state === "pending" && (!brokerReady || proposal.shadowMode) && (
@@ -773,6 +754,7 @@ export default function App() {
         )}
       </View>
     </SafeAreaView>
+    </ThemeProvider>
   );
 }
 
