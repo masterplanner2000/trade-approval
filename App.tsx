@@ -597,6 +597,7 @@ export default function App() {
             <Badge label={proposal.shadowMode ? "RESEARCH SIGNAL" : "ACTION READY"} tone={proposal.shadowMode ? "accent" : "success"} />
             <Text style={styles.ruleset}>{proposal.rulesetVersion ?? "Risk checks applied"}</Text>
           </View>
+          <View style={styles.quoteHero}>
           <View style={styles.cardTop}>
             <View style={styles.symbolBlock}>
               <Text style={styles.side}>{proposal.side}</Text>
@@ -614,6 +615,7 @@ export default function App() {
           </View>
 
           <Text style={styles.account}>{proposal.agentName}  /  {proposal.accountLabel}</Text>
+          </View>
 
           {proposal.shadowMode && (
             <View style={styles.observationBlock}>
@@ -798,26 +800,27 @@ const styles = StyleSheet.create({
   errorBar: { backgroundColor: "#F8DDDA", borderRadius: 14, paddingHorizontal: 13, paddingVertical: 11 },
   errorTitle: { color: "#942B26", fontSize: 12, fontWeight: "800" },
   errorDetail: { color: "#7C3A35", fontSize: 10, marginTop: 3 },
-  card: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: radius.large, padding: 20, shadowColor: "#0A2540", shadowOpacity: 0.07, shadowRadius: 28, shadowOffset: { width: 0, height: 12 }, elevation: 4 },
+  card: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: radius.large, padding: 20, shadowColor: "#0A2540", shadowOpacity: 0.07, shadowRadius: 28, shadowOffset: { width: 0, height: 12 }, elevation: 4, overflow: "hidden" },
   cardEyebrowRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18 },
   signalBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: palette.accentSoft, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 7 },
   signalBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: palette.accent },
   signalBadgeText: { color: palette.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 0.9 },
   ruleset: { flexShrink: 1, color: palette.muted, fontSize: 9, textAlign: "right" },
+  quoteHero: { backgroundColor: palette.ink, borderRadius: 14, padding: 18 },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 10 },
   symbolBlock: { flex: 1 },
-  side: { color: green, fontSize: 12, fontWeight: "900", letterSpacing: 1.4 },
-  symbol: { color: ink, fontSize: 40, lineHeight: 44, fontWeight: "800", letterSpacing: -1.4 },
-  company: { color: palette.text, fontSize: 13 },
+  side: { color: "#B8B4FF", fontSize: 11, fontWeight: "900", letterSpacing: 1.4 },
+  symbol: { color: palette.surface, fontSize: 42, lineHeight: 46, fontWeight: "800", letterSpacing: -1.5 },
+  company: { color: "#C9D4DF", fontSize: 13 },
   currentPriceRow: { flexDirection: "row", alignItems: "baseline", gap: 8, marginTop: 7 },
-  currentPrice: { color: ink, fontSize: 20, fontWeight: "800" },
-  quoteAge: { color: palette.muted, fontSize: 10 },
-  timer: { backgroundColor: palette.warningSoft, paddingHorizontal: 12, paddingVertical: 9, borderRadius: radius.small, minWidth: 74, alignItems: "center" },
-  timerClosed: { backgroundColor: palette.surfaceMuted },
-  timerLabel: { color: "#7D651D", fontSize: 9, fontWeight: "900", letterSpacing: 1.1 },
-  timerValue: { color: ink, fontSize: 16, fontWeight: "800", marginTop: 2 },
-  account: { color: palette.muted, fontSize: 11, marginTop: 16, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border },
-  observationBlock: { backgroundColor: palette.accentSoft, borderRadius: radius.medium, padding: 16, marginTop: 18 },
+  currentPrice: { color: palette.surface, fontSize: 22, fontWeight: "800" },
+  quoteAge: { color: "#9FB3C8", fontSize: 10 },
+  timer: { backgroundColor: "#253B53", paddingHorizontal: 12, paddingVertical: 9, borderRadius: radius.small, minWidth: 74, alignItems: "center" },
+  timerClosed: { backgroundColor: "#253B53" },
+  timerLabel: { color: "#B8B4FF", fontSize: 9, fontWeight: "900", letterSpacing: 1.1 },
+  timerValue: { color: palette.surface, fontSize: 16, fontWeight: "800", marginTop: 2 },
+  account: { color: "#9FB3C8", fontSize: 11, marginTop: 16, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#314962" },
+  observationBlock: { backgroundColor: palette.accentSoft, borderLeftWidth: 3, borderLeftColor: palette.accent, borderRadius: radius.medium, padding: 16, marginTop: 16 },
   observationLabel: { color: palette.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
   observationTitle: { color: palette.ink, fontSize: 17, lineHeight: 22, fontWeight: "800", marginTop: 7 },
   observationText: { color: palette.text, fontSize: 12, lineHeight: 18, marginTop: 5 },
@@ -831,13 +834,13 @@ const styles = StyleSheet.create({
   upsideValue: { color: green, fontSize: 21, fontWeight: "900", marginTop: 4 },
   upsidePercent: { color: "#517060", fontSize: 10, lineHeight: 14, marginTop: 2 },
   timeframe: { color: ink, fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 5 },
-  planBlock: { borderWidth: 1, borderColor: palette.border, borderRadius: radius.medium, padding: 14, marginTop: 12 },
+  planBlock: { borderWidth: 0, borderBottomWidth: 1, borderColor: palette.border, borderRadius: 0, paddingHorizontal: 2, paddingVertical: 16, marginTop: 2 },
   planLabel: { color: ink, fontSize: 12, fontWeight: "800", marginBottom: 6 },
   planText: { color: "#425148", fontSize: 13, lineHeight: 19 },
-  strategyBlock: { backgroundColor: palette.ink, borderRadius: radius.medium, padding: 16, marginTop: 12 },
-  strategyEyebrow: { color: "#B8B4FF", fontSize: 9, fontWeight: "900", letterSpacing: 1 },
-  strategyName: { color: "white", fontSize: 15, fontWeight: "800", marginTop: 5 },
-  strategyText: { color: "#C9D4DF", fontSize: 12, lineHeight: 18, marginTop: 5 },
+  strategyBlock: { backgroundColor: palette.surfaceMuted, borderRadius: radius.medium, padding: 16, marginTop: 14 },
+  strategyEyebrow: { color: palette.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  strategyName: { color: palette.ink, fontSize: 15, fontWeight: "800", marginTop: 5 },
+  strategyText: { color: palette.text, fontSize: 12, lineHeight: 18, marginTop: 5 },
   accordionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border, paddingVertical: 16, marginTop: 8 },
   accordionTitle: { color: ink, fontSize: 14, fontWeight: "800" },
   accordionHint: { color: palette.muted, fontSize: 10, marginTop: 2 },
