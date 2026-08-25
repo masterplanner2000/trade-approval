@@ -233,6 +233,8 @@ const SHADOW_LOADING: Proposal = {
   signalEligible: false,
 };
 
+const SHADOW_UNIVERSE = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"];
+
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 
@@ -557,7 +559,23 @@ export default function App() {
           </View>
         )}
 
-        <View style={styles.card}>
+        {proposal.shadowMode && (
+          <View style={styles.scannerCard}>
+            <Text style={styles.scannerTitle}>Reviewing symbols</Text>
+            <Text style={styles.scannerStatus}>
+              {brokerUnavailable ? "The daily review could not be completed." : proposal.id === "shadow-loading" ? "Checking completed daily market data…" : "Daily review complete."}
+            </Text>
+            <View style={styles.symbolChips}>
+              {SHADOW_UNIVERSE.map((symbol) => (
+                <View key={symbol} style={styles.symbolChip}>
+                  <Text style={styles.symbolChipText}>{symbol}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {!proposal.shadowMode && <View style={styles.card}>
           <View style={styles.quoteHero}>
           <View style={styles.cardTop}>
             <View style={styles.symbolBlock}>
@@ -591,11 +609,11 @@ export default function App() {
               <Text style={styles.feeText}>{proposal.quantity} shares at a {money(proposal.limitPrice)} limit</Text>
             </View>
           </View>}
-        </View>
+        </View>}
 
       </ScrollView>
 
-      <View style={styles.bottomBar}>
+      {!proposal.shadowMode && <View style={styles.bottomBar}>
         {state === "pending" ? <View style={styles.actions}>
           <ActionButton
             label={proposal.shadowMode ? "No decision" : "Deny"}
@@ -621,7 +639,7 @@ export default function App() {
             <Text style={styles.resetText}>Next recommendation</Text>
           </Pressable>
         )}
-      </View>
+      </View>}
     </SafeAreaView>
     </SafeAreaProvider>
     </ThemeProvider>
@@ -668,6 +686,12 @@ const styles = StyleSheet.create({
   errorBar: { backgroundColor: "#F8DDDA", borderRadius: 14, paddingHorizontal: 13, paddingVertical: 11 },
   errorTitle: { color: "#942B26", fontSize: 12, fontWeight: "800" },
   errorDetail: { color: "#7C3A35", fontSize: 10, marginTop: 3 },
+  scannerCard: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: radius.large, padding: 20 },
+  scannerTitle: { color: palette.ink, fontSize: 20, lineHeight: 26, fontWeight: "800" },
+  scannerStatus: { color: palette.muted, fontSize: 13, lineHeight: 18, marginTop: 5 },
+  symbolChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 18 },
+  symbolChip: { backgroundColor: palette.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 8 },
+  symbolChipText: { color: palette.ink, fontSize: 12, lineHeight: 16, fontWeight: "700" },
   card: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: radius.large, padding: 20, shadowColor: "#0A2540", shadowOpacity: 0.07, shadowRadius: 28, shadowOffset: { width: 0, height: 12 }, elevation: 4, overflow: "hidden" },
   cardEyebrowRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18 },
   signalBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: palette.accentSoft, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 7 },
