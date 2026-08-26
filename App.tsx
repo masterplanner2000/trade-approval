@@ -15,6 +15,7 @@ import { ActionButton } from "./src/components/ui";
 import { AppText as Text, Box as View, palette, radius, spacing, theme, typeRamp } from "./src/design-system";
 
 type Decision = "pending" | "approved" | "denied" | "expired";
+type BrokerConnectionStatus = "checking" | "connected" | "disconnected";
 
 type Proposal = {
   id: string;
@@ -370,6 +371,7 @@ export default function App() {
   const [rationaleOpen, setRationaleOpen] = useState(false);
   const [, tick] = useState(0);
   const [broker, setBroker] = useState<BrokerSnapshot | null>(null);
+  const [brokerConnectionStatus, setBrokerConnectionStatus] = useState<BrokerConnectionStatus>("checking");
   const [brokerUnavailable, setBrokerUnavailable] = useState(false);
   const [orderPreview, setOrderPreview] = useState<OrderPreview | null>(null);
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResult | null>(null);
@@ -489,7 +491,20 @@ export default function App() {
     if (!response.ok) throw new Error("proposal_unavailable");
     const result = await response.json() as { proposal: ServiceProposal; broker: BrokerSnapshot; strategy: StrategySummary };
     applyServiceProposal(result.proposal, result.broker, result.strategy);
+    setBrokerConnectionStatus("connected");
     setUiPreview(false);
+  }
+
+  async function checkBrokerConnection() {
+    try {
+      const response = await fetch(`${API_BASE_URL}/broker/snapshot?symbol=NVDA`, {
+        headers: { "x-app-token": APP_TOKEN },
+      });
+      const snapshot = await response.json() as BrokerSnapshot;
+      setBrokerConnectionStatus(response.ok && snapshot.ok && snapshot.environment === "paper" ? "connected" : "disconnected");
+    } catch {
+      setBrokerConnectionStatus("disconnected");
+    }
   }
 
   async function openPaperRecommendation() {
@@ -498,6 +513,7 @@ export default function App() {
     try {
       await createPaperProposal();
     } catch {
+      setBrokerConnectionStatus("disconnected");
       Alert.alert(
         "Paper recommendation unavailable",
         "Confirm TWS is open in Paper Trading, API access is enabled, and the local trade service is running.",
@@ -510,6 +526,12 @@ export default function App() {
   useEffect(() => {
     const timer = setInterval(() => tick((value) => value + 1), 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    void checkBrokerConnection();
+    const connectionTimer = setInterval(() => void checkBrokerConnection(), 15000);
+    return () => clearInterval(connectionTimer);
   }, []);
 
   useEffect(() => {
@@ -684,7 +706,7 @@ export default function App() {
     );
     Alert.alert(
       "Menu",
-      `${paused ? "Scanner paused" : "Scanner running"}\nIBKR Paper: ${brokerReady ? "Connected" : "Not connected"}`,
+      `${paused ? "Scanner paused" : "Scanner running"}\nIBKR Paper: ${brokerConnectionStatus === "connected" ? "Connected" : brokerConnectionStatus === "checking" ? "Checking" : "Offline"}`,
       actions,
     );
   }
@@ -702,8 +724,14 @@ export default function App() {
             <View style={styles.menuLine} />
           </Pressable>
           <View style={styles.marketPill}>
-            <View style={styles.marketDot} />
-            <Text style={styles.marketText}>Paper Market</Text>
+            <View style={[
+              styles.marketDot,
+              brokerConnectionStatus === "checking" && styles.marketDotChecking,
+              brokerConnectionStatus === "disconnected" && styles.marketDotDisconnected,
+            ]} />
+            <Text style={styles.marketText}>
+              {brokerConnectionStatus === "connected" ? "Paper connected" : brokerConnectionStatus === "checking" ? "Checking paper" : "Paper offline"}
+            </Text>
           </View>
         </View>
 
@@ -933,6 +961,8 @@ const styles = StyleSheet.create({
   menuLine: { width: 27, height: 3, borderRadius: 2, backgroundColor: palette.ink },
   marketPill: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: palette.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 15 },
   marketDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#22B84B" },
+  marketDotChecking: { backgroundColor: "#D99000" },
+  marketDotDisconnected: { backgroundColor: "#D64545" },
   marketText: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
   eyebrow: { color: green, fontSize: 10, fontWeight: "800", letterSpacing: 1.6 },
