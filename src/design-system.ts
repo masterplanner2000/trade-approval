@@ -33,6 +33,15 @@ export const spacing = {
   large: 24,
 } as const;
 
+export const typeRamp = {
+  display: { fontSize: 30, lineHeight: 36, fontWeight: "800" as const, letterSpacing: -0.8 },
+  title: { fontSize: 22, lineHeight: 28, fontWeight: "800" as const, letterSpacing: -0.4 },
+  heading: { fontSize: 18, lineHeight: 24, fontWeight: "800" as const },
+  body: { fontSize: 15, lineHeight: 22, fontWeight: "400" as const },
+  label: { fontSize: 14, lineHeight: 20, fontWeight: "600" as const },
+  caption: { fontSize: 12, lineHeight: 16, fontWeight: "400" as const },
+} as const;
+
 export const theme = createTheme({
   colors: {
     canvas: palette.canvas,
@@ -74,14 +83,13 @@ export const theme = createTheme({
     tablet: 768,
   },
   textVariants: {
-    defaults: { color: "text", fontSize: 14, lineHeight: 20 },
-    eyebrow: { color: "accent", fontSize: 10, fontWeight: "800", letterSpacing: 1.6 },
-    pageTitle: { color: "ink", fontSize: 30, fontWeight: "800", letterSpacing: -1 },
-    cardTitle: { color: "ink", fontSize: 40, lineHeight: 44, fontWeight: "800", letterSpacing: -1.4 },
-    heading: { color: "ink", fontSize: 17, lineHeight: 22, fontWeight: "800" },
-    body: { color: "text", fontSize: 13, lineHeight: 19 },
-    caption: { color: "muted", fontSize: 10, lineHeight: 14 },
-    button: { color: "surface", fontSize: 16, fontWeight: "800" },
+    defaults: { color: "text", ...typeRamp.body },
+    display: { color: "ink", ...typeRamp.display },
+    title: { color: "ink", ...typeRamp.title },
+    heading: { color: "ink", ...typeRamp.heading },
+    body: { color: "text", ...typeRamp.body },
+    label: { color: "ink", ...typeRamp.label },
+    caption: { color: "muted", ...typeRamp.caption },
   },
   cardVariants: {
     defaults: {

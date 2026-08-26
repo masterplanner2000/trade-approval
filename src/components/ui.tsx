@@ -1,6 +1,6 @@
 import React, { ReactNode } from "react";
 import { Pressable, StyleSheet } from "react-native";
-import { Box, AppText, palette } from "../design-system";
+import { Box, AppText, palette, typeRamp } from "../design-system";
 
 type BadgeProps = {
   label: string;
@@ -45,7 +45,7 @@ export function ActionButton({ label, tone, disabled, onPress, flex = 1 }: Actio
         borderColor={primary ? "accent" : "border"}
         backgroundColor={primary ? "accent" : "surface"}
       >
-        <AppText color={primary ? "surface" : "ink"} fontSize={16} fontWeight="800">{label}</AppText>
+        <AppText color={primary ? "surface" : "ink"} {...typeRamp.label} fontWeight="800">{label}</AppText>
       </Box>
     </Pressable>
   );
@@ -65,7 +65,7 @@ export function Disclosure({ title, hint, open, onPress, children }: DisclosureP
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onPress}>
         <Box flexDirection="row" alignItems="center" justifyContent="space-between" borderBottomWidth={StyleSheet.hairlineWidth} borderColor="border" paddingVertical="m" marginTop="s">
           <Box>
-            <AppText color="ink" fontSize={14} fontWeight="800">{title}</AppText>
+            <AppText color="ink" {...typeRamp.label} fontWeight="800">{title}</AppText>
             <AppText variant="caption" marginTop="none">{hint}</AppText>
           </Box>
           <AppText color="accent" fontSize={24} lineHeight={26}>{open ? "−" : "+"}</AppText>
