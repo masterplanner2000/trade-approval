@@ -268,7 +268,7 @@ export default function App() {
   const [processing, setProcessing] = useState(false);
   const [strategy, setStrategy] = useState<StrategySummary | null>(null);
   const [uiPreview, setUiPreview] = useState(false);
-  const [learnMoreOpen, setLearnMoreOpen] = useState(false);
+  const [openSection, setOpenSection] = useState<"rationale" | "strategy" | "news" | null>(null);
 
   function applyShadowScan(scan: ShadowScan) {
     if (!scan.selected) throw new Error(scan.error ?? "shadow_data_unavailable");
@@ -514,7 +514,7 @@ export default function App() {
   }
 
   function returnToScanner() {
-    setLearnMoreOpen(false);
+    setOpenSection(null);
     setUiPreview(false);
     setProposal(SHADOW_LOADING);
     void createShadowObservation().catch(() => setBrokerUnavailable(true));
@@ -634,19 +634,32 @@ export default function App() {
         </View>}
 
         {!proposal.shadowMode && (
-          <View style={styles.infoCard}>
-            <Text style={styles.infoCardTitle}>Why this trade</Text>
-            <Text style={styles.infoCardBody}>{proposal.companyCatalyst}</Text>
-            {proposal.rationale.slice(0, 2).map((reason) => (
-              <View key={reason} style={styles.infoRow}>
-                <Text style={styles.bullet}>•</Text>
-                <Text style={styles.infoRowText}>{reason}</Text>
-              </View>
-            ))}
-            <Pressable onPress={() => setLearnMoreOpen(true)} style={styles.learnMoreButton}>
-              <Text style={styles.learnMoreText}>Learn more</Text>
-            </Pressable>
-          </View>
+          <>
+            <View style={styles.infoCard}>
+              <Text style={styles.infoCardTitle}>Why this trade</Text>
+              <Text style={styles.infoCardBody} numberOfLines={3}>{proposal.companyCatalyst}</Text>
+              <Pressable onPress={() => setOpenSection("rationale")} style={styles.learnMoreButton}>
+                <Text style={styles.learnMoreText}>View more</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.infoCard}>
+              <Text style={styles.infoCardTitle}>Strategy</Text>
+              <Text style={styles.strategyCardName}>{proposal.strategyName}</Text>
+              <Text style={styles.infoCardBody} numberOfLines={2}>{proposal.strategyContext}</Text>
+              <Pressable onPress={() => setOpenSection("strategy")} style={styles.learnMoreButton}>
+                <Text style={styles.learnMoreText}>View more</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.infoCard}>
+              <Text style={styles.infoCardTitle}>Recent news</Text>
+              <Text style={styles.infoCardMuted}>No verified news source is connected yet.</Text>
+              <Pressable onPress={() => setOpenSection("news")} style={styles.learnMoreButton}>
+                <Text style={styles.learnMoreText}>View more</Text>
+              </Pressable>
+            </View>
+          </>
         )}
 
       </ScrollView>
@@ -686,56 +699,58 @@ export default function App() {
       </View>}
 
       <Modal
-        visible={learnMoreOpen}
+        visible={openSection !== null}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setLearnMoreOpen(false)}
+        onRequestClose={() => setOpenSection(null)}
       >
         <SafeAreaView style={styles.sheetSafe} edges={["top", "bottom", "left", "right"]}>
           <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Trade details</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close trade details" onPress={() => setLearnMoreOpen(false)} style={styles.sheetClose}>
+            <Text style={styles.sheetTitle}>
+              {openSection === "rationale" ? "Why this trade" : openSection === "strategy" ? "Strategy" : "Recent news"}
+            </Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close details" onPress={() => setOpenSection(null)} style={styles.sheetClose}>
               <Text style={styles.sheetCloseText}>Done</Text>
             </Pressable>
           </View>
           <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.sheetSection}>
-              <Text style={styles.sheetSectionTitle}>Why this trade</Text>
-              <Text style={styles.sheetBody}>{proposal.companyCatalyst}</Text>
-              {proposal.rationale.map((reason) => (
-                <View key={reason} style={styles.infoRow}>
-                  <Text style={styles.bullet}>•</Text>
-                  <Text style={styles.infoRowText}>{reason}</Text>
+            {openSection === "rationale" && (
+              <>
+                <Text style={styles.sheetBody}>{proposal.companyCatalyst}</Text>
+                {proposal.rationale.map((reason) => (
+                  <View key={reason} style={styles.infoRow}>
+                    <Text style={styles.bullet}>•</Text>
+                    <Text style={styles.infoRowText}>{reason}</Text>
+                  </View>
+                ))}
+                <View style={styles.sheetSection}>
+                  <Text style={styles.sheetSectionTitle}>Key risk</Text>
+                  <Text style={styles.sheetBody}>{proposal.keyRisk}</Text>
                 </View>
-              ))}
-            </View>
+              </>
+            )}
 
-            <View style={styles.sheetSection}>
-              <Text style={styles.sheetSectionTitle}>Strategy</Text>
-              <Text style={styles.strategyCardName}>{proposal.strategyName}</Text>
-              <Text style={styles.sheetBody}>{proposal.strategyContext}</Text>
-            </View>
+            {openSection === "strategy" && (
+              <>
+                <Text style={styles.strategyCardName}>{proposal.strategyName}</Text>
+                <Text style={styles.sheetBody}>{proposal.strategyContext}</Text>
+                <View style={styles.sheetSection}>
+                  <Text style={styles.sheetSectionTitle}>Trade parameters</Text>
+                  <View style={styles.metrics}>
+                    <Metric label="Total commitment" value={money(proposal.positionValue)} />
+                    <Metric label="Shares" value={`${proposal.quantity}`} />
+                    <Metric label="Protective stop" value={money(proposal.stopPrice)} />
+                    <Metric label="Target timeframe" value={proposal.targetTimeframe} />
+                  </View>
+                </View>
+              </>
+            )}
 
-            <View style={styles.sheetSection}>
-              <Text style={styles.sheetSectionTitle}>Key risk</Text>
-              <Text style={styles.sheetBody}>{proposal.keyRisk}</Text>
-            </View>
-
-            <View style={styles.sheetSection}>
-              <Text style={styles.sheetSectionTitle}>Execution</Text>
-              <View style={styles.metrics}>
-                <Metric label="Total commitment" value={money(proposal.positionValue)} />
-                <Metric label="Shares" value={`${proposal.quantity}`} />
-                <Metric label="Limit price" value={money(proposal.limitPrice)} />
-                <Metric label="Protective stop" value={money(proposal.stopPrice)} />
-                <Metric label="Estimated fees" value={money(proposal.estimatedFees)} />
+            {openSection === "news" && (
+              <View style={styles.sheetSection}>
+                <Text style={styles.infoCardMuted}>No verified news source is connected yet. Articles will appear here with their source and publication time.</Text>
               </View>
-            </View>
-
-            <View style={styles.sheetSection}>
-              <Text style={styles.sheetSectionTitle}>Recent news</Text>
-              <Text style={styles.infoCardMuted}>No verified news source is connected yet.</Text>
-            </View>
+            )}
           </ScrollView>
         </SafeAreaView>
       </Modal>
