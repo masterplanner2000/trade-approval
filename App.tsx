@@ -520,27 +520,33 @@ export default function App() {
     void createShadowObservation().catch(() => setBrokerUnavailable(true));
   }
 
+  function openMenu() {
+    Alert.alert(
+      "Menu",
+      paused ? "The scanner is paused." : "The scanner is running.",
+      [
+        { text: paused ? "Resume scanner" : "Pause scanner", onPress: () => setPaused((value) => !value) },
+        { text: "Close", style: "cancel" },
+      ],
+    );
+  }
+
   return (
     <ThemeProvider theme={theme}>
     <SafeAreaProvider>
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>Review</Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={paused ? "Resume proposals" : "Pause all proposals"}
-            onPress={() => setPaused((value) => !value)}
-            style={[styles.pauseButton, paused && styles.pauseButtonActive]}
-          >
-            <View style={[styles.statusDot, paused && styles.statusDotPaused]} />
-            <Text style={[styles.pauseText, paused && styles.pauseTextActive]}>
-              {paused ? "Paused" : "Active"}
-            </Text>
+        <View style={styles.appHeader}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Open menu" onPress={openMenu} style={styles.menuButton}>
+            <View style={styles.menuLine} />
+            <View style={styles.menuLine} />
+            <View style={styles.menuLine} />
           </Pressable>
+          <View style={styles.marketPill}>
+            <View style={styles.marketDot} />
+            <Text style={styles.marketText}>Paper Market</Text>
+          </View>
         </View>
 
         {orderPreview && !paperSubmission && !workflowError && (
@@ -746,6 +752,12 @@ const cream = palette.canvas;
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: cream },
   page: { width: "100%", maxWidth: 680, alignSelf: "center", padding: spacing.large, paddingBottom: spacing.large, gap: spacing.medium },
+  appHeader: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  menuButton: { width: 44, height: 44, justifyContent: "center", gap: 5, paddingHorizontal: 8 },
+  menuLine: { width: 27, height: 3, borderRadius: 2, backgroundColor: palette.ink },
+  marketPill: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: palette.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 15 },
+  marketDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#22B84B" },
+  marketText: { color: palette.ink, fontSize: 15, lineHeight: 20, fontWeight: "800" },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
   eyebrow: { color: green, fontSize: 10, fontWeight: "800", letterSpacing: 1.6 },
   title: { color: ink, fontSize: 30, lineHeight: 38, fontWeight: "800", letterSpacing: -1 },
