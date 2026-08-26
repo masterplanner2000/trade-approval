@@ -602,39 +602,29 @@ export default function App() {
         )}
 
         {!proposal.shadowMode && <View style={styles.card}>
-          <View style={styles.quoteHero}>
-          <View style={styles.cardTop}>
-            <View style={styles.symbolBlock}>
-              <Text style={styles.side}>{proposal.side}</Text>
-              <Text style={styles.symbol}>{proposal.symbol}</Text>
-              <Text style={styles.company}>{proposal.company}</Text>
-              <View style={styles.currentPriceRow}>
-                <Text style={styles.currentPrice}>{money(proposal.currentPrice)}</Text>
-                <Text style={styles.quoteAge}>{proposal.quoteAge}</Text>
+          <Text style={styles.company}>{proposal.company}</Text>
+          <Text style={styles.tradeHeadline}>
+            {proposal.side === "BUY" ? "Buy" : "Sell"} {money(proposal.positionValue)} of {proposal.symbol}
+          </Text>
+          <Text style={styles.tradePrice}>at current price {money(proposal.currentPrice)}</Text>
+
+          <View style={styles.tradeTerms}>
+            <View style={styles.tradeTermRow}>
+              <Text style={styles.tradeTermLabel}>{proposal.side === "BUY" ? "Receive" : "Sell"}</Text>
+              <Text style={styles.tradeTermValue}>{proposal.quantity} shares</Text>
+            </View>
+            <View style={styles.tradeTermRow}>
+              <Text style={styles.tradeTermLabel}>Limit price</Text>
+              <Text style={styles.tradeTermValue}>{money(proposal.limitPrice)}</Text>
+            </View>
+            <View style={styles.tradeTermRow}>
+              <Text style={styles.tradeTermLabel}>{state === "pending" ? "Expires in" : "Status"}</Text>
+              <View style={[styles.timer, state !== "pending" && styles.timerClosed]}>
+                <Text style={styles.timerClock}>◷</Text>
+                <Text style={styles.timerValue}>{state === "pending" ? timer : state.toUpperCase()}</Text>
               </View>
             </View>
-            <View style={[styles.timer, state !== "pending" && styles.timerClosed]}>
-              <Text style={styles.timerLabel}>{state === "pending" ? "EXPIRES" : "STATUS"}</Text>
-              <Text style={styles.timerValue}>{state === "pending" ? timer : state.toUpperCase()}</Text>
-            </View>
           </View>
-
-          </View>
-
-          {proposal.shadowMode && (
-            <View style={styles.observationBlock}>
-              <Text style={styles.observationTitle}>No trade proposed</Text>
-              <Text style={styles.observationText}>This is a research observation only.</Text>
-            </View>
-          )}
-
-          {!proposal.shadowMode && <View style={styles.decisionSummary}>
-            <View style={styles.spendBlock}>
-              <Text style={styles.summaryLabel}>Total commitment</Text>
-              <Text style={styles.spendValue}>{money(proposal.positionValue)}</Text>
-              <Text style={styles.feeText}>{proposal.quantity} shares at a {money(proposal.limitPrice)} limit</Text>
-            </View>
-          </View>}
         </View>}
 
         {!proposal.shadowMode && (
@@ -835,13 +825,20 @@ const styles = StyleSheet.create({
   side: { color: palette.muted, fontSize: 11, fontWeight: "800", letterSpacing: 1.4 },
   symbol: { color: palette.ink, fontSize: 42, lineHeight: 46, fontWeight: "800", letterSpacing: -1.5 },
   company: { color: palette.text, fontSize: 13 },
+  tradeHeadline: { color: palette.ink, fontSize: 29, lineHeight: 37, fontWeight: "800", letterSpacing: -0.8, marginTop: 12 },
+  tradePrice: { color: palette.muted, fontSize: 17, lineHeight: 24, marginTop: 3 },
+  tradeTerms: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, marginTop: 24, paddingTop: 8 },
+  tradeTermRow: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
+  tradeTermLabel: { color: palette.ink, fontSize: 15, lineHeight: 21, fontWeight: "600" },
+  tradeTermValue: { color: palette.text, fontSize: 15, lineHeight: 21, fontWeight: "600", textAlign: "right" },
   currentPriceRow: { flexDirection: "row", alignItems: "baseline", gap: 8, marginTop: 7 },
   currentPrice: { color: palette.ink, fontSize: 22, fontWeight: "800" },
   quoteAge: { color: palette.muted, fontSize: 10 },
-  timer: { backgroundColor: palette.surfaceMuted, paddingHorizontal: 12, paddingVertical: 9, borderRadius: radius.small, minWidth: 74, alignItems: "center" },
+  timer: { backgroundColor: palette.surfaceMuted, paddingHorizontal: 11, paddingVertical: 7, borderRadius: radius.pill, minWidth: 78, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6 },
   timerClosed: { backgroundColor: palette.surfaceMuted },
   timerLabel: { color: palette.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1.1 },
-  timerValue: { color: palette.ink, fontSize: 16, fontWeight: "800", marginTop: 2 },
+  timerClock: { color: palette.ink, fontSize: 17, lineHeight: 18 },
+  timerValue: { color: palette.ink, fontSize: 15, lineHeight: 18, fontWeight: "800" },
   account: { color: "#9FB3C8", fontSize: 11, marginTop: 16, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#314962" },
   observationBlock: { backgroundColor: palette.surfaceMuted, borderRadius: radius.medium, padding: 16, marginTop: 16 },
   observationLabel: { color: palette.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
