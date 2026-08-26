@@ -372,6 +372,11 @@ function CompanyMark({ symbol, size = 34 }: { symbol: string; size?: number }) {
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 
+const firstTwoSentences = (value: string) => {
+  const sentences = value.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [value];
+  return sentences.slice(0, 2).join(" ").trim();
+};
+
 function countdown(expiresAt: number) {
   const seconds = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -928,33 +933,8 @@ export default function App() {
               </View>
 
               <View style={styles.infoCard}>
-                <View style={styles.infoCardHeadingRow}>
-                  <Text style={styles.infoCardTitle}>Why this trade</Text>
-                  <Pressable onPress={() => setOpenSection("rationale")} style={styles.learnMoreButton}>
-                    <Text style={styles.learnMoreText}>View more</Text>
-                  </Pressable>
-                </View>
-                <Text style={styles.infoCardBody} numberOfLines={2}>{proposal.companyCatalyst}</Text>
-              </View>
-
-              <View style={styles.infoCard}>
-                <View style={styles.infoCardHeadingRow}>
-                  <Text style={styles.infoCardTitle}>Strategy</Text>
-                  <Pressable onPress={() => setOpenSection("strategy")} style={styles.learnMoreButton}>
-                    <Text style={styles.learnMoreText}>View more</Text>
-                  </Pressable>
-                </View>
-                <Text style={styles.infoCardBody} numberOfLines={1}>{proposal.strategyName}</Text>
-              </View>
-
-              <View style={styles.infoCard}>
-                <View style={styles.infoCardHeadingRow}>
-                  <Text style={styles.infoCardTitle}>Recent news</Text>
-                  <Pressable onPress={() => setOpenSection("news")} style={styles.learnMoreButton}>
-                    <Text style={styles.learnMoreText}>View more</Text>
-                  </Pressable>
-                </View>
-                <Text style={styles.infoCardMuted} numberOfLines={1}>No verified news source is connected yet.</Text>
+                <Text style={styles.infoCardTitle}>Why this trade</Text>
+                <Text style={styles.infoCardBody}>{firstTwoSentences(proposal.companyCatalyst)}</Text>
               </View>
             </View>
             <View style={styles.cardFooter}>
@@ -1147,7 +1127,7 @@ const styles = StyleSheet.create({
   cardPositionText: { color: palette.muted, ...typeRamp.caption },
   infoCard: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingVertical: 11 },
   infoCardHeadingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 3 },
-  infoCardTitle: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
+  infoCardTitle: { color: palette.ink, ...typeRamp.label, fontWeight: "800", marginBottom: 3 },
   infoCardBody: { color: palette.text, ...typeRamp.body },
   infoCardMuted: { color: palette.muted, ...typeRamp.body },
   riskHeadline: { color: palette.ink, fontSize: 18, lineHeight: 24, fontWeight: "800", marginBottom: 2 },
