@@ -1,7 +1,7 @@
 import { createBox, createText, createTheme } from "@shopify/restyle";
 
 export const palette = {
-  canvas: "#F5F5F5",
+  canvas: "#FFFFFF",
   surface: "#FFFFFF",
   surfaceMuted: "#F3F3F3",
   ink: "#171717",

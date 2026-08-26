@@ -523,7 +523,7 @@ export default function App() {
   function openMenu() {
     Alert.alert(
       "Menu",
-      paused ? "The scanner is paused." : "The scanner is running.",
+      `${paused ? "Scanner paused" : "Scanner running"}\nIBKR Paper: ${brokerReady ? "Connected" : "Disconnected"}`,
       [
         { text: paused ? "Resume scanner" : "Pause scanner", onPress: () => setPaused((value) => !value) },
         { text: "Close", style: "cancel" },
@@ -665,12 +665,6 @@ export default function App() {
       </ScrollView>
 
       {!proposal.shadowMode && <View style={styles.bottomBar}>
-        <View style={styles.connectionRow}>
-          <View style={[styles.connectionDot, !brokerReady && styles.connectionDotOff]} />
-          <Text style={styles.connectionText}>
-            {uiPreview ? "IBKR Paper · Preview only" : brokerReady ? "IBKR Paper · Connected" : "IBKR Paper · Disconnected"}
-          </Text>
-        </View>
         {state === "pending" ? <View style={styles.actions}>
           <ActionButton
             label={proposal.shadowMode ? "No decision" : "Deny"}
