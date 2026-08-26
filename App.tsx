@@ -475,6 +475,8 @@ export default function App() {
       quoteAge: serviceProposal.quoteDataType === 3 ? "Delayed IBKR reference" : "IBKR market data",
       expiresAt: serviceProposal.expiresAt,
       decision: "pending",
+      shadowMode: false,
+      signalEligible: true,
     }));
   }
 
@@ -486,6 +488,22 @@ export default function App() {
     if (!response.ok) throw new Error("proposal_unavailable");
     const result = await response.json() as { proposal: ServiceProposal; broker: BrokerSnapshot; strategy: StrategySummary };
     applyServiceProposal(result.proposal, result.broker, result.strategy);
+    setUiPreview(false);
+  }
+
+  async function openPaperRecommendation() {
+    setWorkflowError(null);
+    setProcessing(true);
+    try {
+      await createPaperProposal();
+    } catch {
+      Alert.alert(
+        "Paper recommendation unavailable",
+        "Confirm TWS is open in Paper Trading, API access is enabled, and the local trade service is running.",
+      );
+    } finally {
+      setProcessing(false);
+    }
   }
 
   useEffect(() => {
@@ -643,13 +661,20 @@ export default function App() {
   }
 
   function openMenu() {
+    const actions: Array<{ text: string; style?: "cancel"; onPress?: () => void }> = [];
+    if (!proposal.shadowMode) {
+      actions.push({ text: "Back to scanner", onPress: returnToScanner });
+    }
+    actions.push(
+      { text: "Get paper recommendation", onPress: () => void openPaperRecommendation() },
+      { text: "Preview examples", onPress: previewActiveProposal },
+      { text: paused ? "Resume scanner" : "Pause scanner", onPress: () => setPaused((value) => !value) },
+      { text: "Close", style: "cancel" },
+    );
     Alert.alert(
       "Menu",
-      `${paused ? "Scanner paused" : "Scanner running"}\nIBKR Paper: ${brokerReady ? "Connected" : "Disconnected"}`,
-      [
-        { text: paused ? "Resume scanner" : "Pause scanner", onPress: () => setPaused((value) => !value) },
-        { text: "Close", style: "cancel" },
-      ],
+      `${paused ? "Scanner paused" : "Scanner running"}\nIBKR Paper: ${brokerReady ? "Connected" : "Not connected"}`,
+      actions,
     );
   }
 
@@ -660,18 +685,11 @@ export default function App() {
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
         <View style={styles.appHeader}>
-          <View style={styles.headerNavigation}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Open menu" onPress={openMenu} style={styles.menuButton}>
-              <View style={styles.menuLine} />
-              <View style={styles.menuLine} />
-              <View style={styles.menuLine} />
-            </Pressable>
-            {uiPreview && !proposal.shadowMode && (
-              <Pressable accessibilityRole="button" accessibilityLabel="Back to scanner" onPress={returnToScanner} style={styles.headerBackButton}>
-                <Text style={styles.headerBackText}>Back to scanner</Text>
-              </Pressable>
-            )}
-          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Open menu" onPress={openMenu} style={styles.menuButton}>
+            <View style={styles.menuLine} />
+            <View style={styles.menuLine} />
+            <View style={styles.menuLine} />
+          </Pressable>
           <View style={styles.marketPill}>
             <View style={styles.marketDot} />
             <Text style={styles.marketText}>Paper Market</Text>
@@ -725,8 +743,11 @@ export default function App() {
                 </View>
               ))}
             </View>
-            <Pressable onPress={previewActiveProposal} style={styles.previewProposalButton}>
-              <Text style={styles.previewProposalButtonText}>Preview a proposed trade</Text>
+            <Pressable disabled={processing} onPress={() => void openPaperRecommendation()} style={[styles.previewProposalButton, processing && styles.disabled]}>
+              <Text style={styles.previewProposalButtonText}>{processing ? "Connecting to IBKR Paper…" : "Get paper recommendation"}</Text>
+            </Pressable>
+            <Pressable onPress={previewActiveProposal} style={styles.exampleLink}>
+              <Text style={styles.exampleLinkText}>Preview sample proposals</Text>
             </Pressable>
           </View>
         )}
@@ -899,11 +920,8 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: cream },
   page: { width: "100%", maxWidth: 680, alignSelf: "center", paddingHorizontal: spacing.large, paddingTop: spacing.small, paddingBottom: spacing.large },
   appHeader: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  headerNavigation: { flexDirection: "row", alignItems: "center", flexShrink: 1 },
   menuButton: { width: 44, height: 44, justifyContent: "center", gap: 5, paddingHorizontal: 8 },
   menuLine: { width: 27, height: 3, borderRadius: 2, backgroundColor: palette.ink },
-  headerBackButton: { paddingVertical: 10, paddingHorizontal: 8, flexShrink: 1 },
-  headerBackText: { color: palette.text, ...typeRamp.caption, fontWeight: "600" },
   marketPill: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: palette.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 15 },
   marketDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#22B84B" },
   marketText: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
@@ -950,6 +968,8 @@ const styles = StyleSheet.create({
   logoFallbackText: { color: palette.ink, fontSize: 9, lineHeight: 12, fontWeight: "800" },
   previewProposalButton: { alignItems: "center", justifyContent: "center", minHeight: 46, borderWidth: 1, borderColor: palette.border, borderRadius: radius.medium, marginTop: 20, paddingHorizontal: 14 },
   previewProposalButtonText: { color: palette.ink, ...typeRamp.label, fontWeight: "700" },
+  exampleLink: { alignSelf: "center", paddingHorizontal: 14, paddingVertical: 12 },
+  exampleLinkText: { color: palette.muted, ...typeRamp.caption, textDecorationLine: "underline" },
   previewNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
   nextExample: { paddingVertical: 4, paddingLeft: 12 },
   nextExampleText: { color: palette.text, ...typeRamp.caption, fontWeight: "600" },
