@@ -3,8 +3,10 @@ import Constants from "expo-constants";
 import { ThemeProvider } from "@shopify/restyle";
 import {
   Alert,
+  Animated,
   Image,
   Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StatusBar,
@@ -52,6 +54,25 @@ type Proposal = {
   signalEligible?: boolean;
   signalDate?: string;
   rulesetVersion?: string;
+  marketRisk?: MarketRiskAssessment;
+};
+
+type RiskComponent = {
+  id: string;
+  label: string;
+  score: number;
+  maximumPoints: number;
+  status: "COMPLETE" | "INCOMPLETE";
+  explanation: string;
+};
+type MarketRiskAssessment = {
+  modelVersion: string;
+  status: "COMPLETE" | "INCOMPLETE";
+  score: number | null;
+  level: "LOWER" | "MODERATE" | "HIGH" | "VERY_HIGH" | null;
+  components: RiskComponent[];
+  limitations?: string[];
+  tradeRisk?: { status: "INCOMPLETE"; score: null; missing: string[] };
 };
 
 type ShadowCheck = { id: string; label: string; passed: boolean; actual: number | null };
@@ -64,6 +85,7 @@ type ShadowSelection = {
   sma200: number;
   averageDollarVolume20: number;
   checks: ShadowCheck[];
+  marketRisk: MarketRiskAssessment;
 };
 type ShadowScan = {
   ok: boolean;
@@ -381,8 +403,10 @@ export default function App() {
   const [strategy, setStrategy] = useState<StrategySummary | null>(null);
   const [uiPreview, setUiPreview] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
-  const [openSection, setOpenSection] = useState<"rationale" | "strategy" | "news" | null>(null);
-  const swipeStartX = useRef<number | null>(null);
+  const [reviewedExampleIds, setReviewedExampleIds] = useState<string[]>([]);
+  const [sampleDeckComplete, setSampleDeckComplete] = useState(false);
+  const [openSection, setOpenSection] = useState<"rationale" | "strategy" | "risk" | "news" | null>(null);
+  const cardPosition = useRef(new Animated.ValueXY()).current;
 
   function applyShadowScan(scan: ShadowScan) {
     if (!scan.selected) throw new Error(scan.error ?? "shadow_data_unavailable");
@@ -430,6 +454,7 @@ export default function App() {
       signalEligible: selected.eligible,
       signalDate: selected.signalDate,
       rulesetVersion: scan.rulesetVersion,
+      marketRisk: selected.marketRisk,
     });
   }
 
@@ -663,28 +688,58 @@ export default function App() {
     setBroker(null);
     setBrokerUnavailable(false);
     setPreviewIndex(0);
+    setReviewedExampleIds([]);
+    setSampleDeckComplete(false);
+    cardPosition.setValue({ x: 0, y: 0 });
     setProposal({ ...UI_PROPOSALS[0]!, expiresAt: Date.now() + 4 * 60 * 1000 });
   }
 
-  function showNextExample() {
-    const nextIndex = (previewIndex + 1) % UI_PROPOSALS.length;
+  function finishSampleDecision(_decision: "approved" | "denied") {
+    const reviewed = [...reviewedExampleIds, proposal.id];
+    const nextIndex = UI_PROPOSALS.findIndex((item) => !reviewed.includes(item.id));
+    setReviewedExampleIds(reviewed);
+    if (nextIndex === -1) {
+      setSampleDeckComplete(true);
+      return;
+    }
     const next = UI_PROPOSALS[nextIndex]!;
     setPreviewIndex(nextIndex);
     setProposal({
       ...next,
+      decision: next.decision === "expired" ? "expired" : "pending",
       expiresAt: next.decision === "expired" ? Date.now() - 30 * 1000 : Date.now() + (nextIndex + 3) * 60 * 1000,
     });
   }
 
-  function showPreviousExample() {
-    const previousIndex = (previewIndex - 1 + UI_PROPOSALS.length) % UI_PROPOSALS.length;
-    const previous = UI_PROPOSALS[previousIndex]!;
-    setPreviewIndex(previousIndex);
-    setProposal({
-      ...previous,
-      expiresAt: previous.decision === "expired" ? Date.now() - 30 * 1000 : Date.now() + (previousIndex + 3) * 60 * 1000,
+  function animateSampleDecision(decision: "approved" | "denied") {
+    Animated.timing(cardPosition, {
+      toValue: { x: decision === "approved" ? 520 : -520, y: 18 },
+      duration: 230,
+      useNativeDriver: true,
+    }).start(() => {
+      cardPosition.setValue({ x: 0, y: 0 });
+      finishSampleDecision(decision);
     });
   }
+
+  const cardPanResponder = PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => uiPreview && !sampleDeckComplete && Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+    onPanResponderMove: Animated.event([null, { dx: cardPosition.x, dy: cardPosition.y }], { useNativeDriver: false }),
+    onPanResponderRelease: (_, gesture) => {
+      if (gesture.dx > 90) animateSampleDecision("approved");
+      else if (gesture.dx < -90) animateSampleDecision("denied");
+      else Animated.spring(cardPosition, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
+    },
+    onPanResponderTerminate: () => {
+      Animated.spring(cardPosition, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
+    },
+  });
+
+  const cardRotation = cardPosition.x.interpolate({
+    inputRange: [-240, 0, 240],
+    outputRange: ["-8deg", "0deg", "8deg"],
+    extrapolate: "clamp",
+  });
 
   function returnToScanner() {
     setOpenSection(null);
@@ -791,17 +846,23 @@ export default function App() {
           </View>
         )}
 
-        {!proposal.shadowMode && (
-          <View
-            style={styles.proposalCard}
-            onTouchStart={(event) => { if (uiPreview) swipeStartX.current = event.nativeEvent.pageX; }}
-            onTouchEnd={(event) => {
-              if (!uiPreview || swipeStartX.current === null) return;
-              const distance = event.nativeEvent.pageX - swipeStartX.current;
-              swipeStartX.current = null;
-              if (distance < -55) showNextExample();
-              if (distance > 55) showPreviousExample();
-            }}
+        {!proposal.shadowMode && sampleDeckComplete && (
+          <View style={styles.deckComplete}>
+            <Text style={styles.deckCompleteTitle}>Review complete</Text>
+            <Text style={styles.deckCompleteBody}>You approved or denied all {UI_PROPOSALS.length} sample proposals.</Text>
+            <Pressable onPress={previewActiveProposal} style={styles.previewProposalButton}>
+              <Text style={styles.previewProposalButtonText}>Review again</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {!proposal.shadowMode && !sampleDeckComplete && (
+          <Animated.View
+            {...(uiPreview ? cardPanResponder.panHandlers : {})}
+            style={[
+              styles.proposalCard,
+              uiPreview && { transform: [{ translateX: cardPosition.x }, { translateY: cardPosition.y }, { rotate: cardRotation }] },
+            ]}
           >
             <View style={styles.cardBody}>
               {uiPreview && (
@@ -830,6 +891,18 @@ export default function App() {
                   <Text style={styles.tradeTermLabel}>Limit price</Text>
                   <Text style={styles.tradeTermValue}>{money(proposal.limitPrice)}</Text>
                 </View>
+                <Pressable accessibilityRole="button" onPress={() => setOpenSection("risk")} style={styles.tradeTermRow}>
+                  <Text style={styles.tradeTermLabel}>Risk score</Text>
+                  <View style={styles.riskTermValue}>
+                    <Text style={styles.riskTermScore}>
+                      {proposal.marketRisk?.score != null ? `${proposal.marketRisk.score.toFixed(0)}/100` : "Incomplete"}
+                    </Text>
+                    {proposal.marketRisk?.level && (
+                      <Text style={styles.riskTermLevel}>{proposal.marketRisk.level.replace("_", " ")}</Text>
+                    )}
+                    <Text style={styles.riskTermChevron}>›</Text>
+                  </View>
+                </Pressable>
                 <View style={styles.tradeTermRow}>
                   <Text style={styles.tradeTermLabel}>{state === "pending" ? "Expires in" : "Status"}</Text>
                   <View style={[styles.timer, state !== "pending" && styles.timerClosed]}>
@@ -837,6 +910,21 @@ export default function App() {
                     <Text style={[styles.timerValue, state !== "pending" && styles.timerClosedText]}>{state === "pending" ? timer : state.toUpperCase()}</Text>
                   </View>
                 </View>
+              </View>
+
+              <View style={styles.infoCard}>
+                <View style={styles.infoCardHeadingRow}>
+                  <Text style={styles.infoCardTitle}>Risk</Text>
+                  <Pressable onPress={() => setOpenSection("risk")} style={styles.learnMoreButton}>
+                    <Text style={styles.learnMoreText}>View breakdown</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.riskHeadline}>
+                  {proposal.marketRisk?.score != null
+                    ? `${proposal.marketRisk.score.toFixed(0)}/100 · ${proposal.marketRisk.level?.replace("_", " ")}`
+                    : "Market risk incomplete"}
+                </Text>
+                <Text style={styles.infoCardMuted} numberOfLines={2}>Trade risk remains incomplete until entry, stop, amount and portfolio impact are defined.</Text>
               </View>
 
               <View style={styles.infoCard}>
@@ -871,18 +959,21 @@ export default function App() {
             </View>
             <View style={styles.cardFooter}>
               {state === "pending" ? <View style={styles.actions}>
-                <ActionButton label="Deny" tone="secondary" disabled={uiPreview || !actionable || processing} onPress={() => decide("denied")} />
-                <ActionButton label={processing ? "Checking…" : "Approve"} tone="primary" disabled={uiPreview || !actionable || processing} onPress={() => decide("approved")} />
+                <ActionButton label="Deny" tone="secondary" disabled={!uiPreview && (!actionable || processing)} onPress={() => uiPreview ? animateSampleDecision("denied") : decide("denied")} />
+                <ActionButton label={processing ? "Checking…" : "Approve"} tone="primary" disabled={!uiPreview && (!actionable || processing)} onPress={() => uiPreview ? animateSampleDecision("approved") : decide("approved")} />
               </View> : (
-                <Pressable onPress={uiPreview ? showNextExample : resetDemo} style={styles.reset}>
-                  <Text style={styles.resetText}>Next recommendation</Text>
-                </Pressable>
+                uiPreview ? <View style={styles.actions}>
+                  <ActionButton label="Deny" tone="secondary" onPress={() => animateSampleDecision("denied")} />
+                  <ActionButton label="Approve" tone="primary" onPress={() => animateSampleDecision("approved")} />
+                </View> : <Pressable onPress={resetDemo} style={styles.reset}>
+                    <Text style={styles.resetText}>Next recommendation</Text>
+                  </Pressable>
               )}
               {state === "pending" && (uiPreview || !brokerReady) && (
-                <Text style={styles.connectionRequired}>{uiPreview ? "Sample only—swipe for another proposal." : "IBKR Paper must be connected before you can decide."}</Text>
+                <Text style={styles.connectionRequired}>{uiPreview ? "Swipe left to deny or right to approve." : "IBKR Paper must be connected before you can decide."}</Text>
               )}
             </View>
-          </View>
+          </Animated.View>
         )}
 
       </ScrollView>
@@ -896,7 +987,7 @@ export default function App() {
         <SafeAreaView style={styles.sheetSafe} edges={["top", "bottom", "left", "right"]}>
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>
-              {openSection === "rationale" ? "Why this trade" : openSection === "strategy" ? "Strategy" : "Recent news"}
+              {openSection === "rationale" ? "Why this trade" : openSection === "strategy" ? "Strategy" : openSection === "risk" ? "Risk breakdown" : "Recent news"}
             </Text>
             <Pressable accessibilityRole="button" accessibilityLabel="Close details" onPress={() => setOpenSection(null)} style={styles.sheetClose}>
               <Text style={styles.sheetCloseText}>Done</Text>
@@ -932,6 +1023,41 @@ export default function App() {
                     <Metric label="Target timeframe" value={proposal.targetTimeframe} />
                   </View>
                 </View>
+              </>
+            )}
+
+            {openSection === "risk" && (
+              <>
+                <View style={styles.riskScoreHero}>
+                  <Text style={styles.riskScoreEyebrow}>OBSERVED MARKET RISK</Text>
+                  <Text style={styles.riskScoreValue}>
+                    {proposal.marketRisk?.score != null
+                      ? `${proposal.marketRisk.score.toFixed(0)}/100`
+                      : "Incomplete"}
+                  </Text>
+                  <Text style={styles.riskScoreLevel}>{proposal.marketRisk?.level?.replace("_", " ") ?? "Missing data"}</Text>
+                </View>
+
+                {(proposal.marketRisk?.components ?? []).map((component) => (
+                  <View key={component.id} style={styles.riskComponent}>
+                    <View style={styles.riskComponentHeader}>
+                      <Text style={styles.riskComponentLabel}>{component.label}</Text>
+                      <Text style={styles.riskComponentPoints}>{component.score.toFixed(0)} / {component.maximumPoints}</Text>
+                    </View>
+                    <View style={styles.riskComponentTrack}>
+                      <View style={[styles.riskComponentFill, { width: `${Math.min(100, (component.score / component.maximumPoints) * 100)}%` }]} />
+                    </View>
+                    <Text style={styles.riskComponentExplanation}>{component.explanation}</Text>
+                  </View>
+                ))}
+
+                <View style={styles.incompleteTradeRisk}>
+                  <Text style={styles.incompleteTradeRiskTitle}>Complete trade risk · Not available</Text>
+                  <Text style={styles.incompleteTradeRiskBody}>
+                    Missing: {(proposal.marketRisk?.tradeRisk?.missing ?? ["entry", "stop", "quantity", "portfolio"]).join(", ")}.
+                  </Text>
+                </View>
+                <Text style={styles.riskFootnote}>This score describes observed price, overnight-gap and historical-liquidity risk. It does not predict whether a setup will make money.</Text>
               </>
             )}
 
@@ -1013,6 +1139,9 @@ const styles = StyleSheet.create({
   nextExample: { paddingVertical: 4, paddingLeft: 12 },
   nextExampleText: { color: palette.text, ...typeRamp.caption, fontWeight: "600" },
   proposalCard: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 28, overflow: "hidden", marginTop: 8, marginBottom: 12 },
+  deckComplete: { minHeight: 420, alignItems: "center", justifyContent: "center", backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 28, marginTop: 8, padding: 28 },
+  deckCompleteTitle: { color: palette.ink, ...typeRamp.title, textAlign: "center" },
+  deckCompleteBody: { color: palette.muted, ...typeRamp.body, textAlign: "center", marginTop: 8 },
   cardBody: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 },
   cardPosition: { alignItems: "center", marginBottom: 10 },
   cardPositionText: { color: palette.muted, ...typeRamp.caption },
@@ -1021,6 +1150,7 @@ const styles = StyleSheet.create({
   infoCardTitle: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
   infoCardBody: { color: palette.text, ...typeRamp.body },
   infoCardMuted: { color: palette.muted, ...typeRamp.body },
+  riskHeadline: { color: palette.ink, fontSize: 18, lineHeight: 24, fontWeight: "800", marginBottom: 2 },
   strategyCardName: { color: palette.ink, ...typeRamp.label, fontWeight: "700", marginBottom: 5 },
   infoRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, marginTop: 10 },
   infoDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: palette.muted, marginTop: 7 },
@@ -1041,6 +1171,21 @@ const styles = StyleSheet.create({
   sheetSection: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, paddingBottom: 24 },
   sheetSectionTitle: { color: palette.ink, ...typeRamp.heading, marginBottom: 10 },
   sheetBody: { color: palette.text, ...typeRamp.body },
+  riskScoreHero: { backgroundColor: palette.warningSoft, borderRadius: radius.medium, padding: 18 },
+  riskScoreEyebrow: { color: "#8A5800", fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  riskScoreValue: { color: palette.ink, fontSize: 34, lineHeight: 40, fontWeight: "800", marginTop: 5 },
+  riskScoreLevel: { color: "#72521B", ...typeRamp.label, fontWeight: "700", marginTop: 2 },
+  riskComponent: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, paddingBottom: 18 },
+  riskComponentHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  riskComponentLabel: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
+  riskComponentPoints: { color: palette.text, ...typeRamp.label, fontWeight: "700" },
+  riskComponentTrack: { height: 7, borderRadius: 4, backgroundColor: palette.surfaceMuted, marginTop: 10, overflow: "hidden" },
+  riskComponentFill: { height: "100%", borderRadius: 4, backgroundColor: "#D99000" },
+  riskComponentExplanation: { color: palette.text, ...typeRamp.body, marginTop: 8 },
+  incompleteTradeRisk: { backgroundColor: palette.surfaceMuted, borderRadius: radius.medium, padding: 16 },
+  incompleteTradeRiskTitle: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
+  incompleteTradeRiskBody: { color: palette.text, ...typeRamp.body, marginTop: 5 },
+  riskFootnote: { color: palette.muted, ...typeRamp.caption },
   card: { paddingTop: 24, paddingBottom: 22 },
   cardEyebrowRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18 },
   signalBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: palette.accentSoft, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 7 },
@@ -1062,6 +1207,10 @@ const styles = StyleSheet.create({
   tradeTermRow: { minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
   tradeTermLabel: { color: palette.ink, ...typeRamp.body, fontWeight: "600" },
   tradeTermValue: { color: palette.text, ...typeRamp.body, fontWeight: "600", textAlign: "right" },
+  riskTermValue: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 6 },
+  riskTermScore: { color: palette.ink, ...typeRamp.body, fontWeight: "800" },
+  riskTermLevel: { color: "#8A5800", fontSize: 9, lineHeight: 13, fontWeight: "800", letterSpacing: 0.5 },
+  riskTermChevron: { color: palette.muted, fontSize: 20, lineHeight: 21 },
   currentPriceRow: { flexDirection: "row", alignItems: "baseline", gap: 8, marginTop: 7 },
   currentPrice: { color: palette.ink, fontSize: 22, fontWeight: "800" },
   quoteAge: { color: palette.muted, fontSize: 10 },
