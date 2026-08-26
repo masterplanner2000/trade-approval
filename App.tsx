@@ -3,6 +3,7 @@ import Constants from "expo-constants";
 import { ThemeProvider } from "@shopify/restyle";
 import {
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StatusBar,
@@ -267,6 +268,7 @@ export default function App() {
   const [processing, setProcessing] = useState(false);
   const [strategy, setStrategy] = useState<StrategySummary | null>(null);
   const [uiPreview, setUiPreview] = useState(false);
+  const [learnMoreOpen, setLearnMoreOpen] = useState(false);
 
   function applyShadowScan(scan: ShadowScan) {
     if (!scan.selected) throw new Error(scan.error ?? "shadow_data_unavailable");
@@ -512,6 +514,7 @@ export default function App() {
   }
 
   function returnToScanner() {
+    setLearnMoreOpen(false);
     setUiPreview(false);
     setProposal(SHADOW_LOADING);
     void createShadowObservation().catch(() => setBrokerUnavailable(true));
@@ -635,34 +638,30 @@ export default function App() {
         </View>}
 
         {!proposal.shadowMode && (
-          <>
-            <View style={styles.infoCard}>
-              <Text style={styles.infoCardTitle}>Why this trade</Text>
-              <Text style={styles.infoCardBody}>{proposal.companyCatalyst}</Text>
-              {proposal.rationale.slice(0, 2).map((reason) => (
-                <View key={reason} style={styles.infoRow}>
-                  <View style={styles.infoDot} />
-                  <Text style={styles.infoRowText}>{reason}</Text>
-                </View>
-              ))}
-            </View>
-
-            <View style={styles.infoCard}>
-              <Text style={styles.infoCardTitle}>Strategy</Text>
-              <Text style={styles.strategyCardName}>{proposal.strategyName}</Text>
-              <Text style={styles.infoCardBody}>{proposal.strategyContext}</Text>
-            </View>
-
-            <View style={styles.infoCard}>
-              <Text style={styles.infoCardTitle}>Recent news</Text>
-              <Text style={styles.infoCardMuted}>No verified news source is connected yet.</Text>
-            </View>
-          </>
+          <View style={styles.infoCard}>
+            <Text style={styles.infoCardTitle}>Why this trade</Text>
+            <Text style={styles.infoCardBody}>{proposal.companyCatalyst}</Text>
+            {proposal.rationale.slice(0, 2).map((reason) => (
+              <View key={reason} style={styles.infoRow}>
+                <Text style={styles.bullet}>•</Text>
+                <Text style={styles.infoRowText}>{reason}</Text>
+              </View>
+            ))}
+            <Pressable onPress={() => setLearnMoreOpen(true)} style={styles.learnMoreButton}>
+              <Text style={styles.learnMoreText}>Learn more</Text>
+            </Pressable>
+          </View>
         )}
 
       </ScrollView>
 
       {!proposal.shadowMode && <View style={styles.bottomBar}>
+        <View style={styles.connectionRow}>
+          <View style={[styles.connectionDot, !brokerReady && styles.connectionDotOff]} />
+          <Text style={styles.connectionText}>
+            {uiPreview ? "IBKR Paper · Preview only" : brokerReady ? "IBKR Paper · Connected" : "IBKR Paper · Disconnected"}
+          </Text>
+        </View>
         {state === "pending" ? <View style={styles.actions}>
           <ActionButton
             label={proposal.shadowMode ? "No decision" : "Deny"}
@@ -689,6 +688,61 @@ export default function App() {
           </Pressable>
         )}
       </View>}
+
+      <Modal
+        visible={learnMoreOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setLearnMoreOpen(false)}
+      >
+        <SafeAreaView style={styles.sheetSafe} edges={["top", "bottom", "left", "right"]}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Trade details</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close trade details" onPress={() => setLearnMoreOpen(false)} style={styles.sheetClose}>
+              <Text style={styles.sheetCloseText}>Done</Text>
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetSectionTitle}>Why this trade</Text>
+              <Text style={styles.sheetBody}>{proposal.companyCatalyst}</Text>
+              {proposal.rationale.map((reason) => (
+                <View key={reason} style={styles.infoRow}>
+                  <Text style={styles.bullet}>•</Text>
+                  <Text style={styles.infoRowText}>{reason}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetSectionTitle}>Strategy</Text>
+              <Text style={styles.strategyCardName}>{proposal.strategyName}</Text>
+              <Text style={styles.sheetBody}>{proposal.strategyContext}</Text>
+            </View>
+
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetSectionTitle}>Key risk</Text>
+              <Text style={styles.sheetBody}>{proposal.keyRisk}</Text>
+            </View>
+
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetSectionTitle}>Execution</Text>
+              <View style={styles.metrics}>
+                <Metric label="Total commitment" value={money(proposal.positionValue)} />
+                <Metric label="Shares" value={`${proposal.quantity}`} />
+                <Metric label="Limit price" value={money(proposal.limitPrice)} />
+                <Metric label="Protective stop" value={money(proposal.stopPrice)} />
+                <Metric label="Estimated fees" value={money(proposal.estimatedFees)} />
+              </View>
+            </View>
+
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetSectionTitle}>Recent news</Text>
+              <Text style={styles.infoCardMuted}>No verified news source is connected yet.</Text>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
     </SafeAreaProvider>
     </ThemeProvider>
@@ -747,12 +801,28 @@ const styles = StyleSheet.create({
   backToScannerText: { color: palette.text, fontSize: 13, lineHeight: 18, fontWeight: "600" },
   infoCard: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: radius.large, padding: 20 },
   infoCardTitle: { color: palette.ink, fontSize: 16, lineHeight: 22, fontWeight: "800", marginBottom: 10 },
-  infoCardBody: { color: palette.text, fontSize: 13, lineHeight: 19 },
+  infoCardBody: { color: palette.text, fontSize: 15, lineHeight: 23 },
   infoCardMuted: { color: palette.muted, fontSize: 13, lineHeight: 19 },
   strategyCardName: { color: palette.ink, fontSize: 14, lineHeight: 20, fontWeight: "700", marginBottom: 5 },
   infoRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, marginTop: 10 },
   infoDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: palette.muted, marginTop: 7 },
-  infoRowText: { flex: 1, color: palette.text, fontSize: 13, lineHeight: 19 },
+  bullet: { color: palette.muted, fontSize: 20, lineHeight: 22 },
+  infoRowText: { flex: 1, color: palette.text, fontSize: 14, lineHeight: 21 },
+  learnMoreButton: { alignSelf: "flex-start", paddingVertical: 10, paddingRight: 14, marginTop: 8 },
+  learnMoreText: { color: palette.ink, fontSize: 14, lineHeight: 20, fontWeight: "800", textDecorationLine: "underline" },
+  connectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 10 },
+  connectionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: palette.ink },
+  connectionDotOff: { backgroundColor: palette.muted },
+  connectionText: { color: palette.text, fontSize: 11, lineHeight: 16, fontWeight: "600" },
+  sheetSafe: { flex: 1, backgroundColor: palette.surface },
+  sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 58, paddingHorizontal: 20, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
+  sheetTitle: { color: palette.ink, fontSize: 18, lineHeight: 24, fontWeight: "800" },
+  sheetClose: { paddingHorizontal: 4, paddingVertical: 8 },
+  sheetCloseText: { color: palette.ink, fontSize: 15, lineHeight: 20, fontWeight: "700" },
+  sheetContent: { padding: 20, paddingBottom: 40, gap: 24 },
+  sheetSection: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, paddingBottom: 24 },
+  sheetSectionTitle: { color: palette.ink, fontSize: 20, lineHeight: 27, fontWeight: "800", marginBottom: 10 },
+  sheetBody: { color: palette.text, fontSize: 15, lineHeight: 23 },
   card: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: radius.large, padding: 20, shadowColor: "#0A2540", shadowOpacity: 0.07, shadowRadius: 28, shadowOffset: { width: 0, height: 12 }, elevation: 4, overflow: "hidden" },
   cardEyebrowRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18 },
   signalBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: palette.accentSoft, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 7 },
