@@ -3,6 +3,7 @@ import Constants from "expo-constants";
 import { ThemeProvider } from "@shopify/restyle";
 import {
   Alert,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -235,6 +236,41 @@ const SHADOW_LOADING: Proposal = {
 };
 
 const SHADOW_UNIVERSE = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"];
+
+const COMPANY_DOMAINS: Record<string, string> = {
+  SPY: "ssga.com",
+  QQQ: "invesco.com",
+  IWM: "ishares.com",
+  AAPL: "apple.com",
+  MSFT: "microsoft.com",
+  NVDA: "nvidia.com",
+  AMZN: "amazon.com",
+  META: "meta.com",
+  GOOGL: "google.com",
+  TSLA: "tesla.com",
+};
+
+function CompanyMark({ symbol, size = 34 }: { symbol: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  const domain = COMPANY_DOMAINS[symbol];
+
+  if (!domain || failed) {
+    return (
+      <View style={[styles.logoFallback, { width: size, height: size, borderRadius: size / 2 }]}>
+        <Text style={styles.logoFallbackText}>{symbol.slice(0, 2)}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <Image
+      accessibilityLabel={`${symbol} company logo`}
+      onError={() => setFailed(true)}
+      source={{ uri: `https://www.google.com/s2/favicons?domain=${domain}&sz=128` }}
+      style={{ width: size, height: size, borderRadius: size / 2 }}
+    />
+  );
+}
 
 const money = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
@@ -591,6 +627,7 @@ export default function App() {
             <View style={styles.symbolChips}>
               {SHADOW_UNIVERSE.map((symbol) => (
                 <View key={symbol} style={styles.symbolChip}>
+                  <CompanyMark symbol={symbol} size={22} />
                   <Text style={styles.symbolChipText}>{symbol}</Text>
                 </View>
               ))}
@@ -608,7 +645,13 @@ export default function App() {
         )}
 
         {!proposal.shadowMode && <View style={styles.card}>
-          <Text style={styles.company}>{proposal.company}</Text>
+          <View style={styles.companyIdentity}>
+            <CompanyMark symbol={proposal.symbol} size={46} />
+            <View style={styles.companyIdentityCopy}>
+              <Text style={styles.companySymbol}>{proposal.symbol}</Text>
+              <Text style={styles.company}>{proposal.company}</Text>
+            </View>
+          </View>
           <Text style={styles.tradeHeadline}>
             {proposal.side === "BUY" ? "Buy" : "Sell"} {money(proposal.positionValue)} of {proposal.symbol}
           </Text>
@@ -804,8 +847,10 @@ const styles = StyleSheet.create({
   scannerTitle: { color: palette.ink, ...typeRamp.title },
   scannerStatus: { color: palette.muted, ...typeRamp.body, marginTop: 5 },
   symbolChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 18 },
-  symbolChip: { backgroundColor: palette.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 8 },
+  symbolChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: palette.surfaceMuted, borderRadius: radius.pill, paddingLeft: 5, paddingRight: 12, paddingVertical: 5 },
   symbolChipText: { color: palette.ink, ...typeRamp.caption, fontWeight: "700" },
+  logoFallback: { alignItems: "center", justifyContent: "center", backgroundColor: palette.surfaceMuted, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
+  logoFallbackText: { color: palette.ink, fontSize: 9, lineHeight: 12, fontWeight: "800" },
   previewProposalButton: { alignItems: "center", justifyContent: "center", minHeight: 46, borderWidth: 1, borderColor: palette.border, borderRadius: radius.medium, marginTop: 20, paddingHorizontal: 14 },
   previewProposalButtonText: { color: palette.ink, ...typeRamp.label, fontWeight: "700" },
   backToScanner: { alignSelf: "flex-start", paddingVertical: 4, paddingRight: 12 },
@@ -845,7 +890,10 @@ const styles = StyleSheet.create({
   symbolBlock: { flex: 1 },
   side: { color: palette.muted, fontSize: 11, fontWeight: "800", letterSpacing: 1.4 },
   symbol: { color: palette.ink, fontSize: 42, lineHeight: 46, fontWeight: "800", letterSpacing: -1.5 },
-  company: { color: palette.text, ...typeRamp.caption },
+  companyIdentity: { flexDirection: "row", alignItems: "center", gap: 12 },
+  companyIdentityCopy: { flex: 1 },
+  companySymbol: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
+  company: { color: palette.text, ...typeRamp.caption, marginTop: 1 },
   tradeHeadline: { color: palette.ink, ...typeRamp.display, marginTop: 12 },
   tradePrice: { color: palette.muted, ...typeRamp.heading, fontWeight: "400", marginTop: 3 },
   tradeTerms: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, marginTop: 24, paddingTop: 8 },
