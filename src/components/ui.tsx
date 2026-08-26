@@ -29,18 +29,17 @@ type ActionButtonProps = {
   tone: "primary" | "secondary";
   disabled?: boolean;
   onPress: () => void;
-  flex?: number;
 };
 
-export function ActionButton({ label, tone, disabled, onPress, flex = 1 }: ActionButtonProps) {
+export function ActionButton({ label, tone, disabled, onPress }: ActionButtonProps) {
   const primary = tone === "primary";
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [{ flex, opacity: disabled ? 0.35 : pressed ? 0.72 : 1 }]}>
+    <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [{ flex: 1, opacity: disabled ? 0.35 : pressed ? 0.72 : 1 }]}>
       <Box
         height={56}
         alignItems="center"
         justifyContent="center"
-        borderRadius="m"
+        borderRadius="pill"
         borderWidth={1}
         borderColor={primary ? "accent" : "border"}
         backgroundColor={primary ? "accent" : "surface"}

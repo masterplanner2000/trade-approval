@@ -809,7 +809,6 @@ export default function App() {
           <ActionButton
             label={proposal.shadowMode ? "Shadow only" : processing ? "Checking…" : "Approve"}
             tone="primary"
-            flex={1.5}
             disabled={uiPreview || !actionable || processing}
             onPress={() => decide("approved")}
           />
