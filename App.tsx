@@ -660,11 +660,18 @@ export default function App() {
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
         <View style={styles.appHeader}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Open menu" onPress={openMenu} style={styles.menuButton}>
-            <View style={styles.menuLine} />
-            <View style={styles.menuLine} />
-            <View style={styles.menuLine} />
-          </Pressable>
+          <View style={styles.headerNavigation}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Open menu" onPress={openMenu} style={styles.menuButton}>
+              <View style={styles.menuLine} />
+              <View style={styles.menuLine} />
+              <View style={styles.menuLine} />
+            </Pressable>
+            {uiPreview && !proposal.shadowMode && (
+              <Pressable accessibilityRole="button" accessibilityLabel="Back to scanner" onPress={returnToScanner} style={styles.headerBackButton}>
+                <Text style={styles.headerBackText}>Back to scanner</Text>
+              </Pressable>
+            )}
+          </View>
           <View style={styles.marketPill}>
             <View style={styles.marketDot} />
             <Text style={styles.marketText}>Paper Market</Text>
@@ -726,9 +733,6 @@ export default function App() {
 
         {uiPreview && !proposal.shadowMode && (
           <View style={styles.previewNavigation}>
-            <Pressable onPress={returnToScanner} style={styles.backToScanner}>
-              <Text style={styles.backToScannerText}>‹ Back to scanner</Text>
-            </Pressable>
             <Pressable onPress={showNextExample} style={styles.nextExample}>
               <Text style={styles.nextExampleText}>Next example {previewIndex + 1}/{UI_PROPOSALS.length}</Text>
             </Pressable>
@@ -895,8 +899,11 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: cream },
   page: { width: "100%", maxWidth: 680, alignSelf: "center", paddingHorizontal: spacing.large, paddingTop: spacing.small, paddingBottom: spacing.large },
   appHeader: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerNavigation: { flexDirection: "row", alignItems: "center", flexShrink: 1 },
   menuButton: { width: 44, height: 44, justifyContent: "center", gap: 5, paddingHorizontal: 8 },
   menuLine: { width: 27, height: 3, borderRadius: 2, backgroundColor: palette.ink },
+  headerBackButton: { paddingVertical: 10, paddingHorizontal: 8, flexShrink: 1 },
+  headerBackText: { color: palette.text, ...typeRamp.caption, fontWeight: "600" },
   marketPill: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: palette.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 15 },
   marketDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#22B84B" },
   marketText: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
@@ -943,9 +950,7 @@ const styles = StyleSheet.create({
   logoFallbackText: { color: palette.ink, fontSize: 9, lineHeight: 12, fontWeight: "800" },
   previewProposalButton: { alignItems: "center", justifyContent: "center", minHeight: 46, borderWidth: 1, borderColor: palette.border, borderRadius: radius.medium, marginTop: 20, paddingHorizontal: 14 },
   previewProposalButtonText: { color: palette.ink, ...typeRamp.label, fontWeight: "700" },
-  backToScanner: { alignSelf: "flex-start", paddingVertical: 4, paddingRight: 12 },
-  backToScannerText: { color: palette.text, ...typeRamp.caption, fontWeight: "600" },
-  previewNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  previewNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
   nextExample: { paddingVertical: 4, paddingLeft: 12 },
   nextExampleText: { color: palette.text, ...typeRamp.caption, fontWeight: "600" },
   infoCard: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingVertical: 24 },
