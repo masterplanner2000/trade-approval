@@ -202,6 +202,80 @@ const PAPER_PROPOSAL: Proposal = {
   decision: "pending",
 };
 
+const UI_PROPOSALS: Proposal[] = [
+  PAPER_PROPOSAL,
+  {
+    ...PAPER_PROPOSAL,
+    id: "preview-aapl",
+    symbol: "AAPL",
+    company: "Apple Inc.",
+    side: "BUY",
+    quantity: 4,
+    currentPrice: 229.42,
+    bid: 229.38,
+    ask: 229.46,
+    limitPrice: 229.55,
+    stopPrice: 224.9,
+    maxLoss: 18.6,
+    positionValue: 918.2,
+    targetPrice: 238,
+    potentialUpside: 33.8,
+    potentialUpsidePercent: 3.7,
+    strategyName: "Large-cap pullback recovery",
+    strategyContext: "A measured entry within the strategy's large-cap technology allocation.",
+    companyCatalyst: "Apple is recovering from a controlled pullback while services growth and the next device cycle support demand expectations.",
+    rationale: ["Price reclaimed its 20-day average", "Selling volume eased during the pullback", "Position remains below the per-trade limit"],
+    expiresAt: Date.now() + 8 * 60 * 1000,
+  },
+  {
+    ...PAPER_PROPOSAL,
+    id: "preview-amzn",
+    symbol: "AMZN",
+    company: "Amazon.com, Inc.",
+    side: "BUY",
+    quantity: 5,
+    currentPrice: 181.76,
+    bid: 181.72,
+    ask: 181.8,
+    limitPrice: 181.9,
+    stopPrice: 177.8,
+    maxLoss: 20.5,
+    positionValue: 909.5,
+    targetPrice: 190,
+    potentialUpside: 40.5,
+    potentialUpsidePercent: 4.5,
+    strategyName: "Cloud-growth momentum",
+    strategyContext: "Part of a diversified growth basket with a defined loss limit on every position.",
+    companyCatalyst: "Amazon's cloud and advertising businesses provide the fundamental backdrop for a short-term continuation setup.",
+    rationale: ["Trading above the 200-day average", "Relative strength improved this week", "Risk fits the strategy budget"],
+    expiresAt: Date.now() + 3 * 60 * 1000,
+  },
+  {
+    ...PAPER_PROPOSAL,
+    id: "preview-tsla-sell",
+    symbol: "TSLA",
+    company: "Tesla, Inc.",
+    side: "SELL",
+    quantity: 3,
+    currentPrice: 342.15,
+    bid: 342.08,
+    ask: 342.22,
+    limitPrice: 341.9,
+    stopPrice: 350.5,
+    maxLoss: 25.8,
+    positionValue: 1025.7,
+    targetPrice: 325,
+    potentialUpside: 50.7,
+    potentialUpsidePercent: 5,
+    strategyName: "Volatility risk reduction",
+    strategyContext: "Reduces exposure after the position moved beyond the strategy's volatility tolerance.",
+    companyCatalyst: "Tesla's recent price volatility has increased faster than the strategy's risk budget, prompting a proposed reduction rather than a directional short.",
+    rationale: ["Position volatility exceeded its limit", "Portfolio exposure is above target", "Reduction restores available risk budget"],
+    expiresAt: Date.now() - 30 * 1000,
+    decision: "expired",
+  },
+];
+
 const SHADOW_LOADING: Proposal = {
   ...PAPER_PROPOSAL,
   id: "shadow-loading",
@@ -304,6 +378,7 @@ export default function App() {
   const [processing, setProcessing] = useState(false);
   const [strategy, setStrategy] = useState<StrategySummary | null>(null);
   const [uiPreview, setUiPreview] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
   const [openSection, setOpenSection] = useState<"rationale" | "strategy" | "news" | null>(null);
 
   function applyShadowScan(scan: ShadowScan) {
@@ -546,7 +621,18 @@ export default function App() {
     setUiPreview(true);
     setBroker(null);
     setBrokerUnavailable(false);
-    setProposal({ ...PAPER_PROPOSAL, id: "ui-preview", decision: "pending" });
+    setPreviewIndex(0);
+    setProposal({ ...UI_PROPOSALS[0]!, expiresAt: Date.now() + 4 * 60 * 1000 });
+  }
+
+  function showNextExample() {
+    const nextIndex = (previewIndex + 1) % UI_PROPOSALS.length;
+    const next = UI_PROPOSALS[nextIndex]!;
+    setPreviewIndex(nextIndex);
+    setProposal({
+      ...next,
+      expiresAt: next.decision === "expired" ? Date.now() - 30 * 1000 : Date.now() + (nextIndex + 3) * 60 * 1000,
+    });
   }
 
   function returnToScanner() {
@@ -639,9 +725,14 @@ export default function App() {
         )}
 
         {uiPreview && !proposal.shadowMode && (
-          <Pressable onPress={returnToScanner} style={styles.backToScanner}>
-            <Text style={styles.backToScannerText}>‹ Back to scanner</Text>
-          </Pressable>
+          <View style={styles.previewNavigation}>
+            <Pressable onPress={returnToScanner} style={styles.backToScanner}>
+              <Text style={styles.backToScannerText}>‹ Back to scanner</Text>
+            </Pressable>
+            <Pressable onPress={showNextExample} style={styles.nextExample}>
+              <Text style={styles.nextExampleText}>Next example {previewIndex + 1}/{UI_PROPOSALS.length}</Text>
+            </Pressable>
+          </View>
         )}
 
         {!proposal.shadowMode && <View style={styles.card}>
@@ -670,7 +761,7 @@ export default function App() {
               <Text style={styles.tradeTermLabel}>{state === "pending" ? "Expires in" : "Status"}</Text>
               <View style={[styles.timer, state !== "pending" && styles.timerClosed]}>
                 <Text style={styles.timerClock}>◷</Text>
-                <Text style={styles.timerValue}>{state === "pending" ? timer : state.toUpperCase()}</Text>
+                <Text style={[styles.timerValue, state !== "pending" && styles.timerClosedText]}>{state === "pending" ? timer : state.toUpperCase()}</Text>
               </View>
             </View>
           </View>
@@ -855,6 +946,9 @@ const styles = StyleSheet.create({
   previewProposalButtonText: { color: palette.ink, ...typeRamp.label, fontWeight: "700" },
   backToScanner: { alignSelf: "flex-start", paddingVertical: 4, paddingRight: 12 },
   backToScannerText: { color: palette.text, ...typeRamp.caption, fontWeight: "600" },
+  previewNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  nextExample: { paddingVertical: 4, paddingLeft: 12 },
+  nextExampleText: { color: palette.text, ...typeRamp.caption, fontWeight: "600" },
   infoCard: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingVertical: 24 },
   infoCardTitle: { color: palette.ink, ...typeRamp.heading, marginBottom: 10 },
   infoCardBody: { color: palette.text, ...typeRamp.body },
@@ -908,6 +1002,7 @@ const styles = StyleSheet.create({
   timerLabel: { color: palette.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1.1 },
   timerClock: { color: palette.ink, fontSize: 17, lineHeight: 18 },
   timerValue: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
+  timerClosedText: { fontWeight: "400" },
   account: { color: "#9FB3C8", fontSize: 11, marginTop: 16, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#314962" },
   observationBlock: { backgroundColor: palette.surfaceMuted, borderRadius: radius.medium, padding: 16, marginTop: 16 },
   observationLabel: { color: palette.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
