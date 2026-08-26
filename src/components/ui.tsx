@@ -44,7 +44,7 @@ export function ActionButton({ label, tone, disabled, onPress }: ActionButtonPro
         borderColor={primary ? "accent" : "border"}
         backgroundColor={primary ? "accent" : "surface"}
       >
-        <AppText color={primary ? "surface" : "ink"} {...typeRamp.label} fontWeight="800">{label}</AppText>
+        <AppText color={primary ? "surface" : "ink"} {...typeRamp.label} fontSize={16} lineHeight={22} fontWeight="800">{label}</AppText>
       </Box>
     </Pressable>
   );
