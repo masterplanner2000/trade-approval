@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Constants from "expo-constants";
 import { ThemeProvider } from "@shopify/restyle";
 import {
@@ -380,6 +380,7 @@ export default function App() {
   const [uiPreview, setUiPreview] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [openSection, setOpenSection] = useState<"rationale" | "strategy" | "news" | null>(null);
+  const swipeStartX = useRef<number | null>(null);
 
   function applyShadowScan(scan: ShadowScan) {
     if (!scan.selected) throw new Error(scan.error ?? "shadow_data_unavailable");
@@ -653,6 +654,16 @@ export default function App() {
     });
   }
 
+  function showPreviousExample() {
+    const previousIndex = (previewIndex - 1 + UI_PROPOSALS.length) % UI_PROPOSALS.length;
+    const previous = UI_PROPOSALS[previousIndex]!;
+    setPreviewIndex(previousIndex);
+    setProposal({
+      ...previous,
+      expiresAt: previous.decision === "expired" ? Date.now() - 30 * 1000 : Date.now() + (previousIndex + 3) * 60 * 1000,
+    });
+  }
+
   function returnToScanner() {
     setOpenSection(null);
     setUiPreview(false);
@@ -752,103 +763,101 @@ export default function App() {
           </View>
         )}
 
-        {uiPreview && !proposal.shadowMode && (
-          <View style={styles.previewNavigation}>
-            <Pressable onPress={showNextExample} style={styles.nextExample}>
-              <Text style={styles.nextExampleText}>Next example {previewIndex + 1}/{UI_PROPOSALS.length}</Text>
-            </Pressable>
-          </View>
-        )}
+        {!proposal.shadowMode && (
+          <View
+            style={styles.proposalCard}
+            onTouchStart={(event) => { if (uiPreview) swipeStartX.current = event.nativeEvent.pageX; }}
+            onTouchEnd={(event) => {
+              if (!uiPreview || swipeStartX.current === null) return;
+              const distance = event.nativeEvent.pageX - swipeStartX.current;
+              swipeStartX.current = null;
+              if (distance < -55) showNextExample();
+              if (distance > 55) showPreviousExample();
+            }}
+          >
+            <View style={styles.cardBody}>
+              {uiPreview && (
+                <View style={styles.cardPosition}>
+                  <Text style={styles.cardPositionText}>{previewIndex + 1} of {UI_PROPOSALS.length} · Swipe to review</Text>
+                </View>
+              )}
+              <View style={styles.companyIdentity}>
+                <CompanyMark symbol={proposal.symbol} size={42} />
+                <View style={styles.companyIdentityCopy}>
+                  <Text style={styles.companySymbol}>{proposal.symbol}</Text>
+                  <Text style={styles.company}>{proposal.company}</Text>
+                </View>
+              </View>
+              <Text style={styles.tradeHeadline}>
+                {proposal.side === "BUY" ? "Buy" : "Sell"} {money(proposal.positionValue)} of {proposal.symbol}
+              </Text>
+              <Text style={styles.tradePrice}>at current price {money(proposal.currentPrice)}</Text>
 
-        {!proposal.shadowMode && <View style={styles.card}>
-          <View style={styles.companyIdentity}>
-            <CompanyMark symbol={proposal.symbol} size={46} />
-            <View style={styles.companyIdentityCopy}>
-              <Text style={styles.companySymbol}>{proposal.symbol}</Text>
-              <Text style={styles.company}>{proposal.company}</Text>
-            </View>
-          </View>
-          <Text style={styles.tradeHeadline}>
-            {proposal.side === "BUY" ? "Buy" : "Sell"} {money(proposal.positionValue)} of {proposal.symbol}
-          </Text>
-          <Text style={styles.tradePrice}>at current price {money(proposal.currentPrice)}</Text>
+              <View style={styles.tradeTerms}>
+                <View style={styles.tradeTermRow}>
+                  <Text style={styles.tradeTermLabel}>{proposal.side === "BUY" ? "Receive" : "Sell"}</Text>
+                  <Text style={styles.tradeTermValue}>{proposal.quantity} shares</Text>
+                </View>
+                <View style={styles.tradeTermRow}>
+                  <Text style={styles.tradeTermLabel}>Limit price</Text>
+                  <Text style={styles.tradeTermValue}>{money(proposal.limitPrice)}</Text>
+                </View>
+                <View style={styles.tradeTermRow}>
+                  <Text style={styles.tradeTermLabel}>{state === "pending" ? "Expires in" : "Status"}</Text>
+                  <View style={[styles.timer, state !== "pending" && styles.timerClosed]}>
+                    <Text style={styles.timerClock}>◷</Text>
+                    <Text style={[styles.timerValue, state !== "pending" && styles.timerClosedText]}>{state === "pending" ? timer : state.toUpperCase()}</Text>
+                  </View>
+                </View>
+              </View>
 
-          <View style={styles.tradeTerms}>
-            <View style={styles.tradeTermRow}>
-              <Text style={styles.tradeTermLabel}>{proposal.side === "BUY" ? "Receive" : "Sell"}</Text>
-              <Text style={styles.tradeTermValue}>{proposal.quantity} shares</Text>
-            </View>
-            <View style={styles.tradeTermRow}>
-              <Text style={styles.tradeTermLabel}>Limit price</Text>
-              <Text style={styles.tradeTermValue}>{money(proposal.limitPrice)}</Text>
-            </View>
-            <View style={styles.tradeTermRow}>
-              <Text style={styles.tradeTermLabel}>{state === "pending" ? "Expires in" : "Status"}</Text>
-              <View style={[styles.timer, state !== "pending" && styles.timerClosed]}>
-                <Text style={styles.timerClock}>◷</Text>
-                <Text style={[styles.timerValue, state !== "pending" && styles.timerClosedText]}>{state === "pending" ? timer : state.toUpperCase()}</Text>
+              <View style={styles.infoCard}>
+                <View style={styles.infoCardHeadingRow}>
+                  <Text style={styles.infoCardTitle}>Why this trade</Text>
+                  <Pressable onPress={() => setOpenSection("rationale")} style={styles.learnMoreButton}>
+                    <Text style={styles.learnMoreText}>View more</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.infoCardBody} numberOfLines={2}>{proposal.companyCatalyst}</Text>
+              </View>
+
+              <View style={styles.infoCard}>
+                <View style={styles.infoCardHeadingRow}>
+                  <Text style={styles.infoCardTitle}>Strategy</Text>
+                  <Pressable onPress={() => setOpenSection("strategy")} style={styles.learnMoreButton}>
+                    <Text style={styles.learnMoreText}>View more</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.infoCardBody} numberOfLines={1}>{proposal.strategyName}</Text>
+              </View>
+
+              <View style={styles.infoCard}>
+                <View style={styles.infoCardHeadingRow}>
+                  <Text style={styles.infoCardTitle}>Recent news</Text>
+                  <Pressable onPress={() => setOpenSection("news")} style={styles.learnMoreButton}>
+                    <Text style={styles.learnMoreText}>View more</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.infoCardMuted} numberOfLines={1}>No verified news source is connected yet.</Text>
               </View>
             </View>
+            <View style={styles.cardFooter}>
+              {state === "pending" ? <View style={styles.actions}>
+                <ActionButton label="Deny" tone="secondary" disabled={uiPreview || !actionable || processing} onPress={() => decide("denied")} />
+                <ActionButton label={processing ? "Checking…" : "Approve"} tone="primary" disabled={uiPreview || !actionable || processing} onPress={() => decide("approved")} />
+              </View> : (
+                <Pressable onPress={uiPreview ? showNextExample : resetDemo} style={styles.reset}>
+                  <Text style={styles.resetText}>Next recommendation</Text>
+                </Pressable>
+              )}
+              {state === "pending" && (uiPreview || !brokerReady) && (
+                <Text style={styles.connectionRequired}>{uiPreview ? "Sample only—swipe for another proposal." : "IBKR Paper must be connected before you can decide."}</Text>
+              )}
+            </View>
           </View>
-        </View>}
-
-        {!proposal.shadowMode && (
-          <>
-            <View style={styles.infoCard}>
-              <Text style={styles.infoCardTitle}>Why this trade</Text>
-              <Text style={styles.infoCardBody} numberOfLines={3}>{proposal.companyCatalyst}</Text>
-              <Pressable onPress={() => setOpenSection("rationale")} style={styles.learnMoreButton}>
-                <Text style={styles.learnMoreText}>View more</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.infoCard}>
-              <Text style={styles.infoCardTitle}>Strategy</Text>
-              <Text style={styles.strategyCardName}>{proposal.strategyName}</Text>
-              <Text style={styles.infoCardBody} numberOfLines={2}>{proposal.strategyContext}</Text>
-              <Pressable onPress={() => setOpenSection("strategy")} style={styles.learnMoreButton}>
-                <Text style={styles.learnMoreText}>View more</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.infoCard}>
-              <Text style={styles.infoCardTitle}>Recent news</Text>
-              <Text style={styles.infoCardMuted}>No verified news source is connected yet.</Text>
-              <Pressable onPress={() => setOpenSection("news")} style={styles.learnMoreButton}>
-                <Text style={styles.learnMoreText}>View more</Text>
-              </Pressable>
-            </View>
-          </>
         )}
 
       </ScrollView>
-
-      {!proposal.shadowMode && <View style={styles.bottomBar}>
-        {state === "pending" ? <View style={styles.actions}>
-          <ActionButton
-            label={proposal.shadowMode ? "No decision" : "Deny"}
-            tone="secondary"
-            disabled={uiPreview || !actionable || processing}
-            onPress={() => decide("denied")}
-          />
-          <ActionButton
-            label={proposal.shadowMode ? "Shadow only" : processing ? "Checking…" : "Approve"}
-            tone="primary"
-            disabled={uiPreview || !actionable || processing}
-            onPress={() => decide("approved")}
-          />
-        </View> : null}
-
-        {state === "pending" && (uiPreview || !brokerReady || proposal.shadowMode) && (
-          <Text style={styles.connectionRequired}>{uiPreview ? "Preview only—no order can be submitted." : proposal.shadowMode ? "Trading controls are intentionally disabled during research." : "IBKR Paper must be connected before you can decide."}</Text>
-        )}
-
-        {state !== "pending" && (
-          <Pressable onPress={resetDemo} style={styles.reset}>
-            <Text style={styles.resetText}>Next recommendation</Text>
-          </Pressable>
-        )}
-      </View>}
 
       <Modal
         visible={openSection !== null}
@@ -973,8 +982,13 @@ const styles = StyleSheet.create({
   previewNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
   nextExample: { paddingVertical: 4, paddingLeft: 12 },
   nextExampleText: { color: palette.text, ...typeRamp.caption, fontWeight: "600" },
-  infoCard: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingVertical: 24 },
-  infoCardTitle: { color: palette.ink, ...typeRamp.heading, marginBottom: 10 },
+  proposalCard: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 28, overflow: "hidden", marginTop: 8, marginBottom: 12 },
+  cardBody: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 },
+  cardPosition: { alignItems: "center", marginBottom: 10 },
+  cardPositionText: { color: palette.muted, ...typeRamp.caption },
+  infoCard: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingVertical: 11 },
+  infoCardHeadingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 3 },
+  infoCardTitle: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
   infoCardBody: { color: palette.text, ...typeRamp.body },
   infoCardMuted: { color: palette.muted, ...typeRamp.body },
   strategyCardName: { color: palette.ink, ...typeRamp.label, fontWeight: "700", marginBottom: 5 },
@@ -982,8 +996,8 @@ const styles = StyleSheet.create({
   infoDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: palette.muted, marginTop: 7 },
   bullet: { color: palette.muted, fontSize: 20, lineHeight: 22 },
   infoRowText: { flex: 1, color: palette.text, ...typeRamp.body },
-  learnMoreButton: { alignSelf: "flex-start", paddingVertical: 10, paddingRight: 14, marginTop: 8 },
-  learnMoreText: { color: palette.ink, ...typeRamp.label, fontWeight: "800", textDecorationLine: "underline" },
+  learnMoreButton: { paddingVertical: 5, paddingLeft: 12 },
+  learnMoreText: { color: palette.ink, ...typeRamp.caption, fontWeight: "600", textDecorationLine: "underline" },
   connectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 10 },
   connectionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: palette.ink },
   connectionDotOff: { backgroundColor: palette.muted },
@@ -1012,10 +1026,10 @@ const styles = StyleSheet.create({
   companyIdentityCopy: { flex: 1 },
   companySymbol: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
   company: { color: palette.text, ...typeRamp.caption, marginTop: 1 },
-  tradeHeadline: { color: palette.ink, ...typeRamp.display, marginTop: 12 },
-  tradePrice: { color: palette.muted, ...typeRamp.heading, fontWeight: "400", marginTop: 3 },
-  tradeTerms: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, marginTop: 24, paddingTop: 8 },
-  tradeTermRow: { minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
+  tradeHeadline: { color: palette.ink, fontSize: 26, lineHeight: 32, fontWeight: "800", letterSpacing: -0.6, marginTop: 10 },
+  tradePrice: { color: palette.muted, ...typeRamp.body, marginTop: 1 },
+  tradeTerms: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, marginTop: 14, paddingTop: 3 },
+  tradeTermRow: { minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
   tradeTermLabel: { color: palette.ink, ...typeRamp.body, fontWeight: "600" },
   tradeTermValue: { color: palette.text, ...typeRamp.body, fontWeight: "600", textAlign: "right" },
   currentPriceRow: { flexDirection: "row", alignItems: "baseline", gap: 8, marginTop: 7 },
@@ -1078,6 +1092,7 @@ const styles = StyleSheet.create({
   guardrailTitle: { color: green, fontSize: 12, fontWeight: "800", marginBottom: 4 },
   guardrailText: { color: "#405048", fontSize: 12, lineHeight: 17 },
   actions: { flexDirection: "row", gap: 12 },
+  cardFooter: { backgroundColor: palette.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14 },
   bottomBar: { width: "100%", maxWidth: 680, alignSelf: "center", backgroundColor: palette.canvas, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 10, shadowColor: "#0A2540", shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: -6 }, elevation: 10 },
   deny: { flex: 1, height: 56, borderRadius: radius.medium, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center", backgroundColor: palette.surface },
   approve: { flex: 1.5, height: 56, borderRadius: radius.medium, alignItems: "center", justifyContent: "center", backgroundColor: green },
