@@ -1,5 +1,6 @@
-import React, { ReactNode } from "react";
-import { Pressable, StyleSheet } from "react-native";
+import React, { ReactNode, useEffect } from "react";
+import { ActivityIndicator, Pressable, StyleSheet } from "react-native";
+import { CheckCircleIcon, InfoIcon, MinusIcon, PlusIcon, WarningCircleIcon, XIcon } from "phosphor-react-native";
 import { Box, AppText, palette, typeRamp } from "../design-system";
 
 type BadgeProps = {
@@ -28,15 +29,18 @@ type ActionButtonProps = {
   label: string;
   tone: "primary" | "secondary";
   disabled?: boolean;
+  pending?: boolean;
   onPress: () => void;
 };
 
-export function ActionButton({ label, tone, disabled, onPress }: ActionButtonProps) {
+export function ActionButton({ label, tone, disabled, pending = false, onPress }: ActionButtonProps) {
   const primary = tone === "primary";
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [{ flex: 1, opacity: disabled ? 0.35 : pressed ? 0.72 : 1 }]}>
+    <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [{ flex: 1, opacity: disabled && !pending ? 0.35 : pressed ? 0.72 : 1 }]}>
       <Box
         height={56}
+        flexDirection="row"
+        gap="xs"
         alignItems="center"
         justifyContent="center"
         borderRadius="pill"
@@ -44,9 +48,53 @@ export function ActionButton({ label, tone, disabled, onPress }: ActionButtonPro
         borderColor={primary ? "accent" : "border"}
         backgroundColor={primary ? "accent" : "surface"}
       >
+        {pending ? <ActivityIndicator size="small" color={primary ? palette.surface : palette.ink} /> : null}
         <AppText color={primary ? "surface" : "ink"} {...typeRamp.label} fontSize={16} lineHeight={22} fontWeight="800">{label}</AppText>
       </Box>
     </Pressable>
+  );
+}
+
+type ToastProps = {
+  title: string;
+  message?: string;
+  tone?: "info" | "success" | "danger";
+  onDismiss: () => void;
+  duration?: number;
+};
+
+export function Toast({ title, message, tone = "info", onDismiss, duration = 5500 }: ToastProps) {
+  useEffect(() => {
+    if (duration <= 0) return;
+    const timer = setTimeout(onDismiss, duration);
+    return () => clearTimeout(timer);
+  }, [duration, onDismiss, title, message]);
+
+  const background = tone === "success" ? "successSoft" : tone === "danger" ? "dangerSoft" : "surface";
+  const foreground = tone === "success" ? palette.success : tone === "danger" ? palette.danger : palette.ink;
+  const Icon = tone === "success" ? CheckCircleIcon : tone === "danger" ? WarningCircleIcon : InfoIcon;
+
+  return (
+    <Box
+      flexDirection="row"
+      alignItems="flex-start"
+      gap="s"
+      backgroundColor={background}
+      borderColor="border"
+      borderWidth={1}
+      borderRadius="l"
+      padding="m"
+      style={styles.toast}
+    >
+      <Icon size={22} color={foreground} weight="fill" />
+      <Box flex={1}>
+        <AppText variant="label" fontWeight="800">{title}</AppText>
+        {message ? <AppText variant="caption" marginTop="xs">{message}</AppText> : null}
+      </Box>
+      <Pressable accessibilityRole="button" accessibilityLabel="Dismiss notification" hitSlop={10} onPress={onDismiss}>
+        <XIcon size={18} color={palette.muted} weight="regular" />
+      </Pressable>
+    </Box>
   );
 }
 
@@ -67,10 +115,22 @@ export function Disclosure({ title, hint, open, onPress, children }: DisclosureP
             <AppText color="ink" {...typeRamp.label} fontWeight="800">{title}</AppText>
             <AppText variant="caption" marginTop="none">{hint}</AppText>
           </Box>
-          <AppText color="accent" fontSize={24} lineHeight={26}>{open ? "−" : "+"}</AppText>
+          {open
+            ? <MinusIcon size={22} color={palette.accent} weight="regular" />
+            : <PlusIcon size={22} color={palette.accent} weight="regular" />}
         </Box>
       </Pressable>
       {open ? children : null}
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  toast: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+});

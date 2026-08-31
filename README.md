@@ -8,6 +8,18 @@ This build contains no live-broker credentials and no live-order route. Shadow o
 
 The scanner parameters—14-day RSI at or below 30, close above its 200-day average, $5 minimum price, and $20 million minimum 20-day average dollar volume—are **proposed test variables**, not validated trading rules.
 
+## Modular risk model
+
+Each shadow observation includes a versioned observed-market-risk assessment assembled from independent pure modules:
+
+- Price volatility: 0–40 points from ATR percentage and 20-day annualized volatility.
+- Overnight gaps: 0–35 points from the recent 95th-percentile and maximum absolute gaps.
+- Historical liquidity: 0–25 points from average dollar volume and price.
+
+The thresholds are proposed test variables. This score does not predict success and deliberately excludes current spread, events, position size, stop, portfolio concentration, and account limits. The UI therefore presents complete trade risk as `INCOMPLETE`.
+
+Run the deterministic risk tests with `npm run test:risk`.
+
 ## Run
 
 1. Install dependencies with `npm install`.

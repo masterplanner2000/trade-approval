@@ -8,6 +8,14 @@ This local service is the boundary between the phone interface and a future user
 
 `GET /shadow/signals` returns the durable shadow ledger. Shadow records always include `orderSubmissionAllowed: false`; they are not accepted by the approval or paper-order routes.
 
+## SEC EDGAR research source
+
+The service uses IBKR for market/account data and the official SEC EDGAR APIs for recent 10-K, 10-Q and 8-K filing metadata plus standardized XBRL revenue and net-income facts. Set `SEC_USER_AGENT` to a descriptive application name and contact email before enabling requests. SEC research is cached for 15 minutes, attached to proposals as context, and is explicitly marked `researchOnly`; it does not affect eligibility, sizing, prices, approvals, or order submission.
+
+`GET /research/sec?symbol=NVDA` returns the normalized research record for a supported U.S. company. ETFs in the scanner universe are intentionally excluded.
+
+Risk calculations live under `service/risk/`. Components have no network or broker side effects and return a versioned structured result. `equity-observed-market-risk-v1` currently combines volatility, overnight-gap, and historical-liquidity components. Complete trade risk remains null until entry, stop, quantity, portfolio, current spread, and event data are available.
+
 It deliberately cannot submit live orders. Approved proposals receive an HMAC-signed, single-use receipt that binds the approval to an exact paper account, symbol, direction, quantity, order type, maximum price, stop, and short expiration.
 
 ## Run locally
@@ -21,6 +29,7 @@ Endpoints:
 - `GET /health`
 - `GET /proposals`
 - `GET /audit`
+- `GET /research/sec?symbol=NVDA`
 - `GET /shadow/signals`
 - `POST /shadow/scan`
 - `POST /proposals/demo`

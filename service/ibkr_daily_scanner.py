@@ -13,6 +13,8 @@ from ibapi.client import EClient
 from ibapi.contract import Contract
 from ibapi.wrapper import EWrapper
 
+from risk import calculate_equity_market_risk
+
 
 HOST = "127.0.0.1"
 PAPER_PORT = 7497
@@ -131,6 +133,7 @@ def evaluate(symbol: str, bars: list[DailyBar], errors: list[dict[str, object]])
     average_dollar_volume = sum(
         bar.close * bar.volume for bar in completed[-ADV_WINDOW:]
     ) / ADV_WINDOW
+    market_risk = calculate_equity_market_risk(completed)
     checks = [
         {"id": "price", "label": f"Close is at least ${MINIMUM_PRICE:.2f}", "passed": latest.close >= MINIMUM_PRICE, "actual": latest.close},
         {"id": "liquidity", "label": f"20-day average dollar volume is at least ${MINIMUM_AVERAGE_DOLLAR_VOLUME:,.0f}", "passed": average_dollar_volume >= MINIMUM_AVERAGE_DOLLAR_VOLUME, "actual": average_dollar_volume},
@@ -145,6 +148,7 @@ def evaluate(symbol: str, bars: list[DailyBar], errors: list[dict[str, object]])
         "rsi": round(rsi, 4) if rsi is not None else None,
         "sma200": round(sma, 4),
         "averageDollarVolume20": round(average_dollar_volume, 2),
+        "marketRisk": market_risk,
         "barCount": len(completed),
         "checks": checks,
         "warnings": errors,

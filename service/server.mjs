@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { getSecCompanyResearch, summarizeSecResearch } from "./sec_edgar.mjs";
 
 const port = Number(process.env.TRADE_APPROVAL_PORT ?? 8787);
 const host = process.env.TRADE_APPROVAL_HOST ?? "127.0.0.1";
@@ -104,7 +105,7 @@ function roundPrice(value) {
   return Math.round(value * 100) / 100;
 }
 
-function seedProposal(snapshot = null) {
+function seedProposal(snapshot = null, secResearch = null) {
   const referencePrice = snapshot?.quote?.last ?? snapshot?.quote?.close ?? 183.1;
   const bid = snapshot?.quote?.bid ?? referencePrice;
   const ask = snapshot?.quote?.ask ?? referencePrice;
@@ -134,6 +135,8 @@ function seedProposal(snapshot = null) {
     targetPrice,
     maxLoss: roundPrice((limitPrice - stopPrice) * quantity),
     quoteDataType: snapshot?.quote?.dataType ?? null,
+    secResearch,
+    researchContext: summarizeSecResearch(secResearch),
     rationale: [
       "Included in the Phase 2 large-cap pilot universe",
       "Price and order limits were refreshed from IBKR",
@@ -160,8 +163,11 @@ async function nextRecommendation() {
   if (strategy.status !== "active") throw new Error("strategy_paused");
   if (strategy.currentExposure >= strategy.capitalLimit) throw new Error("strategy_capital_limit");
   const symbol = strategy.universe[strategy.nextUniverseIndex % strategy.universe.length];
-  const snapshot = await ibkrSnapshot(symbol);
-  const proposal = seedProposal(snapshot);
+  const [snapshot, secResearch] = await Promise.all([
+    ibkrSnapshot(symbol),
+    getSecCompanyResearch(symbol).catch(() => null),
+  ]);
+  const proposal = seedProposal(snapshot, secResearch);
   if (proposal.quantity < 1) {
     proposals.delete(proposal.id);
     throw new Error("insufficient_strategy_capital");
@@ -339,6 +345,17 @@ async function route(request, response) {
         readOnly: true,
         error: error.message === "invalid_symbol" ? error.message : "ibkr_unavailable",
       });
+    }
+  }
+
+  if (request.method === "GET" && url.pathname === "/research/sec") {
+    try {
+      const symbol = (url.searchParams.get("symbol") ?? "").toUpperCase();
+      const research = await getSecCompanyResearch(symbol);
+      if (!research) return json(response, 404, { error: "sec_symbol_unsupported" });
+      return json(response, 200, { research });
+    } catch (error) {
+      return json(response, 503, { error: error.message ?? "sec_research_unavailable" });
     }
   }
 
