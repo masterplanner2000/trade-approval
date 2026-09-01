@@ -59,6 +59,7 @@ type Proposal = {
   signalDate?: string;
   rulesetVersion?: string;
   marketRisk?: MarketRiskAssessment;
+  automaticExits?: boolean;
 };
 
 type RiskComponent = {
@@ -134,6 +135,14 @@ type ServiceProposal = {
   quoteDataType: number | null;
   rationale: string[];
   researchContext?: string | null;
+  exitPolicy: {
+    mode: "broker_bracket";
+    protectiveStopPrice: number;
+    profitTargetPrice: number;
+    entryTimeInForce: "DAY";
+    exitTimeInForce: "GTC";
+    automatic: true;
+  };
 };
 
 type StrategySummary = {
@@ -156,6 +165,9 @@ type OrderPreview = {
   quantity: number;
   limitPrice: number;
   estimatedNotional: number;
+  protectiveStop: number;
+  profitTarget: number;
+  automatedExits: boolean;
   ready: boolean;
   submitted: false;
 };
@@ -181,6 +193,13 @@ type PaperSubmission = {
     remaining: number | null;
     averageFillPrice: number | null;
   } | null;
+  exitOrders?: Array<{
+    orderId: number;
+    status: string;
+    action?: string;
+    orderType?: string;
+    parentId?: number | null;
+  } | null>;
 };
 
 const developmentHost = Constants.expoConfig?.hostUri?.split(":")[0];
@@ -606,6 +625,8 @@ export default function App() {
       decision: "pending",
       shadowMode: false,
       signalEligible: true,
+      automaticExits: serviceProposal.exitPolicy.automatic,
+      exitPlan: `If the buy fills, IBKR Paper will automatically place a profit-taking sell at ${money(serviceProposal.exitPolicy.profitTargetPrice)} and a protective stop sell triggered at ${money(serviceProposal.exitPolicy.protectiveStopPrice)}.`,
     }));
   }
 
@@ -744,7 +765,7 @@ export default function App() {
         setProposal((current) => ({ ...current, estimatedFees: commission }));
       }
 
-      setAppToast({ tone: "info", title: "Submitting to IBKR Paper", message: "Waiting for the broker to acknowledge the simulated order." });
+      setAppToast({ tone: "info", title: "Submitting paper bracket", message: "Waiting for IBKR to acknowledge the buy and both automatic exit orders." });
 
       const submitResponse = await fetch(`${API_BASE_URL}/orders/submit-paper`, {
         method: "POST",
@@ -766,8 +787,8 @@ export default function App() {
       setPaperSubmission(submitPayload.submission);
       setAppToast({
         tone: "success",
-        title: "Paper order submitted",
-        message: `${proposal.quantity} ${proposal.symbol} · ${submitPayload.submission.result?.status ?? "Acknowledged by IBKR"}`,
+        title: "Paper bracket submitted",
+        message: `${proposal.quantity} ${proposal.symbol} · buy plus protective stop and profit target acknowledged`,
       });
       setStrategy((current) => current ? {
         ...current,
@@ -821,12 +842,12 @@ export default function App() {
       return;
     }
     Alert.alert(
-      "Approve and submit this PAPER trade?",
-      `Send a simulated ${proposal.side} order for exactly ${proposal.quantity} shares of ${proposal.symbol}, spending no more than ${money(proposal.positionValue)} at a ${money(proposal.limitPrice)} limit.`,
+      "Approve this PAPER buy and automatic exits?",
+      `Buy exactly ${proposal.quantity} shares of ${proposal.symbol} at a ${money(proposal.limitPrice)} limit. If filled, IBKR Paper may automatically sell at the ${money(proposal.targetPrice)} profit target or the ${money(proposal.stopPrice)} protective stop. A stop does not guarantee the execution price.`,
       [
         { text: "Go back", style: "cancel" },
         {
-          text: "Approve & submit",
+          text: "Approve buy & exits",
           style: "default",
           onPress: () => void completeDecision("approved"),
         },
@@ -1183,6 +1204,23 @@ export default function App() {
                 <Text style={styles.infoCardTitle}>Why this trade</Text>
                 <Text style={styles.infoCardBody}>{firstTwoSentences(proposal.companyCatalyst)}</Text>
               </View>
+              {proposal.automaticExits && (
+                <View style={styles.exitPolicyCard}>
+                  <View style={styles.exitPolicyHeading}>
+                    <Text style={styles.infoCardTitle}>Automatic exits</Text>
+                    <Text style={styles.exitPolicyBadge}>IBKR HELD</Text>
+                  </View>
+                  <View style={styles.exitPolicyRow}>
+                    <Text style={styles.exitPolicyLabel}>Profit target</Text>
+                    <Text style={styles.exitPolicyValue}>Sell at {money(proposal.targetPrice)}</Text>
+                  </View>
+                  <View style={styles.exitPolicyRow}>
+                    <Text style={styles.exitPolicyLabel}>Protective stop</Text>
+                    <Text style={styles.exitPolicyValue}>Trigger at {money(proposal.stopPrice)}</Text>
+                  </View>
+                  <Text style={styles.exitPolicyNote}>Approving the buy also authorizes these exits. Stop execution price is not guaranteed.</Text>
+                </View>
+              )}
             </Pressable>
             <View style={styles.cardFooter}>
               {state === "pending" ? <View style={styles.actions}>
@@ -1194,7 +1232,7 @@ export default function App() {
                   onPress={() => uiPreview ? animateSampleDecision("denied") : decide("denied")}
                 />
                 <ActionButton
-                  label={decisionInFlight === "approved" ? "Submitting…" : "Approve"}
+                  label={decisionInFlight === "approved" ? "Submitting…" : "Approve buy"}
                   tone="primary"
                   pending={decisionInFlight === "approved"}
                   disabled={!uiPreview && (!actionable || processing)}
@@ -1360,6 +1398,13 @@ const styles = StyleSheet.create({
   infoCardTitle: { color: palette.ink, ...typeRamp.label, fontWeight: "800", marginBottom: 3 },
   infoCardBody: { color: palette.text, ...typeRamp.body },
   infoCardMuted: { color: palette.muted, ...typeRamp.body },
+  exitPolicyCard: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingTop: 11, paddingBottom: 8 },
+  exitPolicyHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 4 },
+  exitPolicyBadge: { color: palette.muted, fontSize: 9, lineHeight: 13, fontWeight: "800", letterSpacing: 0.7 },
+  exitPolicyRow: { minHeight: 28, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  exitPolicyLabel: { color: palette.muted, ...typeRamp.caption },
+  exitPolicyValue: { color: palette.ink, ...typeRamp.caption, fontWeight: "700" },
+  exitPolicyNote: { color: palette.muted, fontSize: 10, lineHeight: 14, marginTop: 5 },
   riskHeadline: { color: palette.ink, fontSize: 18, lineHeight: 24, fontWeight: "800", marginBottom: 2 },
   strategyCardName: { color: palette.ink, ...typeRamp.label, fontWeight: "700", marginBottom: 5 },
   infoRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, marginTop: 10 },

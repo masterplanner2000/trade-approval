@@ -133,6 +133,14 @@ function seedProposal(snapshot = null, secResearch = null) {
     limitPrice,
     stopPrice,
     targetPrice,
+    exitPolicy: {
+      mode: "broker_bracket",
+      protectiveStopPrice: stopPrice,
+      profitTargetPrice: targetPrice,
+      entryTimeInForce: "DAY",
+      exitTimeInForce: "GTC",
+      automatic: true,
+    },
     maxLoss: roundPrice((limitPrice - stopPrice) * quantity),
     quoteDataType: snapshot?.quote?.dataType ?? null,
     secResearch,
@@ -241,6 +249,8 @@ async function ibkrPaperSubmit(receipt) {
     action: receipt.side.toUpperCase(),
     quantity: receipt.quantity,
     limitPrice: receipt.limitPrice,
+    stopPrice: receipt.stopPrice,
+    targetPrice: receipt.targetPrice,
     decisionId: receipt.decisionId,
   };
   try {
@@ -269,6 +279,8 @@ function approvalReceipt(proposal) {
     orderType: proposal.orderType,
     limitPrice: proposal.limitPrice,
     stopPrice: proposal.stopPrice,
+    targetPrice: proposal.targetPrice,
+    exitPolicy: proposal.exitPolicy,
     approvedAt: now(),
     expiresAt: Math.min(proposal.expiresAt, now() + 60_000)
   };
@@ -407,7 +419,16 @@ async function route(request, response) {
           proposal.symbol === receipt.symbol &&
           proposal.side === receipt.side &&
           proposal.quantity === receipt.quantity &&
-          proposal.limitPrice === receipt.limitPrice,
+          proposal.limitPrice === receipt.limitPrice &&
+          proposal.stopPrice === receipt.stopPrice &&
+          proposal.targetPrice === receipt.targetPrice,
+        buyOnly: receipt.side === "buy",
+        bracketValid:
+          receipt.exitPolicy?.mode === "broker_bracket" &&
+          receipt.exitPolicy?.automatic === true &&
+          receipt.stopPrice > 0 &&
+          receipt.stopPrice < receipt.limitPrice &&
+          receipt.targetPrice > receipt.limitPrice,
         notExpired: receipt.expiresAt > now(),
         withinLimit:
           typeof referencePrice === "number" &&
@@ -425,6 +446,8 @@ async function route(request, response) {
         orderType: receipt.orderType.toUpperCase(),
         limitPrice: receipt.limitPrice,
         protectiveStop: receipt.stopPrice,
+        profitTarget: receipt.targetPrice,
+        automatedExits: true,
         timeInForce: "DAY",
         estimatedNotional: roundPrice(receipt.quantity * receipt.limitPrice),
         referencePrice,
@@ -486,19 +509,34 @@ async function route(request, response) {
     try {
       const snapshot = await ibkrSnapshot(receipt.symbol);
       const referencePrice = snapshot.quote.ask ?? snapshot.quote.last ?? snapshot.quote.close;
-      const safe =
-        receipt.environment === "paper" &&
-        snapshot.environment === "paper" &&
-        snapshot.account === receipt.accountId &&
-        receipt.expiresAt > now() &&
-        strategy.universe.includes(receipt.symbol) &&
-        Number.isInteger(receipt.quantity) &&
-        receipt.quantity >= 1 &&
-        receipt.quantity <= 5 &&
-        receipt.quantity * receipt.limitPrice <= 1500 &&
-        typeof referencePrice === "number" &&
-        (receipt.side === "buy" ? referencePrice <= receipt.limitPrice : referencePrice >= receipt.limitPrice);
-      if (!safe) return json(response, 409, { error: "final_safety_check_blocked" });
+      const safetyChecks = {
+        paperEnvironment: receipt.environment === "paper" && snapshot.environment === "paper",
+        accountMatch: snapshot.account === receipt.accountId,
+        approvalFresh: receipt.expiresAt > now(),
+        strategySymbol: strategy.universe.includes(receipt.symbol),
+        buyOnly: receipt.side === "buy",
+        quantityAllowed: Number.isInteger(receipt.quantity) && receipt.quantity >= 1 && receipt.quantity <= 5,
+        notionalAllowed: receipt.quantity * receipt.limitPrice <= 1500,
+        priceWithinLimit: typeof referencePrice === "number" && referencePrice <= receipt.limitPrice,
+        bracketValid:
+          receipt.exitPolicy?.mode === "broker_bracket" &&
+          receipt.exitPolicy?.automatic === true &&
+          receipt.stopPrice > 0 &&
+          receipt.stopPrice < receipt.limitPrice &&
+          receipt.targetPrice > receipt.limitPrice,
+      };
+      const safe = Object.values(safetyChecks).every(Boolean);
+      if (!safe) {
+        auditLog.push({
+          id: randomUUID(),
+          at: now(),
+          event: "final_safety_check_blocked",
+          proposalId: proposal.id,
+          decisionId: receipt.decisionId,
+          checks: safetyChecks,
+        });
+        return json(response, 409, { error: "final_safety_check_blocked", checks: safetyChecks });
+      }
 
       // Consume before contacting IBKR so retries cannot create duplicate orders.
       consumedApprovals.add(receipt.decisionId);

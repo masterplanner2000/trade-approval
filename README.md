@@ -2,9 +2,13 @@
 
 Personal prototype for reviewing deterministic stock research observations on a phone. The current default screen is shadow-only: it reads completed IBKR daily bars, evaluates provisional RSI mean-reversion checks, and never creates an order.
 
+Product and technical decisions are tracked in [DECISION_LOG.md](./DECISION_LOG.md).
+
 ## Safety boundary
 
 This build contains no live-broker credentials and no live-order route. Shadow observations are isolated from the existing IBKR paper-order endpoints. Their quantity, entry, stop, target, and maximum loss remain undefined, and both decision buttons are disabled.
+
+When the user explicitly requests a paper recommendation, the executable pilot is buy-only. Approval binds the exact entry, quantity, protective stop, and profit target. A successful paper submission uses an IBKR bracket so the attached stop and profit-taking sells can execute automatically after the buy fills. Dynamic and time-based exits are not implemented yet.
 
 The scanner parameters—14-day RSI at or below 30, close above its 200-day average, $5 minimum price, and $20 million minimum 20-day average dollar volume—are **proposed test variables**, not validated trading rules.
 

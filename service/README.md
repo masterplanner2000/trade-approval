@@ -16,7 +16,7 @@ The service uses IBKR for market/account data and the official SEC EDGAR APIs fo
 
 Risk calculations live under `service/risk/`. Components have no network or broker side effects and return a versioned structured result. `equity-observed-market-risk-v1` currently combines volatility, overnight-gap, and historical-liquidity components. Complete trade risk remains null until entry, stop, quantity, portfolio, current spread, and event data are available.
 
-It deliberately cannot submit live orders. Approved proposals receive an HMAC-signed, single-use receipt that binds the approval to an exact paper account, symbol, direction, quantity, order type, maximum price, stop, and short expiration.
+It deliberately cannot submit live orders. Approved proposals receive an HMAC-signed, single-use receipt that binds the approval to an exact paper account, symbol, buy direction, quantity, order type, maximum entry price, protective stop, profit target, automatic-exit policy, and short expiration.
 
 ## Run locally
 
@@ -36,10 +36,10 @@ Endpoints:
 - `POST /proposals/:id/decision` with `{ "decision": "approved" }` or `denied`
 - `POST /orders/preview` with a signed approval token; validates and previews but cannot submit
 - `POST /orders/what-if` runs IBKR's broker-side pre-trade check only when explicitly enabled; it forces `whatIf=true`. IBKR requires `transmit=true` for What-If validation, but does not execute What-If orders.
-- `POST /orders/submit-paper` submits only after preview, What-If, a fresh quote/account check, and an unused approval. It accepts only the IBKR paper account, NVDA, 1–5 whole shares, a DAY limit order, and at most $1,500 notional.
+- `POST /orders/submit-paper` submits only after preview, What-If, a fresh quote/account check, and an unused approval. It accepts only an allowed strategy symbol in the IBKR paper account, a BUY of 1–5 whole shares, and at most $1,500 notional. The adapter submits a coordinated bracket: DAY limit buy, attached GTC profit-taking limit sell, and attached GTC protective stop sell. No standalone or short sell recommendation is accepted.
 - `POST /pause` with `{ "paused": true }`
 
-The future IBKR adapter should accept only verified receipts whose `environment` is `paper`, refresh account and quote data, and reject altered, expired, duplicate, or over-limit orders.
+The adapter accepts only verified receipts whose `environment` is `paper`, refreshes account and quote data, and rejects altered, expired, duplicate, over-limit, or invalid-bracket orders.
 
 ## Verify the local IBKR paper connection
 

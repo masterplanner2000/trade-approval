@@ -36,7 +36,8 @@ class PaperSubmit(EWrapper, EClient):
         self.done = threading.Event()
         self.next_order_id: int | None = None
         self.accounts: list[str] = []
-        self.result: dict | None = None
+        self.results: dict[int, dict] = {}
+        self.expected_order_ids: set[int] = set()
         self.errors: list[dict[str, str | int]] = []
 
     def nextValidId(self, orderId: int) -> None:  # noqa: N802
@@ -60,9 +61,9 @@ class PaperSubmit(EWrapper, EClient):
         whyHeld,
         mktCapPrice,
     ) -> None:
-        if orderId != self.next_order_id:
+        if orderId not in self.expected_order_ids:
             return
-        self.result = {
+        self.results[orderId] = {
             "orderId": orderId,
             "permanentId": permId or None,
             "status": status,
@@ -70,7 +71,22 @@ class PaperSubmit(EWrapper, EClient):
             "remaining": safe_number(remaining),
             "averageFillPrice": safe_number(avgFillPrice),
         }
-        if status in {"PreSubmitted", "Submitted", "Filled", "Cancelled", "ApiCancelled", "Inactive"}:
+        if self.expected_order_ids.issubset(self.results):
+            self.done.set()
+
+    def openOrder(self, orderId, contract, order, orderState) -> None:  # noqa: N802
+        if orderId not in self.expected_order_ids:
+            return
+        existing = self.results.get(orderId, {})
+        self.results[orderId] = {
+            **existing,
+            "orderId": orderId,
+            "status": existing.get("status") or orderState.status or "PendingSubmit",
+            "action": order.action,
+            "orderType": order.orderType,
+            "parentId": order.parentId or None,
+        }
+        if self.expected_order_ids.issubset(self.results):
             self.done.set()
 
     def error(self, reqId: int, *args) -> None:
@@ -81,8 +97,47 @@ class PaperSubmit(EWrapper, EClient):
         if errorCode in {2104, 2106, 2107, 2108, 2158, 2176}:
             return
         self.errors.append({"code": errorCode, "message": errorString})
-        if reqId == self.next_order_id:
+        if reqId in self.expected_order_ids:
             self.done.set()
+
+
+def build_bracket_orders(parent_order_id: int, account: str, quantity: int, limit_price: float, target_price: float, stop_price: float, decision_id: str):
+    parent = Order()
+    parent.orderId = parent_order_id
+    parent.account = account
+    parent.action = "BUY"
+    parent.orderType = "LMT"
+    parent.totalQuantity = Decimal(quantity)
+    parent.lmtPrice = limit_price
+    parent.tif = "DAY"
+    parent.transmit = False
+    parent.orderRef = f"trade-approval-{decision_id[:12]}-entry"
+
+    take_profit = Order()
+    take_profit.orderId = parent_order_id + 1
+    take_profit.account = account
+    take_profit.action = "SELL"
+    take_profit.orderType = "LMT"
+    take_profit.totalQuantity = Decimal(quantity)
+    take_profit.lmtPrice = target_price
+    take_profit.parentId = parent_order_id
+    take_profit.tif = "GTC"
+    take_profit.transmit = False
+    take_profit.orderRef = f"trade-approval-{decision_id[:12]}-target"
+
+    stop_loss = Order()
+    stop_loss.orderId = parent_order_id + 2
+    stop_loss.account = account
+    stop_loss.action = "SELL"
+    stop_loss.orderType = "STP"
+    stop_loss.totalQuantity = Decimal(quantity)
+    stop_loss.auxPrice = stop_price
+    stop_loss.parentId = parent_order_id
+    stop_loss.tif = "GTC"
+    stop_loss.transmit = True
+    stop_loss.orderRef = f"trade-approval-{decision_id[:12]}-stop"
+
+    return parent, take_profit, stop_loss
 
 
 def main() -> int:
@@ -92,17 +147,22 @@ def main() -> int:
         action = str(request["action"]).upper()
         quantity = int(request["quantity"])
         limit_price = Decimal(str(request["limitPrice"]))
+        stop_price = Decimal(str(request["stopPrice"]))
+        target_price = Decimal(str(request["targetPrice"]))
         expected_account = str(request["account"])
         decision_id = str(request["decisionId"])
     except Exception:
         print(json.dumps({"ok": False, "error": "invalid_request"}))
         return 2
 
-    if symbol not in ALLOWED_SYMBOLS or action not in {"BUY", "SELL"}:
+    if symbol not in ALLOWED_SYMBOLS or action != "BUY":
         print(json.dumps({"ok": False, "error": "instrument_or_action_blocked"}))
         return 2
-    if quantity < 1 or quantity > MAX_QUANTITY or limit_price <= 0:
+    if quantity < 1 or quantity > MAX_QUANTITY or limit_price <= 0 or stop_price <= 0:
         print(json.dumps({"ok": False, "error": "size_blocked"}))
+        return 2
+    if not stop_price < limit_price < target_price:
+        print(json.dumps({"ok": False, "error": "invalid_bracket_prices"}))
         return 2
     if Decimal(quantity) * limit_price > MAX_NOTIONAL:
         print(json.dumps({"ok": False, "error": "notional_blocked"}))
@@ -135,28 +195,34 @@ def main() -> int:
         contract.exchange = "SMART"
         contract.currency = "USD"
 
-        order = Order()
-        order.account = account
-        order.action = action
-        order.orderType = "LMT"
-        order.totalQuantity = Decimal(quantity)
-        order.lmtPrice = float(limit_price)
-        order.tif = "DAY"
-        order.whatIf = False
-        order.transmit = True
-        order.orderRef = f"trade-approval-{decision_id[:12]}"
-
-        app.placeOrder(app.next_order_id, contract, order)
+        parent, take_profit, stop_loss = build_bracket_orders(
+            app.next_order_id,
+            account,
+            quantity,
+            float(limit_price),
+            float(target_price),
+            float(stop_price),
+            decision_id,
+        )
+        app.expected_order_ids = {parent.orderId, take_profit.orderId, stop_loss.orderId}
+        app.placeOrder(parent.orderId, contract, parent)
+        app.placeOrder(take_profit.orderId, contract, take_profit)
+        app.placeOrder(stop_loss.orderId, contract, stop_loss)
         app.done.wait(12)
+        parent_result = app.results.get(parent.orderId)
+        exit_results = [app.results.get(take_profit.orderId), app.results.get(stop_loss.orderId)]
         output = {
-            "ok": app.result is not None and not app.errors,
+            "ok": parent_result is not None and all(exit_results) and not app.errors,
             "environment": "paper",
             "account": masked,
             "symbol": symbol,
             "action": action,
             "quantity": quantity,
             "limitPrice": float(limit_price),
-            "result": app.result,
+            "stopPrice": float(stop_price),
+            "targetPrice": float(target_price),
+            "result": parent_result,
+            "exitOrders": exit_results,
             "errors": app.errors,
         }
         print(json.dumps(output))
