@@ -28,8 +28,8 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-012 | Risk assessment must include trade size and portfolio impact | Confirmed | 2026-08-31 |
 | D-013 | Paper testing measures both automation and strategy performance | Confirmed | 2026-08-31 |
 | D-014 | Record approved, denied, expired, and unselected recommendations | Confirmed | 2026-08-31 |
-| D-015 | Use one authoritative broker-readiness state in the UI | Provisional | 2026-08-31 |
-| D-016 | Recommend buys only; automatically manage disclosed exits | Confirmed | 2026-08-31 |
+| D-015 | Use one authoritative broker-readiness state in the UI | Confirmed | 2026-08-31 |
+| D-016 | Recommend buys only; require approval for ordinary profit-taking | Confirmed | 2026-08-31 |
 
 ---
 
@@ -162,26 +162,28 @@ This is the living record of product, design, trading-safety, data, and technica
 
 ### D-015 — Unify broker readiness
 
-**Status:** Provisional  
+**Status:** Confirmed
 **Decision:** Replace contradictory connection flags with one authoritative broker-readiness model. Scanner-data availability should be represented separately from TWS/API availability.  
 **Reason:** The prototype can currently show a green “Paper connected” chip while disabling decisions because a separate scanner flag failed.  
+**Implementation:** Decision controls now use the broker snapshot and broker-connection status only. Snapshot calls are serialized, background checks pause during order workflows, the scanner has a separate TWS client ID, and three consecutive health-check failures are required before showing Paper offline.
 **Acceptance criteria:** The visible status, button availability, and error message must all describe the same execution state and identify the exact failed stage.
 
-### D-016 — Recommend buys only; automatically manage disclosed exits
+### D-016 — Recommend buys only; require approval for ordinary profit-taking
 
 **Status:** Confirmed  
-**Decision:** The recommendation engine may propose opening long stock positions only. The user must explicitly approve every buy. Approval also authorizes the exact protective stop and profit-taking sell orders disclosed on that recommendation. Those exits may execute automatically without a second approval after the buy fills.  
-**Reason:** Human review remains at the capital-allocation decision, while broker-held exits can enforce the agreed loss and profit criteria even if the phone, Mac, or application is temporarily unavailable.  
-**Initial implementation:** Submit the approved paper buy as an IBKR bracket consisting of a DAY limit-entry order, an attached GTC profit-taking limit sell, and an attached GTC protective stop sell. Dynamic or time-based exits remain out of scope until position reconciliation and persistent monitoring are implemented.  
+**Decision:** The recommendation engine may propose opening long stock positions only. The user must explicitly approve every buy. Buy approval authorizes the disclosed protective stop, but an ordinary profit-target sale requires a new user approval. Automatic profit-taking is permitted only as a predefined exception for an urgent, time-sensitive, or unusually volatile condition.
+**Reason:** Protective selling prevents an open position from continuing to deteriorate when the user is unavailable. Ordinary profit-taking is less urgent and should preserve the user's control over whether and when to exit.
+**Initial implementation:** Submit the approved paper buy with an attached GTC protective stop. Treat the displayed profit target as a monitoring threshold that creates a sell-approval request rather than an automatically transmitted sell. Define and test objective emergency-exit rules before allowing any automatic profit-taking exception.
 **Implications:**
 
 - The card and final confirmation must disclose the entry, stop, target, quantity, estimated loss, and fact that the exits are automatic.
-- The approval token must bind the stop and target as well as the entry terms.
+- The approval token must bind the protective stop and entry terms. The target remains part of the recommendation and monitoring record but is not authorized for automatic sale.
 - The engine cannot recommend a short position or an unapproved standalone sell.
 - Exit orders may sell only the quantity filled by the associated strategy entry.
 - Manual broker activity must be reconciled before modifying or replacing exits.
 - A stop price limits trigger conditions but cannot guarantee the execution price during gaps or fast markets.
 - Existing broker-held protective orders remain active during an app or Mac outage unless explicitly cancelled at the broker.
+- “Urgent,” “time-sensitive,” and “volatile” must be expressed as deterministic, auditable thresholds; an AI-generated rationale alone cannot authorize an automatic profit sale.
 
 ---
 
@@ -224,3 +226,4 @@ This is the living record of product, design, trading-safety, data, and technica
 
 - Created the decision log.
 - Consolidated decisions made during prototype design, IBKR Paper integration, risk-model planning, card interaction design, home navigation, options separation, and performance measurement.
+- Confirmed and implemented unified broker readiness and collision-resistant IBKR connection checks.

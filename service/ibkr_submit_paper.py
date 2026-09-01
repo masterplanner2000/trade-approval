@@ -39,6 +39,7 @@ class PaperSubmit(EWrapper, EClient):
         self.results: dict[int, dict] = {}
         self.expected_order_ids: set[int] = set()
         self.errors: list[dict[str, str | int]] = []
+        self.warnings: list[dict[str, str | int]] = []
 
     def nextValidId(self, orderId: int) -> None:  # noqa: N802
         self.next_order_id = orderId
@@ -96,6 +97,9 @@ class PaperSubmit(EWrapper, EClient):
             errorCode, errorString, *_ = args
         if errorCode in {2104, 2106, 2107, 2108, 2158, 2176}:
             return
+        if errorCode == 399 and "will not be placed at the exchange until" in errorString:
+            self.warnings.append({"code": errorCode, "message": errorString})
+            return
         self.errors.append({"code": errorCode, "message": errorString})
         if reqId in self.expected_order_ids:
             self.done.set()
@@ -111,6 +115,8 @@ def build_bracket_orders(parent_order_id: int, account: str, quantity: int, limi
     parent.lmtPrice = limit_price
     parent.tif = "DAY"
     parent.transmit = False
+    parent.eTradeOnly = False
+    parent.firmQuoteOnly = False
     parent.orderRef = f"trade-approval-{decision_id[:12]}-entry"
 
     take_profit = Order()
@@ -123,6 +129,8 @@ def build_bracket_orders(parent_order_id: int, account: str, quantity: int, limi
     take_profit.parentId = parent_order_id
     take_profit.tif = "GTC"
     take_profit.transmit = False
+    take_profit.eTradeOnly = False
+    take_profit.firmQuoteOnly = False
     take_profit.orderRef = f"trade-approval-{decision_id[:12]}-target"
 
     stop_loss = Order()
@@ -135,6 +143,8 @@ def build_bracket_orders(parent_order_id: int, account: str, quantity: int, limi
     stop_loss.parentId = parent_order_id
     stop_loss.tif = "GTC"
     stop_loss.transmit = True
+    stop_loss.eTradeOnly = False
+    stop_loss.firmQuoteOnly = False
     stop_loss.orderRef = f"trade-approval-{decision_id[:12]}-stop"
 
     return parent, take_profit, stop_loss
@@ -224,6 +234,7 @@ def main() -> int:
             "result": parent_result,
             "exitOrders": exit_results,
             "errors": app.errors,
+            "warnings": app.warnings,
         }
         print(json.dumps(output))
         return 0 if output["ok"] else 1

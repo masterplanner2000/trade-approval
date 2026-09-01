@@ -18,7 +18,7 @@ from risk import calculate_equity_market_risk
 
 HOST = "127.0.0.1"
 PAPER_PORT = 7497
-CLIENT_ID = 73
+CLIENT_ID = 75
 MINIMUM_BARS = 205
 RULESET_VERSION = "daily-rsi-reversion-research-v1"
 

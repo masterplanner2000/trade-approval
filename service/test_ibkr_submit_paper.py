@@ -1,9 +1,16 @@
 import unittest
 
-from ibkr_submit_paper import build_bracket_orders
+from ibkr_submit_paper import PaperSubmit, build_bracket_orders
 
 
 class BracketOrderTests(unittest.TestCase):
+    def test_outside_hours_notice_is_warning_not_error(self):
+        app = PaperSubmit()
+        app.error(12, 399, "Order Message: Warning: Your order will not be placed at the exchange until tomorrow.")
+
+        self.assertEqual(app.errors, [])
+        self.assertEqual(app.warnings[0]["code"], 399)
+
     def test_builds_buy_with_two_automatic_sell_exits(self):
         parent, target, stop = build_bracket_orders(
             parent_order_id=100,
@@ -39,6 +46,10 @@ class BracketOrderTests(unittest.TestCase):
         self.assertEqual(parent.lmtPrice, 100.0)
         self.assertEqual(target.lmtPrice, 104.0)
         self.assertEqual(stop.auxPrice, 98.0)
+
+        for order in (parent, target, stop):
+            self.assertFalse(order.eTradeOnly)
+            self.assertFalse(order.firmQuoteOnly)
 
 
 if __name__ == "__main__":

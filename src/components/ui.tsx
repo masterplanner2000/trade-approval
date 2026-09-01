@@ -49,7 +49,7 @@ export function ActionButton({ label, tone, disabled, pending = false, onPress }
         backgroundColor={primary ? "accent" : "surface"}
       >
         {pending ? <ActivityIndicator size="small" color={primary ? palette.surface : palette.ink} /> : null}
-        <AppText color={primary ? "surface" : "ink"} {...typeRamp.label} fontSize={16} lineHeight={22} fontWeight="800">{label}</AppText>
+        <AppText color={primary ? "surface" : "ink"} {...typeRamp.label} fontSize={16} lineHeight={22} fontWeight="400">{label}</AppText>
       </Box>
     </Pressable>
   );
@@ -59,19 +59,20 @@ type ToastProps = {
   title: string;
   message?: string;
   tone?: "info" | "success" | "danger";
+  loading?: boolean;
   onDismiss: () => void;
   duration?: number;
 };
 
-export function Toast({ title, message, tone = "info", onDismiss, duration = 5500 }: ToastProps) {
+export function Toast({ title, message, tone = "info", loading = false, onDismiss, duration = 5500 }: ToastProps) {
   useEffect(() => {
     if (duration <= 0) return;
     const timer = setTimeout(onDismiss, duration);
     return () => clearTimeout(timer);
   }, [duration, onDismiss, title, message]);
 
-  const background = tone === "success" ? "successSoft" : tone === "danger" ? "dangerSoft" : "surface";
-  const foreground = tone === "success" ? palette.success : tone === "danger" ? palette.danger : palette.ink;
+  const background = "ink";
+  const foreground = tone === "success" ? palette.success : tone === "danger" ? palette.danger : palette.surface;
   const Icon = tone === "success" ? CheckCircleIcon : tone === "danger" ? WarningCircleIcon : InfoIcon;
 
   return (
@@ -80,19 +81,21 @@ export function Toast({ title, message, tone = "info", onDismiss, duration = 550
       alignItems="flex-start"
       gap="s"
       backgroundColor={background}
-      borderColor="border"
+      borderColor="ink"
       borderWidth={1}
       borderRadius="l"
       padding="m"
       style={styles.toast}
     >
-      <Icon size={22} color={foreground} weight="fill" />
+      {loading
+        ? <ActivityIndicator size="small" color={palette.surface} />
+        : <Icon size={22} color={foreground} weight="fill" />}
       <Box flex={1}>
-        <AppText variant="label" fontWeight="800">{title}</AppText>
-        {message ? <AppText variant="caption" marginTop="xs">{message}</AppText> : null}
+        <AppText color="surface" {...typeRamp.label} fontWeight="400">{title}</AppText>
+        {message ? <AppText color="surface" {...typeRamp.caption} marginTop="xs" style={styles.toastMessageDark}>{message}</AppText> : null}
       </Box>
       <Pressable accessibilityRole="button" accessibilityLabel="Dismiss notification" hitSlop={10} onPress={onDismiss}>
-        <XIcon size={18} color={palette.muted} weight="regular" />
+        <XIcon size={18} color="#A3A3A3" weight="regular" />
       </Pressable>
     </Box>
   );
@@ -133,4 +136,5 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 4,
   },
+  toastMessageDark: { opacity: 0.78 },
 });

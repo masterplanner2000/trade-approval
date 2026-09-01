@@ -133,6 +133,7 @@ function seedProposal(snapshot = null, secResearch = null) {
     limitPrice,
     stopPrice,
     targetPrice,
+    targetTimeframe: strategy.expectedHoldingPeriod,
     exitPolicy: {
       mode: "broker_bracket",
       protectiveStopPrice: stopPrice,
@@ -211,7 +212,7 @@ async function body(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-async function ibkrSnapshot(symbol = "NVDA") {
+async function runIbkrSnapshot(symbol = "NVDA") {
   const normalized = symbol.toUpperCase();
   if (!/^[A-Z0-9]{1,10}$/.test(normalized)) throw new Error("invalid_symbol");
   const { stdout } = await execFileAsync(ibkrPython, [ibkrSnapshotScript, normalized], {
@@ -219,6 +220,15 @@ async function ibkrSnapshot(symbol = "NVDA") {
     maxBuffer: 128 * 1024,
   });
   return JSON.parse(stdout);
+}
+
+// The snapshot helper uses one dedicated TWS client ID. Serialize calls so a
+// health poll cannot collide with an approval-time price/safety check.
+let snapshotQueue = Promise.resolve();
+function ibkrSnapshot(symbol = "NVDA") {
+  const request = snapshotQueue.then(() => runIbkrSnapshot(symbol));
+  snapshotQueue = request.catch(() => undefined);
+  return request;
 }
 
 async function ibkrWhatIf(receipt) {
@@ -563,6 +573,9 @@ async function route(request, response) {
         proposalId: proposal.id,
         decisionId: receipt.decisionId,
         brokerOrderId: submission.result?.orderId ?? null,
+        brokerStatus: submission.result?.status ?? null,
+        brokerErrors: submission.errors ?? [],
+        brokerWarnings: submission.warnings ?? [],
       });
       return json(response, submission.ok ? 200 : 409, { submission });
     } catch {
