@@ -14,7 +14,7 @@ This is the living record of product, design, trading-safety, data, and technica
 
 | ID | Decision | Status | Last updated |
 |---|---|---|---|
-| D-001 | Human approval is required before every order | Superseded by D-016 | 2026-08-31 |
+| D-001 | Human approval is required before every order | Superseded by D-017 | 2026-08-31 |
 | D-002 | Use IBKR Paper as the first execution environment | Confirmed | 2026-08-31 |
 | D-003 | Keep the trading service on the Mac, not in the phone app | Confirmed | 2026-08-31 |
 | D-004 | Use Tailscale for private phone-to-Mac connectivity during prototyping | Confirmed | 2026-08-31 |
@@ -29,7 +29,8 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-013 | Paper testing measures both automation and strategy performance | Confirmed | 2026-08-31 |
 | D-014 | Record approved, denied, expired, and unselected recommendations | Confirmed | 2026-08-31 |
 | D-015 | Use one authoritative broker-readiness state in the UI | Confirmed | 2026-08-31 |
-| D-016 | Recommend buys only; require approval for ordinary profit-taking | Confirmed | 2026-08-31 |
+| D-016 | Keep a versioned architecture source of truth | Confirmed | 2026-08-31 |
+| D-017 | Recommend buys only; require approval for ordinary profit-taking | Confirmed | 2026-08-31 |
 
 ---
 
@@ -37,7 +38,7 @@ This is the living record of product, design, trading-safety, data, and technica
 
 ### D-001 — Human approval is required before every order
 
-**Status:** Superseded by D-016  
+**Status:** Superseded by D-017
 **Decision:** The research and recommendation system may scan, calculate quantity, choose order parameters, and propose timing. It must not place an order until the user explicitly approves that specific trade.  
 **Reason:** The product is a decision-and-execution assistant, not an autonomous trading bot.  
 **Implications:**
@@ -168,7 +169,17 @@ This is the living record of product, design, trading-safety, data, and technica
 **Implementation:** Decision controls now use the broker snapshot and broker-connection status only. Snapshot calls are serialized, background checks pause during order workflows, the scanner has a separate TWS client ID, and three consecutive health-check failures are required before showing Paper offline.
 **Acceptance criteria:** The visible status, button availability, and error message must all describe the same execution state and identify the exact failed stage.
 
-### D-016 — Recommend buys only; require approval for ordinary profit-taking
+### D-016 — Keep a versioned architecture source of truth
+
+**Status:** Confirmed
+
+**Decision:** Maintain the current application diagram, component responsibilities, implementation status, and architecture history in `ARCHITECTURE.md`.
+
+**Reason:** The system spans research, risk, approval, execution, reconciliation, user interfaces, and evaluation. A maintained source of truth prevents different conversations and implementation workstreams from developing incompatible mental models.
+
+**Implications:** The Mermaid definition in the repository is authoritative; derived FigJam diagrams should be regenerated after material updates. Future project tasks are instructed through `AGENTS.md` to read and maintain both the architecture and decision log.
+
+### D-017 — Recommend buys only; require approval for ordinary profit-taking
 
 **Status:** Confirmed  
 **Decision:** The recommendation engine may propose opening long stock positions only. The user must explicitly approve every buy. Buy approval authorizes the disclosed protective stop, but an ordinary profit-target sale requires a new user approval. Automatic profit-taking is permitted only as a predefined exception for an urgent, time-sensitive, or unusually volatile condition.
@@ -184,6 +195,12 @@ This is the living record of product, design, trading-safety, data, and technica
 - A stop price limits trigger conditions but cannot guarantee the execution price during gaps or fast markets.
 - Existing broker-held protective orders remain active during an app or Mac outage unless explicitly cancelled at the broker.
 - “Urgent,” “time-sensitive,” and “volatile” must be expressed as deterministic, auditable thresholds; an AI-generated rationale alone cannot authorize an automatic profit sale.
+
+### D-018 — Support an explicit in-app light/dark appearance control
+
+**Status:** Confirmed
+**Decision:** Place a compact Phosphor sun/moon toggle beside the broker-status pill. The selected appearance changes the full interface through shared semantic color tokens, including cards, sheets, controls, and the system status bar.
+**Reason:** Appearance is a user preference and must not alter or obscure broker connectivity, risk, or order state. A separate icon control keeps that preference distinct from the execution-status pill.
 
 ---
 
@@ -227,3 +244,21 @@ This is the living record of product, design, trading-safety, data, and technica
 - Created the decision log.
 - Consolidated decisions made during prototype design, IBKR Paper integration, risk-model planning, card interaction design, home navigation, options separation, and performance measurement.
 - Confirmed and implemented unified broker readiness and collision-resistant IBKR connection checks.
+- Established `ARCHITECTURE.md` as the versioned architecture source of truth and added continuity instructions for future tasks.
+- Reorganized architecture version 3.0 as a time-ordered lifecycle and reconciled the latest approved exit policy.
+- Added a shared dark appearance and a Phosphor sun/moon toggle beside broker status.
+# 2026-09-04 — Replace the minimum share-price filter
+
+**Decision:** Remove the arbitrary minimum share-price rule. Require at least 240 completed daily bars and $50 million in 20-day average dollar volume during scanning. Before creating a recommendation, require a current bid and ask with a spread no wider than 0.25%; try the next ranked eligible candidate when the highest-ranked candidate fails this execution check.
+
+**Reason:** Nominal share price does not measure company quality and changes mechanically after stock splits. Trading history, dollar liquidity, and executable spread are more relevant to data quality and order execution.
+
+**Known gap:** The current IBKR scanner does not provide a verified primary listing or market-cap field. The strategy universe remains curated as USD stock contracts routed through SMART until a reliable security-master/fundamentals source is added.
+
+# 2026-09-05 — Expand research to a cached 500-stock universe
+
+**Decision:** Use Alpaca as the research-data provider and IBKR as the current-quote, account-validation and execution broker. Refresh a local SQLite cache after market close from active, tradable U.S. equities; exclude OTC and obvious non-common-stock instruments; rank by completed-session dollar volume; and retain the top 500 for daily momentum evaluation.
+
+**Reason:** Bulk historical research across hundreds of securities is a different workload from brokerage execution. A local cache makes repeated scans fast and reproducible while avoiding excessive TWS historical requests.
+
+**Safety boundary:** Alpaca credentials are local secrets and never enter the mobile bundle or SQLite database. A cached technical candidate must still pass a fresh IBKR bid/ask spread check and the existing paper-order controls. Missing or stale cache data does not fall back to fabricated recommendations.

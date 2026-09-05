@@ -12,6 +12,7 @@ const host = process.env.TRADE_APPROVAL_HOST ?? "127.0.0.1";
 const appToken = process.env.TRADE_APPROVAL_APP_TOKEN ?? "";
 const whatIfEnabled = process.env.IBKR_ENABLE_WHAT_IF === "true";
 const paperSubmitEnabled = process.env.IBKR_ENABLE_PAPER_SUBMIT === "true";
+const maximumBidAskSpreadPercent = 0.25;
 const signingSecret = process.env.APPROVAL_SIGNING_SECRET ?? "paper-development-only";
 const proposals = new Map();
 const auditLog = [];
@@ -26,7 +27,7 @@ const ibkrPython = join(projectDirectory, ".venv-ibkr-10.49", "bin", "python");
 const ibkrSnapshotScript = join(serviceDirectory, "ibkr_snapshot.py");
 const ibkrWhatIfScript = join(serviceDirectory, "ibkr_what_if.py");
 const ibkrPaperSubmitScript = join(serviceDirectory, "ibkr_submit_paper.py");
-const ibkrDailyScannerScript = join(serviceDirectory, "ibkr_daily_scanner.py");
+const alpacaMarketCacheScript = join(serviceDirectory, "alpaca_market_cache.py");
 const strategyStatePath = join(serviceDirectory, "data", "strategy-state.json");
 const shadowLedgerPath = join(serviceDirectory, "data", "shadow-signals.json");
 const strategy = JSON.parse(readFileSync(strategyStatePath, "utf8"));
@@ -55,7 +56,7 @@ function saveShadowLedger(ledger) {
 
 async function scanDailyShadowSignals() {
   try {
-    const { stdout } = await execFileAsync(ibkrPython, [ibkrDailyScannerScript], {
+    const { stdout } = await execFileAsync(ibkrPython, [alpacaMarketCacheScript, "scan"], {
       timeout: 180_000,
       maxBuffer: 1024 * 1024,
     });
@@ -105,15 +106,18 @@ function roundPrice(value) {
   return Math.round(value * 100) / 100;
 }
 
-function seedProposal(snapshot = null, secResearch = null) {
+function seedProposal(snapshot = null, secResearch = null, candidate = null) {
   const referencePrice = snapshot?.quote?.last ?? snapshot?.quote?.close ?? 183.1;
   const bid = snapshot?.quote?.bid ?? referencePrice;
   const ask = snapshot?.quote?.ask ?? referencePrice;
   const limitPrice = roundPrice(Math.max(ask, referencePrice * 1.002));
   const availableCapital = Math.min(strategy.perTradeLimit, Math.max(0, strategy.capitalLimit - strategy.currentExposure));
   const quantity = Math.min(5, Math.floor(availableCapital / limitPrice));
-  const stopPrice = roundPrice(referencePrice * 0.98);
-  const targetPrice = roundPrice(referencePrice * 1.04);
+  const stopDistancePercent = Math.min(8, Math.max(2, (candidate?.atrPercent14 ?? 2) * 1.5));
+  const stopPrice = roundPrice(referencePrice * (1 - stopDistancePercent / 100));
+  const targetPrice = roundPrice(limitPrice + (limitPrice - stopPrice) * 2);
+  const riskQuantity = Math.floor((strategy.maxLossPerTrade ?? 75) / Math.max(limitPrice - stopPrice, 0.01));
+  const finalQuantity = Math.min(quantity, riskQuantity);
   const proposal = {
     id: randomUUID(),
     environment: "paper",
@@ -122,10 +126,10 @@ function seedProposal(snapshot = null, secResearch = null) {
     broker: "IBKR",
     accountId: snapshot?.account ?? "paper-demo",
     symbol: snapshot?.quote?.symbol ?? "NVDA",
-    company: companies[snapshot?.quote?.symbol] ?? snapshot?.quote?.symbol ?? "Unknown company",
+    company: candidate?.company ?? companies[snapshot?.quote?.symbol] ?? snapshot?.quote?.symbol ?? "Unknown company",
     assetType: "equity",
     side: "buy",
-    quantity,
+    quantity: finalQuantity,
     orderType: "limit",
     currentPrice: referencePrice,
     bid,
@@ -142,15 +146,15 @@ function seedProposal(snapshot = null, secResearch = null) {
       exitTimeInForce: "GTC",
       automatic: true,
     },
-    maxLoss: roundPrice((limitPrice - stopPrice) * quantity),
+    maxLoss: roundPrice((limitPrice - stopPrice) * finalQuantity),
     quoteDataType: snapshot?.quote?.dataType ?? null,
+    marketRisk: candidate?.marketRisk ?? null,
+    category: candidate?.category ?? "MOMENTUM_CONTINUATION",
+    recommendationScore: candidate?.recommendationScore ?? null,
+    universeSource: "alpaca-cache",
     secResearch,
     researchContext: summarizeSecResearch(secResearch),
-    rationale: [
-      "Included in the Phase 2 large-cap pilot universe",
-      "Price and order limits were refreshed from IBKR",
-      "Queue plumbing candidate—not yet a scanner-generated signal"
-    ],
+    rationale: candidate?.checks?.filter((check) => check.passed).map((check) => check.label) ?? [],
     createdAt: now(),
     expiresAt: now() + 5 * 60 * 1000,
     status: "pending",
@@ -171,18 +175,49 @@ async function nextRecommendation() {
   }
   if (strategy.status !== "active") throw new Error("strategy_paused");
   if (strategy.currentExposure >= strategy.capitalLimit) throw new Error("strategy_capital_limit");
-  const symbol = strategy.universe[strategy.nextUniverseIndex % strategy.universe.length];
-  const [snapshot, secResearch] = await Promise.all([
-    ibkrSnapshot(symbol),
-    getSecCompanyResearch(symbol).catch(() => null),
-  ]);
-  const proposal = seedProposal(snapshot, secResearch);
+  const scan = await scanDailyShadowSignals();
+  if (!scan.ok) throw new Error(scan.error ?? "scanner_unavailable");
+  const candidates = (scan.evaluations ?? [])
+    .filter((candidate) => candidate.eligible)
+    .sort((left, right) => right.recommendationScore - left.recommendationScore);
+  if (candidates.length === 0) throw new Error("no_eligible_recommendation");
+
+  let candidate = null;
+  let snapshot = null;
+  let spreadPercent = null;
+  for (const evaluated of candidates) {
+    const evaluatedSnapshot = await ibkrSnapshot(evaluated.symbol);
+    const bid = evaluatedSnapshot?.quote?.bid;
+    const ask = evaluatedSnapshot?.quote?.ask;
+    if (!(typeof bid === "number" && typeof ask === "number" && bid > 0 && ask >= bid)) continue;
+    const midpoint = (bid + ask) / 2;
+    const evaluatedSpreadPercent = ((ask - bid) / midpoint) * 100;
+    if (evaluatedSpreadPercent > maximumBidAskSpreadPercent) continue;
+    candidate = evaluated;
+    snapshot = evaluatedSnapshot;
+    spreadPercent = evaluatedSpreadPercent;
+    break;
+  }
+  if (!candidate || !snapshot) throw new Error("no_candidate_with_acceptable_spread");
+
+  candidate = {
+    ...candidate,
+    checks: [
+      ...candidate.checks,
+      {
+        id: "spread",
+        label: `Bid/ask spread is no more than ${maximumBidAskSpreadPercent.toFixed(2)}%`,
+        passed: true,
+        actual: spreadPercent,
+      },
+    ],
+  };
+  const secResearch = await getSecCompanyResearch(candidate.symbol).catch(() => null);
+  const proposal = seedProposal(snapshot, secResearch, candidate);
   if (proposal.quantity < 1) {
     proposals.delete(proposal.id);
     throw new Error("insufficient_strategy_capital");
   }
-  strategy.nextUniverseIndex = (strategy.nextUniverseIndex + 1) % strategy.universe.length;
-  saveStrategy();
   return { proposal, broker: snapshot, strategy: strategySummary() };
 }
 
@@ -523,7 +558,8 @@ async function route(request, response) {
         paperEnvironment: receipt.environment === "paper" && snapshot.environment === "paper",
         accountMatch: snapshot.account === receipt.accountId,
         approvalFresh: receipt.expiresAt > now(),
-        strategySymbol: strategy.universe.includes(receipt.symbol),
+        strategyUniverseApproved:
+          proposal.universeSource === "alpaca-cache" && proposal.symbol === receipt.symbol,
         buyOnly: receipt.side === "buy",
         quantityAllowed: Number.isInteger(receipt.quantity) && receipt.quantity >= 1 && receipt.quantity <= 5,
         notionalAllowed: receipt.quantity * receipt.limitPrice <= 1500,

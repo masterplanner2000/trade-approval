@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
 import { ThemeProvider } from "@shopify/restyle";
-import { CheckCircleIcon, CircleIcon, ClockIcon, ListIcon } from "phosphor-react-native";
+import { CheckCircleIcon, CircleIcon, ClockIcon, ListIcon, MoonIcon, SunIcon } from "phosphor-react-native";
 import {
   Alert,
   Animated,
@@ -17,7 +17,20 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ActionButton, Toast } from "./src/components/ui";
-import { AppText as Text, Box as View, palette, radius, spacing, theme, typeRamp } from "./src/design-system";
+import { AppText as Text, Box as View, darkPalette, darkTheme, palette, radius, spacing, theme, type AppPalette, typeRamp } from "./src/design-system";
+
+type VisualThemeContextValue = {
+  colors: AppPalette;
+  styles: ReturnType<typeof createStyles>;
+};
+
+const VisualThemeContext = createContext<VisualThemeContextValue | null>(null);
+
+function useVisualTheme() {
+  const value = useContext(VisualThemeContext);
+  if (!value) throw new Error("VisualThemeContext is unavailable");
+  return value;
+}
 
 type Decision = "pending" | "approved" | "denied" | "expired";
 type BrokerConnectionStatus = "checking" | "connected" | "disconnected";
@@ -136,6 +149,7 @@ type ServiceProposal = {
   quoteDataType: number | null;
   rationale: string[];
   researchContext?: string | null;
+  marketRisk?: MarketRiskAssessment;
   exitPolicy: {
     mode: "broker_bracket";
     protectiveStopPrice: number;
@@ -157,7 +171,8 @@ type StrategySummary = {
   remainingCapital: number;
   pendingRecommendations: number;
   completedCount: number;
-  universe: string[];
+  universeSource: "alpaca-cache";
+  universeLimit: number;
 };
 
 type OrderPreview = {
@@ -444,8 +459,6 @@ const SHADOW_LOADING: Proposal = {
   signalEligible: false,
 };
 
-const SHADOW_UNIVERSE = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"];
-
 const COMPANY_DOMAINS: Record<string, string> = {
   SPY: "ssga.com",
   QQQ: "invesco.com",
@@ -460,6 +473,7 @@ const COMPANY_DOMAINS: Record<string, string> = {
 };
 
 function CompanyMark({ symbol, size = 34 }: { symbol: string; size?: number }) {
+  const { styles } = useVisualTheme();
   const [failed, setFailed] = useState(false);
   const domain = COMPANY_DOMAINS[symbol];
 
@@ -502,6 +516,7 @@ function countdown(expiresAt: number) {
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
+  const { styles } = useVisualTheme();
   return (
     <View style={styles.metric}>
       <Text style={styles.metricLabel}>{label}</Text>
@@ -511,6 +526,10 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 export default function App() {
+  const [darkMode, setDarkMode] = useState(false);
+  const colors = darkMode ? darkPalette : palette;
+  const activeTheme = darkMode ? darkTheme : theme;
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [proposal, setProposal] = useState(SHADOW_LOADING);
   const [paused, setPaused] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -519,6 +538,7 @@ export default function App() {
   const [broker, setBroker] = useState<BrokerSnapshot | null>(null);
   const [brokerConnectionStatus, setBrokerConnectionStatus] = useState<BrokerConnectionStatus>("checking");
   const [brokerUnavailable, setBrokerUnavailable] = useState(false);
+  const [noEligibleRecommendation, setNoEligibleRecommendation] = useState(false);
   const [orderPreview, setOrderPreview] = useState<OrderPreview | null>(null);
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResult | null>(null);
   const [paperSubmission, setPaperSubmission] = useState<PaperSubmission | null>(null);
@@ -641,6 +661,7 @@ export default function App() {
       shadowMode: false,
       signalEligible: true,
       automaticExits: serviceProposal.exitPolicy.automatic,
+      marketRisk: serviceProposal.marketRisk,
       exitPlan: `If the buy fills, IBKR Paper will automatically place a profit-taking sell at ${money(serviceProposal.exitPolicy.profitTargetPrice)} and a protective stop sell triggered at ${money(serviceProposal.exitPolicy.protectiveStopPrice)}.`,
     }));
   }
@@ -650,9 +671,10 @@ export default function App() {
       method: "POST",
       headers: { "x-app-token": APP_TOKEN },
     });
-    if (!response.ok) throw new Error("proposal_unavailable");
-    const result = await response.json() as { proposal: ServiceProposal; broker: BrokerSnapshot; strategy: StrategySummary };
+    const result = await response.json() as { proposal: ServiceProposal; broker: BrokerSnapshot; strategy: StrategySummary; error?: string };
+    if (!response.ok) throw new Error(result.error ?? "proposal_unavailable");
     applyServiceProposal(result.proposal, result.broker, result.strategy);
+    setNoEligibleRecommendation(false);
     setBrokerConnectionStatus("connected");
     setUiPreview(false);
   }
@@ -721,8 +743,11 @@ export default function App() {
       setBrokerUnavailable(false);
       try {
         await createPaperProposal();
-      } catch {
-        if (active) setBrokerUnavailable(true);
+      } catch (error) {
+        if (!active) return;
+        const code = error instanceof Error ? error.message : "proposal_unavailable";
+        setNoEligibleRecommendation(code === "no_eligible_recommendation");
+        setBrokerUnavailable(code !== "no_eligible_recommendation");
       } finally {
         recommendationScanInFlight.current = false;
         if (active) setProcessing(false);
@@ -1103,24 +1128,39 @@ export default function App() {
   }
 
   return (
-    <ThemeProvider theme={theme}>
+    <VisualThemeContext.Provider value={{ colors, styles }}>
+    <ThemeProvider theme={activeTheme}>
     <SafeAreaProvider>
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
       <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
         <View style={styles.appHeader}>
           <Pressable accessibilityRole="button" accessibilityLabel="Open menu" onPress={openMenu} style={styles.menuButton}>
-            <ListIcon size={23} color={palette.ink} weight="regular" />
+            <ListIcon size={23} color={colors.ink} weight="regular" />
           </Pressable>
-          <View style={styles.marketPill}>
-            <CircleIcon
-              size={8}
-              weight="fill"
-              color={brokerConnectionStatus === "connected" ? "#22A447" : brokerConnectionStatus === "checking" ? "#D99000" : "#D64545"}
-            />
-            <Text style={styles.marketText}>
-              {brokerConnectionStatus === "connected" ? "Paper connected" : brokerConnectionStatus === "checking" ? "Checking paper" : "Paper offline"}
-            </Text>
+          <View style={styles.headerActions}>
+            <View style={styles.marketPill}>
+              <CircleIcon
+                size={8}
+                weight="fill"
+                color={brokerConnectionStatus === "connected" ? "#22A447" : brokerConnectionStatus === "checking" ? "#D99000" : "#D64545"}
+              />
+              <Text style={styles.marketText}>
+                {brokerConnectionStatus === "connected" ? "Paper connected" : brokerConnectionStatus === "checking" ? "Checking paper" : "Paper offline"}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityLabel={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+              accessibilityState={{ checked: darkMode }}
+              hitSlop={6}
+              onPress={() => setDarkMode((value) => !value)}
+              style={({ pressed }) => [styles.themeToggle, pressed && styles.themeTogglePressed]}
+            >
+              {darkMode
+                ? <SunIcon size={18} color={colors.ink} weight="regular" />
+                : <MoonIcon size={18} color={colors.ink} weight="regular" />}
+            </Pressable>
           </View>
         </View>
 
@@ -1146,6 +1186,8 @@ export default function App() {
             <Text style={styles.homeSummary}>
               {brokerUnavailable
                 ? "The scanner could not load a recommendation. You can try again when the connection is ready."
+                : noEligibleRecommendation
+                  ? "The scanner is active. Nothing in the pilot watchlist currently passes every momentum and risk rule."
                 : brokerConnectionStatus === "disconnected"
                   ? "Open TWS Paper and the local service. Recommendations will appear automatically after they reconnect."
                   : "Reviewing your watchlist against the current buying and risk rules. A card will appear automatically when it is ready."}
@@ -1245,7 +1287,7 @@ export default function App() {
                 <View style={styles.tradeTermRow}>
                   <Text style={styles.tradeTermLabel}>{state === "pending" ? "Expires in" : "Status"}</Text>
                   <View style={[styles.timer, state !== "pending" && styles.timerClosed]}>
-                    <ClockIcon size={15} color={palette.muted} weight="regular" />
+                    <ClockIcon size={15} color={colors.muted} weight="regular" />
                     <Text style={[styles.timerValue, state !== "pending" && styles.timerClosedText]}>{state === "pending" ? timer : state.toUpperCase()}</Text>
                   </View>
                 </View>
@@ -1336,7 +1378,7 @@ export default function App() {
                 <Text style={styles.sheetBody}>{proposal.companyCatalyst}</Text>
                 {proposal.rationale.map((reason) => (
                   <View key={reason} style={styles.infoRow}>
-                    <CheckCircleIcon size={17} color={palette.accent} weight="regular" />
+                    <CheckCircleIcon size={17} color={colors.accent} weight="regular" />
                     <Text style={styles.infoRowText}>{reason}</Text>
                   </View>
                 ))}
@@ -1374,209 +1416,215 @@ export default function App() {
     </SafeAreaView>
     </SafeAreaProvider>
     </ThemeProvider>
+    </VisualThemeContext.Provider>
   );
 }
 
-const ink = palette.ink;
-const green = palette.accent;
-const cream = palette.canvas;
+function createStyles(colors: AppPalette) {
+const ink = colors.ink;
+const green = colors.accent;
+const cream = colors.canvas;
 
-const styles = StyleSheet.create({
+return StyleSheet.create({
   safe: { flex: 1, backgroundColor: cream },
   page: { flexGrow: 1, width: "100%", maxWidth: 680, alignSelf: "center", paddingHorizontal: spacing.large, paddingTop: spacing.small, paddingBottom: spacing.large },
   appHeader: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   toastLayer: { position: "absolute", top: 66, left: spacing.large, right: spacing.large, zIndex: 20 },
-  menuButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 20 },
-  marketPill: { height: 34, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: palette.surfaceMuted, borderWidth: 0, borderRadius: radius.pill, paddingHorizontal: 12 },
-  marketText: { color: palette.text, ...typeRamp.caption, fontWeight: "400" },
+  menuButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 20 },
+  marketPill: { height: 34, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.surfaceMuted, borderWidth: 0, borderRadius: radius.pill, paddingHorizontal: 12 },
+  marketText: { color: colors.text, ...typeRamp.caption, fontWeight: "400" },
+  themeToggle: { width: 34, height: 34, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, borderRadius: radius.pill },
+  themeTogglePressed: { opacity: 0.68, transform: [{ scale: 0.96 }] },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
   eyebrow: { color: green, fontSize: 10, fontWeight: "800", letterSpacing: 1.6 },
   title: { color: ink, fontSize: 30, lineHeight: 38, fontWeight: "800", letterSpacing: -1 },
-  pauseButton: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: radius.pill, paddingHorizontal: 13, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 7 },
-  pauseButtonActive: { backgroundColor: palette.dangerSoft, borderColor: "#F4C8D0" },
+  pauseButton: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 13, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 7 },
+  pauseButtonActive: { backgroundColor: colors.dangerSoft, borderColor: "#F4C8D0" },
   statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: green },
-  statusDotPaused: { backgroundColor: palette.danger },
+  statusDotPaused: { backgroundColor: colors.danger },
   pauseText: { color: green, fontSize: 13, fontWeight: "700" },
-  pauseTextActive: { color: palette.danger },
-  pauseBanner: { backgroundColor: palette.danger, borderRadius: radius.medium, padding: 15 },
+  pauseTextActive: { color: colors.danger },
+  pauseBanner: { backgroundColor: colors.danger, borderRadius: radius.medium, padding: 15 },
   pauseBannerTitle: { color: "white", fontWeight: "800", fontSize: 15 },
   pauseBannerText: { color: "#F8DEDC", marginTop: 3, fontSize: 13 },
-  brokerBar: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: radius.medium, paddingHorizontal: 14, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 10 },
-  brokerBarUnavailable: { backgroundColor: palette.dangerSoft, borderColor: "#F4C8D0" },
+  brokerBar: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.medium, paddingHorizontal: 14, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  brokerBarUnavailable: { backgroundColor: colors.dangerSoft, borderColor: "#F4C8D0" },
   brokerDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: green },
-  brokerDotUnavailable: { backgroundColor: palette.danger },
+  brokerDotUnavailable: { backgroundColor: colors.danger },
   brokerCopy: { flex: 1 },
   brokerTitle: { color: ink, fontSize: 12, fontWeight: "800" },
-  brokerDetail: { color: palette.muted, fontSize: 10, marginTop: 2 },
-  strategyStatus: { backgroundColor: palette.ink, borderRadius: radius.medium, paddingHorizontal: 14, paddingVertical: 12 },
+  brokerDetail: { color: colors.muted, fontSize: 10, marginTop: 2 },
+  strategyStatus: { backgroundColor: colors.surfaceMuted, borderRadius: radius.medium, paddingHorizontal: 14, paddingVertical: 12 },
   strategyStatusHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
-  strategyStatusName: { color: "white", fontSize: 13, fontWeight: "800" },
-  strategyStatusCount: { color: "#B8B4FF", fontSize: 10, fontWeight: "700" },
-  strategyStatusDetail: { color: "#C9D4DF", fontSize: 10, marginTop: 5 },
+  strategyStatusName: { color: colors.ink, fontSize: 13, fontWeight: "800" },
+  strategyStatusCount: { color: colors.muted, fontSize: 10, fontWeight: "700" },
+  strategyStatusDetail: { color: colors.text, fontSize: 10, marginTop: 5 },
   homeDashboard: { flex: 1, minHeight: 500, paddingTop: 52, paddingBottom: 20 },
-  homeEyebrow: { color: palette.muted, ...typeRamp.caption, fontWeight: "400", letterSpacing: 1.1 },
-  homeTitle: { color: palette.ink, fontSize: 30, lineHeight: 36, fontWeight: "800", letterSpacing: -0.8 },
-  homeSummary: { color: palette.muted, ...typeRamp.body, marginTop: 8, maxWidth: 520 },
-  homeScannerPanel: { backgroundColor: palette.surfaceMuted, borderRadius: 20, marginTop: 26, paddingHorizontal: 18, paddingVertical: 5 },
-  homeScannerRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
-  homeScannerLabel: { color: palette.muted, ...typeRamp.body },
-  homeScannerValue: { color: palette.ink, ...typeRamp.body, fontWeight: "400", textAlign: "right" },
-  homeAction: { minHeight: 56, alignItems: "center", justifyContent: "center", backgroundColor: palette.accent, borderRadius: radius.pill, marginTop: 28, paddingHorizontal: 20 },
+  homeEyebrow: { color: colors.muted, ...typeRamp.caption, fontWeight: "400", letterSpacing: 1.1 },
+  homeTitle: { color: colors.ink, fontSize: 30, lineHeight: 36, fontWeight: "800", letterSpacing: -0.8 },
+  homeSummary: { color: colors.muted, ...typeRamp.body, marginTop: 8, maxWidth: 520 },
+  homeScannerPanel: { backgroundColor: colors.surfaceMuted, borderRadius: 20, marginTop: 26, paddingHorizontal: 18, paddingVertical: 5 },
+  homeScannerRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  homeScannerLabel: { color: colors.muted, ...typeRamp.body },
+  homeScannerValue: { color: colors.ink, ...typeRamp.body, fontWeight: "400", textAlign: "right" },
+  homeAction: { minHeight: 56, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent, borderRadius: radius.pill, marginTop: 28, paddingHorizontal: 20 },
   homeActionDisabled: { opacity: 0.35 },
   homeActionPressed: { opacity: 0.72 },
-  homeActionText: { color: palette.surface, fontSize: 16, lineHeight: 22, fontWeight: "400" },
+  homeActionText: { color: colors.surface, fontSize: 16, lineHeight: 22, fontWeight: "400" },
   scannerCard: { paddingVertical: 24 },
-  scannerTitle: { color: palette.ink, ...typeRamp.title },
-  scannerStatus: { color: palette.muted, ...typeRamp.body, marginTop: 5 },
+  scannerTitle: { color: colors.ink, ...typeRamp.title },
+  scannerStatus: { color: colors.muted, ...typeRamp.body, marginTop: 5 },
   symbolChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 18 },
-  symbolChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: palette.surfaceMuted, borderRadius: radius.pill, paddingLeft: 5, paddingRight: 12, paddingVertical: 5 },
-  symbolChipText: { color: palette.ink, ...typeRamp.caption, fontWeight: "400" },
-  logoFallback: { alignItems: "center", justifyContent: "center", backgroundColor: palette.surfaceMuted, borderWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
-  logoFallbackText: { color: palette.ink, fontSize: 9, lineHeight: 12, fontWeight: "800" },
-  previewProposalButton: { alignItems: "center", justifyContent: "center", minHeight: 46, borderWidth: 1, borderColor: palette.border, borderRadius: radius.medium, marginTop: 20, paddingHorizontal: 14 },
-  previewProposalButtonText: { color: palette.ink, ...typeRamp.label, fontWeight: "700" },
+  symbolChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingLeft: 5, paddingRight: 12, paddingVertical: 5 },
+  symbolChipText: { color: colors.ink, ...typeRamp.caption, fontWeight: "400" },
+  logoFallback: { alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  logoFallbackText: { color: colors.ink, fontSize: 9, lineHeight: 12, fontWeight: "800" },
+  previewProposalButton: { alignItems: "center", justifyContent: "center", minHeight: 46, borderWidth: 1, borderColor: colors.border, borderRadius: radius.medium, marginTop: 20, paddingHorizontal: 14 },
+  previewProposalButtonText: { color: colors.ink, ...typeRamp.label, fontWeight: "700" },
   previewNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
   nextExample: { paddingVertical: 4, paddingLeft: 12 },
-  nextExampleText: { color: palette.text, ...typeRamp.caption, fontWeight: "600" },
+  nextExampleText: { color: colors.text, ...typeRamp.caption, fontWeight: "600" },
   deckStage: { flex: 1, minHeight: 590, marginTop: 8, marginBottom: 12, paddingTop: 20 },
-  stackCard: { position: "absolute", backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 28, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowRadius: 8 },
+  stackCard: { position: "absolute", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 28, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowRadius: 8 },
   stackCardBack: { top: 0, bottom: 20, left: 14, right: 14, zIndex: 1, shadowOpacity: 0.03 },
   stackCardNext: { top: 10, bottom: 10, left: 7, right: 7, zIndex: 2, shadowOpacity: 0.045 },
-  proposalCard: { flex: 1, zIndex: 3, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 28, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.055, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
-  deckComplete: { minHeight: 420, alignItems: "center", justifyContent: "center", backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 28, marginTop: 8, padding: 28 },
-  deckCompleteTitle: { color: palette.ink, ...typeRamp.title, textAlign: "center" },
-  deckCompleteBody: { color: palette.muted, ...typeRamp.body, textAlign: "center", marginTop: 8 },
+  proposalCard: { flex: 1, zIndex: 3, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 28, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.055, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  deckComplete: { minHeight: 420, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 28, marginTop: 8, padding: 28 },
+  deckCompleteTitle: { color: colors.ink, ...typeRamp.title, textAlign: "center" },
+  deckCompleteBody: { color: colors.muted, ...typeRamp.body, textAlign: "center", marginTop: 8 },
   cardBody: { flexGrow: 1, paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 },
   cardPosition: { alignItems: "center", marginBottom: 10 },
-  cardPositionText: { color: palette.muted, ...typeRamp.caption },
-  infoCard: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingVertical: 11 },
+  cardPositionText: { color: colors.muted, ...typeRamp.caption },
+  infoCard: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingVertical: 11 },
   infoCardHeadingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 3 },
-  infoCardTitle: { color: palette.ink, ...typeRamp.label, fontWeight: "600", marginBottom: 5 },
-  infoCardBody: { color: palette.text, ...typeRamp.body },
-  infoCardMuted: { color: palette.muted, ...typeRamp.body },
-  riskHeadline: { color: palette.ink, fontSize: 18, lineHeight: 24, fontWeight: "800", marginBottom: 2 },
-  strategyCardName: { color: palette.ink, ...typeRamp.label, fontWeight: "700", marginBottom: 5 },
+  infoCardTitle: { color: colors.ink, ...typeRamp.label, fontWeight: "600", marginBottom: 5 },
+  infoCardBody: { color: colors.text, ...typeRamp.body },
+  infoCardMuted: { color: colors.muted, ...typeRamp.body },
+  riskHeadline: { color: colors.ink, fontSize: 18, lineHeight: 24, fontWeight: "800", marginBottom: 2 },
+  strategyCardName: { color: colors.ink, ...typeRamp.label, fontWeight: "700", marginBottom: 5 },
   infoRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, marginTop: 10 },
-  infoDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: palette.muted, marginTop: 7 },
-  infoRowText: { flex: 1, color: palette.text, ...typeRamp.body },
+  infoDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.muted, marginTop: 7 },
+  infoRowText: { flex: 1, color: colors.text, ...typeRamp.body },
   learnMoreButton: { paddingVertical: 5, paddingLeft: 12 },
-  learnMoreText: { color: palette.ink, ...typeRamp.caption, fontWeight: "600", textDecorationLine: "underline" },
+  learnMoreText: { color: colors.ink, ...typeRamp.caption, fontWeight: "600", textDecorationLine: "underline" },
   connectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 10 },
-  connectionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: palette.ink },
-  connectionDotOff: { backgroundColor: palette.muted },
-  connectionText: { color: palette.text, fontSize: 11, lineHeight: 16, fontWeight: "600" },
-  sheetSafe: { flex: 1, backgroundColor: palette.surface },
-  sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 58, paddingHorizontal: 20, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
-  sheetTitle: { color: palette.ink, ...typeRamp.title },
+  connectionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.ink },
+  connectionDotOff: { backgroundColor: colors.muted },
+  connectionText: { color: colors.text, fontSize: 11, lineHeight: 16, fontWeight: "600" },
+  sheetSafe: { flex: 1, backgroundColor: colors.surface },
+  sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 58, paddingHorizontal: 20, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  sheetTitle: { color: colors.ink, ...typeRamp.title },
   sheetClose: { paddingHorizontal: 4, paddingVertical: 8 },
-  sheetCloseText: { color: palette.ink, ...typeRamp.label, fontWeight: "700" },
+  sheetCloseText: { color: colors.ink, ...typeRamp.label, fontWeight: "700" },
   sheetContent: { padding: 20, paddingBottom: 40, gap: 24 },
-  sheetSection: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, paddingBottom: 24 },
-  sheetSectionTitle: { color: palette.ink, ...typeRamp.heading, marginBottom: 10 },
-  sheetBody: { color: palette.text, ...typeRamp.body },
-  riskScoreHero: { backgroundColor: palette.warningSoft, borderRadius: radius.medium, padding: 18 },
-  riskScoreEyebrow: { color: "#8A5800", fontSize: 9, fontWeight: "900", letterSpacing: 1 },
-  riskScoreValue: { color: palette.ink, fontSize: 34, lineHeight: 40, fontWeight: "800", marginTop: 5 },
-  riskScoreLevel: { color: "#72521B", ...typeRamp.label, fontWeight: "700", marginTop: 2 },
-  riskComponent: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, paddingBottom: 18 },
+  sheetSection: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingBottom: 24 },
+  sheetSectionTitle: { color: colors.ink, ...typeRamp.heading, marginBottom: 10 },
+  sheetBody: { color: colors.text, ...typeRamp.body },
+  riskScoreHero: { backgroundColor: colors.warningSoft, borderRadius: radius.medium, padding: 18 },
+  riskScoreEyebrow: { color: colors.warning, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  riskScoreValue: { color: colors.ink, fontSize: 34, lineHeight: 40, fontWeight: "800", marginTop: 5 },
+  riskScoreLevel: { color: colors.warning, ...typeRamp.label, fontWeight: "700", marginTop: 2 },
+  riskComponent: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingBottom: 18 },
   riskComponentHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  riskComponentLabel: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
-  riskComponentPoints: { color: palette.text, ...typeRamp.label, fontWeight: "700" },
-  riskComponentTrack: { height: 7, borderRadius: 4, backgroundColor: palette.surfaceMuted, marginTop: 10, overflow: "hidden" },
+  riskComponentLabel: { color: colors.ink, ...typeRamp.label, fontWeight: "800" },
+  riskComponentPoints: { color: colors.text, ...typeRamp.label, fontWeight: "700" },
+  riskComponentTrack: { height: 7, borderRadius: 4, backgroundColor: colors.surfaceMuted, marginTop: 10, overflow: "hidden" },
   riskComponentFill: { height: "100%", borderRadius: 4, backgroundColor: "#D99000" },
-  riskComponentExplanation: { color: palette.text, ...typeRamp.body, marginTop: 8 },
-  incompleteTradeRisk: { backgroundColor: palette.surfaceMuted, borderRadius: radius.medium, padding: 16 },
-  incompleteTradeRiskTitle: { color: palette.ink, ...typeRamp.label, fontWeight: "800" },
-  incompleteTradeRiskBody: { color: palette.text, ...typeRamp.body, marginTop: 5 },
-  riskFootnote: { color: palette.muted, ...typeRamp.caption },
+  riskComponentExplanation: { color: colors.text, ...typeRamp.body, marginTop: 8 },
+  incompleteTradeRisk: { backgroundColor: colors.surfaceMuted, borderRadius: radius.medium, padding: 16 },
+  incompleteTradeRiskTitle: { color: colors.ink, ...typeRamp.label, fontWeight: "800" },
+  incompleteTradeRiskBody: { color: colors.text, ...typeRamp.body, marginTop: 5 },
+  riskFootnote: { color: colors.muted, ...typeRamp.caption },
   card: { paddingTop: 24, paddingBottom: 22 },
   cardEyebrowRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18 },
-  signalBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: palette.accentSoft, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 7 },
-  signalBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: palette.accent },
-  signalBadgeText: { color: palette.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 0.9 },
-  ruleset: { flexShrink: 1, color: palette.muted, fontSize: 9, textAlign: "right" },
-  quoteHero: { backgroundColor: palette.surface, borderRadius: 0, paddingVertical: 6 },
+  signalBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.accentSoft, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 7 },
+  signalBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent },
+  signalBadgeText: { color: colors.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 0.9 },
+  ruleset: { flexShrink: 1, color: colors.muted, fontSize: 9, textAlign: "right" },
+  quoteHero: { backgroundColor: colors.surface, borderRadius: 0, paddingVertical: 6 },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 10 },
   symbolBlock: { flex: 1 },
-  side: { color: palette.muted, fontSize: 11, fontWeight: "800", letterSpacing: 1.4 },
-  symbol: { color: palette.ink, fontSize: 42, lineHeight: 46, fontWeight: "800", letterSpacing: -1.5 },
+  side: { color: colors.muted, fontSize: 11, fontWeight: "800", letterSpacing: 1.4 },
+  symbol: { color: colors.ink, fontSize: 42, lineHeight: 46, fontWeight: "800", letterSpacing: -1.5 },
   companyIdentity: { flexDirection: "row", alignItems: "center", gap: 12 },
-  company: { flex: 1, color: palette.ink, ...typeRamp.label, fontWeight: "400" },
-  tradeHeadline: { color: palette.ink, fontSize: 26, lineHeight: 32, fontWeight: "800", letterSpacing: -0.6, marginTop: 10 },
-  tradePrice: { color: palette.muted, ...typeRamp.body, marginTop: 1 },
-  tradeTerms: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, marginTop: 14, paddingTop: 3 },
+  company: { flex: 1, color: colors.ink, ...typeRamp.label, fontWeight: "400" },
+  tradeHeadline: { color: colors.ink, fontSize: 26, lineHeight: 32, fontWeight: "800", letterSpacing: -0.6, marginTop: 10 },
+  tradePrice: { color: colors.muted, ...typeRamp.body, marginTop: 1 },
+  tradeTerms: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: 14, paddingTop: 3 },
   tradeTermRow: { minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
-  tradeTermLabel: { color: palette.muted, ...typeRamp.body, fontWeight: "400" },
-  tradeTermValue: { color: palette.text, ...typeRamp.body, fontWeight: "400", textAlign: "right" },
-  riskChip: { minHeight: 28, justifyContent: "center", backgroundColor: palette.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 11 },
-  riskChipText: { color: palette.text, ...typeRamp.caption, fontWeight: "400" },
+  tradeTermLabel: { color: colors.muted, ...typeRamp.body, fontWeight: "400" },
+  tradeTermValue: { color: colors.text, ...typeRamp.body, fontWeight: "400", textAlign: "right" },
+  riskChip: { minHeight: 28, justifyContent: "center", backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 11 },
+  riskChipText: { color: colors.text, ...typeRamp.caption, fontWeight: "400" },
   currentPriceRow: { flexDirection: "row", alignItems: "baseline", gap: 8, marginTop: 7 },
-  currentPrice: { color: palette.ink, fontSize: 22, fontWeight: "800" },
-  quoteAge: { color: palette.muted, fontSize: 10 },
-  timer: { height: 32, backgroundColor: palette.surfaceMuted, borderWidth: 0, paddingHorizontal: 10, borderRadius: radius.pill, minWidth: 70, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 5 },
-  timerClosed: { backgroundColor: palette.surfaceMuted, borderColor: palette.surfaceMuted },
-  timerLabel: { color: palette.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1.1 },
-  timerValue: { color: palette.text, ...typeRamp.caption, fontWeight: "400" },
-  timerClosedText: { color: palette.muted },
+  currentPrice: { color: colors.ink, fontSize: 22, fontWeight: "800" },
+  quoteAge: { color: colors.muted, fontSize: 10 },
+  timer: { height: 32, backgroundColor: colors.surfaceMuted, borderWidth: 0, paddingHorizontal: 10, borderRadius: radius.pill, minWidth: 70, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 5 },
+  timerClosed: { backgroundColor: colors.surfaceMuted, borderColor: colors.surfaceMuted },
+  timerLabel: { color: colors.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1.1 },
+  timerValue: { color: colors.text, ...typeRamp.caption, fontWeight: "400" },
+  timerClosedText: { color: colors.muted },
   account: { color: "#9FB3C8", fontSize: 11, marginTop: 16, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#314962" },
-  observationBlock: { backgroundColor: palette.surfaceMuted, borderRadius: radius.medium, padding: 16, marginTop: 16 },
-  observationLabel: { color: palette.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
-  observationTitle: { color: palette.ink, fontSize: 17, lineHeight: 22, fontWeight: "800", marginTop: 7 },
-  observationText: { color: palette.text, fontSize: 12, lineHeight: 18, marginTop: 5 },
+  observationBlock: { backgroundColor: colors.surfaceMuted, borderRadius: radius.medium, padding: 16, marginTop: 16 },
+  observationLabel: { color: colors.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  observationTitle: { color: colors.ink, fontSize: 17, lineHeight: 22, fontWeight: "800", marginTop: 7 },
+  observationText: { color: colors.text, fontSize: 12, lineHeight: 18, marginTop: 5 },
   decisionSummary: { flexDirection: "row", gap: 10, marginTop: 18 },
-  spendBlock: { flex: 1.15, backgroundColor: "#F1F5F1", borderRadius: 15, padding: 14 },
-  summaryLabel: { color: "#68756D", fontSize: 11, marginBottom: 3 },
+  spendBlock: { flex: 1.15, backgroundColor: colors.surfaceMuted, borderRadius: 15, padding: 14 },
+  summaryLabel: { color: colors.muted, fontSize: 11, marginBottom: 3 },
   spendValue: { color: ink, fontSize: 25, fontWeight: "900", letterSpacing: -0.6 },
-  feeText: { color: palette.text, fontSize: 13, lineHeight: 18, fontWeight: "600", marginTop: 7 },
-  upsideBlock: { flex: 1, backgroundColor: "#EAF5EE", borderRadius: 15, padding: 14 },
+  feeText: { color: colors.text, fontSize: 13, lineHeight: 18, fontWeight: "600", marginTop: 7 },
+  upsideBlock: { flex: 1, backgroundColor: colors.successSoft, borderRadius: 15, padding: 14 },
   upsideLabel: { color: green, fontSize: 9, fontWeight: "900", letterSpacing: 0.8 },
   upsideValue: { color: green, fontSize: 21, fontWeight: "900", marginTop: 4 },
-  upsidePercent: { color: "#517060", fontSize: 10, lineHeight: 14, marginTop: 2 },
+  upsidePercent: { color: colors.success, fontSize: 10, lineHeight: 14, marginTop: 2 },
   timeframe: { color: ink, fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 5 },
-  planBlock: { borderWidth: 0, borderBottomWidth: 1, borderColor: palette.border, borderRadius: 0, paddingHorizontal: 2, paddingVertical: 16, marginTop: 2 },
+  planBlock: { borderWidth: 0, borderBottomWidth: 1, borderColor: colors.border, borderRadius: 0, paddingHorizontal: 2, paddingVertical: 16, marginTop: 2 },
   planLabel: { color: ink, fontSize: 12, fontWeight: "800", marginBottom: 6 },
-  planText: { color: "#425148", fontSize: 13, lineHeight: 19 },
-  strategyBlock: { backgroundColor: palette.surfaceMuted, borderRadius: radius.medium, padding: 16, marginTop: 14 },
-  strategyEyebrow: { color: palette.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
-  strategyName: { color: palette.ink, fontSize: 15, fontWeight: "800", marginTop: 5 },
-  strategyText: { color: palette.text, fontSize: 12, lineHeight: 18, marginTop: 5 },
-  accordionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border, paddingVertical: 16, marginTop: 8 },
+  planText: { color: colors.text, fontSize: 13, lineHeight: 19 },
+  strategyBlock: { backgroundColor: colors.surfaceMuted, borderRadius: radius.medium, padding: 16, marginTop: 14 },
+  strategyEyebrow: { color: colors.accentDark, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  strategyName: { color: colors.ink, fontSize: 15, fontWeight: "800", marginTop: 5 },
+  strategyText: { color: colors.text, fontSize: 12, lineHeight: 18, marginTop: 5 },
+  accordionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border, paddingVertical: 16, marginTop: 8 },
   accordionTitle: { color: ink, fontSize: 14, fontWeight: "800" },
-  accordionHint: { color: palette.muted, fontSize: 10, marginTop: 2 },
+  accordionHint: { color: colors.muted, fontSize: 10, marginTop: 2 },
   accordionIcon: { color: green, fontSize: 24, fontWeight: "500", lineHeight: 26 },
   accordionBody: { paddingTop: 8, paddingBottom: 4 },
   metrics: { flexDirection: "row", flexWrap: "wrap", marginTop: 16, marginHorizontal: -5 },
   metric: { width: "50%", padding: 5, marginBottom: 10 },
-  metricLabel: { color: "#7A857E", fontSize: 11, marginBottom: 3 },
+  metricLabel: { color: colors.muted, fontSize: 11, marginBottom: 3 },
   metricValue: { color: ink, fontWeight: "700", fontSize: 14 },
   riskRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 3 },
-  riskLabel: { color: "#637067", fontSize: 12 },
+  riskLabel: { color: colors.muted, fontSize: 12 },
   riskValue: { color: ink, fontSize: 12, fontWeight: "800" },
-  riskTrack: { height: 6, borderRadius: 3, backgroundColor: "#E7ECE8", marginTop: 7, overflow: "hidden" },
+  riskTrack: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceMuted, marginTop: 7, overflow: "hidden" },
   riskFill: { height: "100%", borderRadius: 3, backgroundColor: green },
   rationaleBody: { paddingTop: 14 },
-  contextText: { color: "#35463D", fontSize: 14, lineHeight: 21, marginBottom: 14 },
-  contextBlock: { backgroundColor: palette.surfaceMuted, borderLeftWidth: 3, borderLeftColor: green, borderRadius: 10, padding: 13, marginBottom: 10 },
-  riskBlock: { backgroundColor: "#FFF7ED", borderLeftColor: "#B66B1E" },
+  contextText: { color: colors.text, fontSize: 14, lineHeight: 21, marginBottom: 14 },
+  contextBlock: { backgroundColor: colors.surfaceMuted, borderLeftWidth: 3, borderLeftColor: green, borderRadius: 10, padding: 13, marginBottom: 10 },
+  riskBlock: { backgroundColor: colors.warningSoft, borderLeftColor: colors.warning },
   contextLabel: { color: green, fontSize: 11, fontWeight: "800", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 5 },
-  riskContextLabel: { color: "#9A5514" },
-  contextBody: { color: "#425148", fontSize: 13, lineHeight: 19 },
+  riskContextLabel: { color: colors.warning },
+  contextBody: { color: colors.text, fontSize: 13, lineHeight: 19 },
   signalTitle: { color: ink, fontSize: 13, fontWeight: "800", marginTop: 8, marginBottom: 11 },
   reason: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 10 },
   check: { width: 8, height: 8, borderRadius: 4, backgroundColor: green, marginTop: 5 },
-  reasonText: { flex: 1, color: "#425148", fontSize: 13, lineHeight: 18 },
-  guardrail: { backgroundColor: palette.accentSoft, borderRadius: radius.medium, padding: 14, marginTop: 8 },
+  reasonText: { flex: 1, color: colors.text, fontSize: 13, lineHeight: 18 },
+  guardrail: { backgroundColor: colors.accentSoft, borderRadius: radius.medium, padding: 14, marginTop: 8 },
   guardrailTitle: { color: green, fontSize: 12, fontWeight: "800", marginBottom: 4 },
-  guardrailText: { color: "#405048", fontSize: 12, lineHeight: 17 },
+  guardrailText: { color: colors.text, fontSize: 12, lineHeight: 17 },
   actions: { flexDirection: "row", gap: 12 },
-  cardFooter: { backgroundColor: palette.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14 },
-  bottomBar: { width: "100%", maxWidth: 680, alignSelf: "center", backgroundColor: palette.canvas, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 10, shadowColor: "#0A2540", shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: -6 }, elevation: 10 },
-  deny: { flex: 1, height: 56, borderRadius: radius.medium, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center", backgroundColor: palette.surface },
+  cardFooter: { backgroundColor: colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14 },
+  bottomBar: { width: "100%", maxWidth: 680, alignSelf: "center", backgroundColor: colors.canvas, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 10, shadowColor: "#0A2540", shadowOpacity: 0.07, shadowRadius: 18, shadowOffset: { width: 0, height: -6 }, elevation: 10 },
+  deny: { flex: 1, height: 56, borderRadius: radius.medium, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
   approve: { flex: 1.5, height: 56, borderRadius: radius.medium, alignItems: "center", justifyContent: "center", backgroundColor: green },
-  denyText: { color: palette.ink, fontSize: 16, fontWeight: "800" },
-  approveText: { color: "white", fontSize: 17, fontWeight: "800" },
+  denyText: { color: colors.ink, fontSize: 16, fontWeight: "800" },
+  approveText: { color: colors.surface, fontSize: 17, fontWeight: "800" },
   pressed: { opacity: 0.72, transform: [{ scale: 0.99 }] },
   disabled: { opacity: 0.35 },
   reset: { alignSelf: "center", paddingVertical: 9, paddingHorizontal: 14 },
   resetText: { color: green, fontSize: 13, fontWeight: "700" },
 });
+}

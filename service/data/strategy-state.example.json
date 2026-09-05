@@ -6,7 +6,8 @@
   "perTradeLimit": 0,
   "maxOpenPositions": 0,
   "currentExposure": 0,
-  "universe": [],
+  "universeSource": "alpaca-cache",
+  "universeLimit": 500,
   "nextUniverseIndex": 0,
   "completed": []
 }

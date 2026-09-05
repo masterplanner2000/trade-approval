@@ -2,15 +2,19 @@
 
 This local service is the boundary between the phone interface and a future user-owned trading agent.
 
-## Shadow scanner (current app default)
+## Alpaca research cache and scanner
 
-`POST /shadow/scan` reads completed daily bars from the logged-in IBKR paper TWS session and evaluates a frozen research ruleset. It stores the selected observation and all passing/failing checks in `data/shadow-signals.json`. Repeating the same ruleset, symbol, and signal date is idempotent.
+Alpaca supplies the active U.S.-equity asset master and adjusted completed SIP daily bars. `npm run market:refresh` removes non-tradable, OTC and obvious non-common-stock instruments, ranks the survivors by the latest completed session's dollar volume, stores the top 500 and roughly 430 calendar days of history in `data/market-cache.sqlite3`, and never stores credentials. `npm run market:status` reports cache coverage; `npm run market:scan` evaluates the cached universe without contacting IBKR.
+
+Set `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` in the ignored `.env.local` file. The cache fails closed when credentials or data are unavailable. The free Alpaca plan may provide historical SIP bars when the request ends outside the restricted recent-data window; current feed access remains account-dependent.
+
+`POST /shadow/scan` evaluates the local cache and stores the selected observation and its checks in `data/shadow-signals.json`. Repeating the same ruleset, symbol, and signal date is idempotent. IBKR remains the authority for the final bid/ask, paper account, What-If validation and execution.
 
 `GET /shadow/signals` returns the durable shadow ledger. Shadow records always include `orderSubmissionAllowed: false`; they are not accepted by the approval or paper-order routes.
 
 ## SEC EDGAR research source
 
-The service uses IBKR for market/account data and the official SEC EDGAR APIs for recent 10-K, 10-Q and 8-K filing metadata plus standardized XBRL revenue and net-income facts. Set `SEC_USER_AGENT` to a descriptive application name and contact email before enabling requests. SEC research is cached for 15 minutes, attached to proposals as context, and is explicitly marked `researchOnly`; it does not affect eligibility, sizing, prices, approvals, or order submission.
+The service uses Alpaca for bulk historical research, IBKR for current quote/account/execution data, and the official SEC EDGAR APIs for recent 10-K, 10-Q and 8-K filing metadata plus standardized XBRL revenue and net-income facts. Set `SEC_USER_AGENT` to a descriptive application name and contact email before enabling requests. SEC research is cached for 15 minutes, attached to proposals as context, and is explicitly marked `researchOnly`; it does not affect eligibility, sizing, prices, approvals, or order submission.
 
 `GET /research/sec?symbol=NVDA` returns the normalized research record for a supported U.S. company. ETFs in the scanner universe are intentionally excluded.
 

@@ -1,4 +1,4 @@
-"""Read completed IBKR daily bars and evaluate a deterministic shadow-only RSI study."""
+"""Read completed IBKR daily bars and evaluate the large-cap momentum MVP."""
 
 from __future__ import annotations
 
@@ -19,16 +19,22 @@ from risk import calculate_equity_market_risk
 HOST = "127.0.0.1"
 PAPER_PORT = 7497
 CLIENT_ID = 75
-MINIMUM_BARS = 205
-RULESET_VERSION = "daily-rsi-reversion-research-v1"
+MINIMUM_BARS = 240
+RULESET_VERSION = "liquid-growth-momentum-mvp-v2"
 
 # Every number below is a proposed test variable, not a validated or source-supplied rule.
 RSI_LENGTH = 14
-RSI_ENTRY_MAX = 30.0
-SMA_LENGTH = 200
-MINIMUM_PRICE = 5.0
+RSI_ENTRY_MIN = 50.0
+RSI_ENTRY_MAX = 72.0
+FAST_SMA_LENGTH = 50
+SLOW_SMA_LENGTH = 200
+MOMENTUM_WINDOW = 20
+MINIMUM_MOMENTUM_PERCENT = 2.0
+MAXIMUM_MOMENTUM_PERCENT = 20.0
 ADV_WINDOW = 20
-MINIMUM_AVERAGE_DOLLAR_VOLUME = 20_000_000.0
+MINIMUM_AVERAGE_DOLLAR_VOLUME = 50_000_000.0
+MINIMUM_ATR_PERCENT = 1.0
+MAXIMUM_ATR_PERCENT = 6.0
 
 
 @dataclass
@@ -106,6 +112,17 @@ def wilder_rsi(closes: list[float], length: int) -> float | None:
     return 100.0 - (100.0 / (1.0 + relative_strength))
 
 
+def average_true_range_percent(bars: list[DailyBar], length: int = 14) -> float | None:
+    if len(bars) <= length or bars[-1].close <= 0:
+        return None
+    true_ranges = []
+    for index in range(1, len(bars)):
+        previous_close = bars[index - 1].close
+        current = bars[index]
+        true_ranges.append(max(current.high - current.low, abs(current.high - previous_close), abs(current.low - previous_close)))
+    return (sum(true_ranges[-length:]) / length / bars[-1].close) * 100
+
+
 def evaluate(symbol: str, bars: list[DailyBar], errors: list[dict[str, object]]) -> dict[str, object]:
     if len(bars) < MINIMUM_BARS:
         return {
@@ -129,24 +146,42 @@ def evaluate(symbol: str, bars: list[DailyBar], errors: list[dict[str, object]])
     closes = [bar.close for bar in completed]
     latest = completed[-1]
     rsi = wilder_rsi(closes, RSI_LENGTH)
-    sma = sum(closes[-SMA_LENGTH:]) / SMA_LENGTH
+    sma50 = sum(closes[-FAST_SMA_LENGTH:]) / FAST_SMA_LENGTH
+    sma200 = sum(closes[-SLOW_SMA_LENGTH:]) / SLOW_SMA_LENGTH
+    momentum20 = ((latest.close / closes[-(MOMENTUM_WINDOW + 1)]) - 1) * 100
+    atr_percent = average_true_range_percent(completed)
     average_dollar_volume = sum(
         bar.close * bar.volume for bar in completed[-ADV_WINDOW:]
     ) / ADV_WINDOW
     market_risk = calculate_equity_market_risk(completed)
     checks = [
-        {"id": "price", "label": f"Close is at least ${MINIMUM_PRICE:.2f}", "passed": latest.close >= MINIMUM_PRICE, "actual": latest.close},
+        {"id": "history", "label": f"At least {MINIMUM_BARS} completed daily bars are available", "passed": len(completed) >= MINIMUM_BARS, "actual": len(completed)},
         {"id": "liquidity", "label": f"20-day average dollar volume is at least ${MINIMUM_AVERAGE_DOLLAR_VOLUME:,.0f}", "passed": average_dollar_volume >= MINIMUM_AVERAGE_DOLLAR_VOLUME, "actual": average_dollar_volume},
-        {"id": "trend", "label": "Close is above the 200-day simple moving average", "passed": latest.close > sma, "actual": latest.close - sma},
-        {"id": "rsi", "label": f"14-day RSI is at or below {RSI_ENTRY_MAX:.0f}", "passed": rsi is not None and rsi <= RSI_ENTRY_MAX, "actual": rsi},
+        {"id": "trend", "label": "Close is above the 50- and 200-day averages", "passed": latest.close > sma50 > sma200, "actual": latest.close - sma50},
+        {"id": "momentum", "label": f"20-day return is between {MINIMUM_MOMENTUM_PERCENT:.0f}% and {MAXIMUM_MOMENTUM_PERCENT:.0f}%", "passed": MINIMUM_MOMENTUM_PERCENT <= momentum20 <= MAXIMUM_MOMENTUM_PERCENT, "actual": momentum20},
+        {"id": "rsi", "label": f"14-day RSI is between {RSI_ENTRY_MIN:.0f} and {RSI_ENTRY_MAX:.0f}", "passed": rsi is not None and RSI_ENTRY_MIN <= rsi <= RSI_ENTRY_MAX, "actual": rsi},
+        {"id": "volatility", "label": f"14-day ATR is between {MINIMUM_ATR_PERCENT:.1f}% and {MAXIMUM_ATR_PERCENT:.1f}% of price", "passed": atr_percent is not None and MINIMUM_ATR_PERCENT <= atr_percent <= MAXIMUM_ATR_PERCENT, "actual": atr_percent},
     ]
+    eligible = all(check["passed"] for check in checks)
+    score = max(0.0, min(100.0,
+        50.0
+        + min(momentum20, 12.0) * 2.0
+        + min(max((latest.close / sma50 - 1) * 100, 0.0), 10.0) * 2.0
+        - abs((rsi or 61.0) - 61.0)
+        - max((atr_percent or 0.0) - 3.0, 0.0) * 3.0
+    ))
     return {
         "symbol": symbol,
-        "eligible": all(check["passed"] for check in checks),
+        "eligible": eligible,
+        "recommendationScore": round(score, 1) if eligible else None,
+        "category": "MOMENTUM_CONTINUATION",
         "signalDate": latest.date,
         "referenceClose": round(latest.close, 4),
         "rsi": round(rsi, 4) if rsi is not None else None,
-        "sma200": round(sma, 4),
+        "sma50": round(sma50, 4),
+        "sma200": round(sma200, 4),
+        "momentum20Percent": round(momentum20, 2),
+        "atrPercent14": round(atr_percent, 2) if atr_percent is not None else None,
         "averageDollarVolume20": round(average_dollar_volume, 2),
         "marketRisk": market_risk,
         "barCount": len(completed),
@@ -192,7 +227,7 @@ def main() -> int:
         ]
         usable = [item for item in evaluations if item.get("rsi") is not None]
         qualified = [item for item in usable if item["eligible"]]
-        ranked = sorted(qualified or usable, key=lambda item: float(item["rsi"]))
+        ranked = sorted(qualified, key=lambda item: float(item["recommendationScore"]), reverse=True)
         print(json.dumps({
             "ok": bool(usable),
             "mode": "shadow",
@@ -201,11 +236,18 @@ def main() -> int:
             "parameters": {
                 "classification": "PROPOSED_TEST_VARIABLES",
                 "rsiLength": RSI_LENGTH,
+                "rsiEntryMinimum": RSI_ENTRY_MIN,
                 "rsiEntryMaximum": RSI_ENTRY_MAX,
-                "smaLength": SMA_LENGTH,
-                "minimumPrice": MINIMUM_PRICE,
+                "fastSmaLength": FAST_SMA_LENGTH,
+                "slowSmaLength": SLOW_SMA_LENGTH,
+                "momentumWindow": MOMENTUM_WINDOW,
+                "minimumMomentumPercent": MINIMUM_MOMENTUM_PERCENT,
+                "maximumMomentumPercent": MAXIMUM_MOMENTUM_PERCENT,
+                "minimumCompletedDailyBars": MINIMUM_BARS,
                 "averageDollarVolumeWindow": ADV_WINDOW,
                 "minimumAverageDollarVolume": MINIMUM_AVERAGE_DOLLAR_VOLUME,
+                "minimumAtrPercent": MINIMUM_ATR_PERCENT,
+                "maximumAtrPercent": MAXIMUM_ATR_PERCENT,
             },
             "selected": ranked[0] if ranked else None,
             "qualifiedCount": len(qualified),

@@ -1,6 +1,25 @@
 import { createBox, createText, createTheme } from "@shopify/restyle";
 
-export const palette = {
+export type AppPalette = {
+  canvas: string;
+  surface: string;
+  surfaceMuted: string;
+  ink: string;
+  text: string;
+  muted: string;
+  border: string;
+  accent: string;
+  accentDark: string;
+  accentSoft: string;
+  success: string;
+  successSoft: string;
+  warning: string;
+  warningSoft: string;
+  danger: string;
+  dangerSoft: string;
+};
+
+export const palette: AppPalette = {
   canvas: "#FFFFFF",
   surface: "#FFFFFF",
   surfaceMuted: "#F3F3F3",
@@ -17,7 +36,26 @@ export const palette = {
   warningSoft: "#F3F3F3",
   danger: "#404040",
   dangerSoft: "#F3F3F3",
-} as const;
+};
+
+export const darkPalette: AppPalette = {
+  canvas: "#0B0B0C",
+  surface: "#161618",
+  surfaceMuted: "#242427",
+  ink: "#F7F7F8",
+  text: "#D4D4D8",
+  muted: "#A1A1AA",
+  border: "#343438",
+  accent: "#F5F5F5",
+  accentDark: "#F5F5F5",
+  accentSoft: "#29292D",
+  success: "#86D49B",
+  successSoft: "#193522",
+  warning: "#F2C66D",
+  warningSoft: "#352B17",
+  danger: "#FF8F88",
+  dangerSoft: "#3A1E1D",
+};
 
 export const radius = {
   small: 8,
@@ -42,24 +80,24 @@ export const typeRamp = {
   caption: { fontSize: 12, lineHeight: 16, fontWeight: "400" as const },
 } as const;
 
-export const theme = createTheme({
+const createAppTheme = (colors: AppPalette) => createTheme({
   colors: {
-    canvas: palette.canvas,
-    surface: palette.surface,
-    surfaceMuted: palette.surfaceMuted,
-    ink: palette.ink,
-    text: palette.text,
-    muted: palette.muted,
-    border: palette.border,
-    accent: palette.accent,
-    accentDark: palette.accentDark,
-    accentSoft: palette.accentSoft,
-    success: palette.success,
-    successSoft: palette.successSoft,
-    warning: palette.warning,
-    warningSoft: palette.warningSoft,
-    danger: palette.danger,
-    dangerSoft: palette.dangerSoft,
+    canvas: colors.canvas,
+    surface: colors.surface,
+    surfaceMuted: colors.surfaceMuted,
+    ink: colors.ink,
+    text: colors.text,
+    muted: colors.muted,
+    border: colors.border,
+    accent: colors.accent,
+    accentDark: colors.accentDark,
+    accentSoft: colors.accentSoft,
+    success: colors.success,
+    successSoft: colors.successSoft,
+    warning: colors.warning,
+    warningSoft: colors.warningSoft,
+    danger: colors.danger,
+    dangerSoft: colors.dangerSoft,
     transparent: "transparent",
   },
   spacing: {
@@ -116,6 +154,9 @@ export const theme = createTheme({
     },
   },
 });
+
+export const theme = createAppTheme(palette);
+export const darkTheme = createAppTheme(darkPalette);
 
 export type Theme = typeof theme;
 export const Box = createBox<Theme>();

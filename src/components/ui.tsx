@@ -1,7 +1,8 @@
 import React, { ReactNode, useEffect } from "react";
+import { useTheme } from "@shopify/restyle";
 import { ActivityIndicator, Pressable, StyleSheet } from "react-native";
 import { CheckCircleIcon, InfoIcon, MinusIcon, PlusIcon, WarningCircleIcon, XIcon } from "phosphor-react-native";
-import { Box, AppText, palette, typeRamp } from "../design-system";
+import { Box, AppText, type Theme, typeRamp } from "../design-system";
 
 type BadgeProps = {
   label: string;
@@ -9,17 +10,18 @@ type BadgeProps = {
 };
 
 const badgeColors = {
-  accent: { background: "accentSoft", foreground: "accentDark", dot: palette.accent },
-  success: { background: "successSoft", foreground: "success", dot: palette.success },
-  warning: { background: "warningSoft", foreground: "warning", dot: palette.warning },
-  danger: { background: "dangerSoft", foreground: "danger", dot: palette.danger },
+  accent: { background: "accentSoft", foreground: "accentDark", dot: "accent" },
+  success: { background: "successSoft", foreground: "success", dot: "success" },
+  warning: { background: "warningSoft", foreground: "warning", dot: "warning" },
+  danger: { background: "dangerSoft", foreground: "danger", dot: "danger" },
 } as const;
 
 export function Badge({ label, tone = "accent" }: BadgeProps) {
+  const theme = useTheme<Theme>();
   const colors = badgeColors[tone];
   return (
     <Box flexDirection="row" alignItems="center" gap="xs" backgroundColor={colors.background} borderRadius="pill" paddingHorizontal="s" paddingVertical="xs">
-      <Box width={6} height={6} borderRadius="pill" style={{ backgroundColor: colors.dot }} />
+      <Box width={6} height={6} borderRadius="pill" style={{ backgroundColor: theme.colors[colors.dot] }} />
       <AppText color={colors.foreground} fontSize={9} fontWeight="900" letterSpacing={0.9}>{label}</AppText>
     </Box>
   );
@@ -34,6 +36,7 @@ type ActionButtonProps = {
 };
 
 export function ActionButton({ label, tone, disabled, pending = false, onPress }: ActionButtonProps) {
+  const theme = useTheme<Theme>();
   const primary = tone === "primary";
   return (
     <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [{ flex: 1, opacity: disabled && !pending ? 0.35 : pressed ? 0.72 : 1 }]}>
@@ -48,7 +51,7 @@ export function ActionButton({ label, tone, disabled, pending = false, onPress }
         borderColor={primary ? "accent" : "border"}
         backgroundColor={primary ? "accent" : "surface"}
       >
-        {pending ? <ActivityIndicator size="small" color={primary ? palette.surface : palette.ink} /> : null}
+        {pending ? <ActivityIndicator size="small" color={primary ? theme.colors.surface : theme.colors.ink} /> : null}
         <AppText color={primary ? "surface" : "ink"} {...typeRamp.label} fontSize={16} lineHeight={22} fontWeight="400">{label}</AppText>
       </Box>
     </Pressable>
@@ -65,6 +68,7 @@ type ToastProps = {
 };
 
 export function Toast({ title, message, tone = "info", loading = false, onDismiss, duration = 5500 }: ToastProps) {
+  const theme = useTheme<Theme>();
   useEffect(() => {
     if (duration <= 0) return;
     const timer = setTimeout(onDismiss, duration);
@@ -72,7 +76,7 @@ export function Toast({ title, message, tone = "info", loading = false, onDismis
   }, [duration, onDismiss, title, message]);
 
   const background = "ink";
-  const foreground = tone === "success" ? palette.success : tone === "danger" ? palette.danger : palette.surface;
+  const foreground = tone === "success" ? theme.colors.success : tone === "danger" ? theme.colors.danger : theme.colors.surface;
   const Icon = tone === "success" ? CheckCircleIcon : tone === "danger" ? WarningCircleIcon : InfoIcon;
 
   return (
@@ -88,7 +92,7 @@ export function Toast({ title, message, tone = "info", loading = false, onDismis
       style={styles.toast}
     >
       {loading
-        ? <ActivityIndicator size="small" color={palette.surface} />
+        ? <ActivityIndicator size="small" color={theme.colors.surface} />
         : <Icon size={22} color={foreground} weight="fill" />}
       <Box flex={1}>
         <AppText color="surface" {...typeRamp.label} fontWeight="400">{title}</AppText>
@@ -110,6 +114,7 @@ type DisclosureProps = {
 };
 
 export function Disclosure({ title, hint, open, onPress, children }: DisclosureProps) {
+  const theme = useTheme<Theme>();
   return (
     <>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onPress}>
@@ -119,8 +124,8 @@ export function Disclosure({ title, hint, open, onPress, children }: DisclosureP
             <AppText variant="caption" marginTop="none">{hint}</AppText>
           </Box>
           {open
-            ? <MinusIcon size={22} color={palette.accent} weight="regular" />
-            : <PlusIcon size={22} color={palette.accent} weight="regular" />}
+            ? <MinusIcon size={22} color={theme.colors.accent} weight="regular" />
+            : <PlusIcon size={22} color={theme.colors.accent} weight="regular" />}
         </Box>
       </Pressable>
       {open ? children : null}

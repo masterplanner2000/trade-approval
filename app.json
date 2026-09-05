@@ -17,6 +17,9 @@
         "projectId": "fd6c9acd-9776-41ae-ae9c-a6d1e05d0088"
       }
     },
-    "owner": "andromeda992s-team"
+    "owner": "andromeda992s-team",
+    "plugins": [
+      "expo-status-bar"
+    ]
   }
 }

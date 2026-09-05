@@ -2,7 +2,10 @@
 
 Personal prototype for reviewing deterministic stock research observations on a phone. The current default screen is shadow-only: it reads completed IBKR daily bars, evaluates provisional RSI mean-reversion checks, and never creates an order.
 
-Product and technical decisions are tracked in [DECISION_LOG.md](./DECISION_LOG.md).
+Project documentation:
+
+- [Application architecture](./ARCHITECTURE.md)
+- [Product and technical decision log](./DECISION_LOG.md)
 
 ## Safety boundary
 
@@ -10,7 +13,7 @@ This build contains no live-broker credentials and no live-order route. Shadow o
 
 When the user explicitly requests a paper recommendation, the executable pilot is buy-only. Approval binds the exact entry, quantity, protective stop, and profit target. A successful paper submission uses an IBKR bracket so the attached stop and profit-taking sells can execute automatically after the buy fills. Dynamic and time-based exits are not implemented yet.
 
-The scanner parameters—14-day RSI at or below 30, close above its 200-day average, $5 minimum price, and $20 million minimum 20-day average dollar volume—are **proposed test variables**, not validated trading rules.
+The scanner uses Alpaca's active U.S.-equity asset master and completed adjusted SIP daily bars to maintain a local SQLite cache of the 500 highest-dollar-volume eligible common-stock candidates. Its parameters—240 completed daily bars, $50 million minimum 20-day average dollar volume, close above its 50- and 200-day averages, 2–20% 20-day momentum, RSI from 50–72, ATR from 1–6%, and a maximum 0.25% final IBKR bid/ask spread—are **proposed test variables**, not validated trading rules. Share price is not used as a quality proxy. Verified market capitalization and sector classification remain future data requirements.
 
 ## Modular risk model
 
@@ -27,10 +30,11 @@ Run the deterministic risk tests with `npm run test:risk`.
 ## Run
 
 1. Install dependencies with `npm install`.
-2. Open TWS in the IBKR paper account with the API enabled on port 7497.
-3. Start the local service with `npm run service:phone` (or `npm run service` for localhost-only use).
-4. In a second terminal, start with `npm start`.
-5. Open the project with Expo Go, or press `w` for the browser preview.
+2. Add Alpaca data credentials to `.env.local`, then run `npm run market:refresh` after the market close.
+3. Open TWS in the IBKR paper account with the API enabled on port 7497.
+4. Start the local service with `npm run service:phone` (or `npm run service` for localhost-only use).
+5. In a second terminal, start with `npm start`.
+6. Open the project with Expo Go, or press `w` for the browser preview.
 
 If TWS or historical daily data is unavailable, the scanner fails closed and the app displays no fabricated recommendation.
 
