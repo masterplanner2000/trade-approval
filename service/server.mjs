@@ -120,6 +120,15 @@ export function eligibleQueueCandidates(scan = {}, excludedSymbols = new Set()) 
     .sort((left, right) => right.recommendationScore - left.recommendationScore);
 }
 
+export function wasDeniedForSignal(candidate = {}, completed = []) {
+  return completed.some((item) =>
+    item.outcome === "denied"
+    && item.symbol === candidate.symbol
+    && Boolean(item.signalDate)
+    && item.signalDate === candidate.signalDate
+  );
+}
+
 function seedProposal(snapshot = null, secResearch = null, candidate = null) {
   const referencePrice = snapshot?.quote?.last ?? snapshot?.quote?.close ?? 183.1;
   const bid = snapshot?.quote?.bid ?? referencePrice;
@@ -165,6 +174,7 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
     marketRisk: candidate?.marketRisk ?? null,
     category: candidate?.category ?? "MOMENTUM_CONTINUATION",
     recommendationScore: candidate?.recommendationScore ?? null,
+    signalDate: candidate?.signalDate ?? null,
     universeSource: "alpaca-cache",
     secResearch,
     researchContext: summarizeSecResearch(secResearch),
@@ -180,7 +190,7 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
   return proposal;
 }
 
-async function recommendationQueue() {
+async function recommendationQueue({ additionalExcludedSymbols = [] } = {}) {
   if (strategy.status !== "active") throw new Error("strategy_paused");
   if (strategy.currentExposure >= strategy.capitalLimit) throw new Error("strategy_capital_limit");
 
@@ -193,8 +203,10 @@ async function recommendationQueue() {
   const excludedSymbols = new Set([
     ...existing.map((proposal) => proposal.symbol),
     ...strategy.completed.filter((item) => item.outcome === "submitted").map((item) => item.symbol),
+    ...additionalExcludedSymbols,
   ]);
-  const candidates = eligibleQueueCandidates(scan, excludedSymbols);
+  const candidates = eligibleQueueCandidates(scan, excludedSymbols)
+    .filter((candidate) => !wasDeniedForSignal(candidate, strategy.completed));
 
   const created = [...existing];
   for (const evaluated of candidates) {
@@ -242,6 +254,24 @@ async function recommendationQueue() {
     recommendations,
     strategy: strategySummary(),
   };
+}
+
+async function recalculateRecommendationQueue({ excludedSymbols = [] } = {}) {
+  const replacedProposalIds = [];
+  for (const proposal of proposals.values()) {
+    if (proposal.status !== "pending") continue;
+    proposal.status = "replaced";
+    proposalSnapshots.delete(proposal.id);
+    replacedProposalIds.push(proposal.id);
+  }
+  auditLog.push({
+    id: randomUUID(),
+    at: now(),
+    event: "recommendations_recalculation_started",
+    replacedProposalIds,
+    excludedSymbols,
+  });
+  return recommendationQueue({ additionalExcludedSymbols: excludedSymbols });
 }
 
 async function nextRecommendation() {
@@ -635,6 +665,7 @@ async function route(request, response) {
           side: receipt.side,
           quantity: receipt.quantity,
           limitPrice: receipt.limitPrice,
+          signalDate: proposal.signalDate,
           outcome: "submitted",
           at: now(),
         });
@@ -679,12 +710,31 @@ async function route(request, response) {
         side: proposal.side,
         quantity: proposal.quantity,
         limitPrice: proposal.limitPrice,
+        signalDate: proposal.signalDate,
         outcome: "denied",
         at: now(),
       });
       saveStrategy();
       auditLog.push({ id: randomUUID(), at: now(), event: "proposal_denied", proposalId: proposal.id, decisionId: proposal.decisionId });
-      return json(response, 200, { proposal });
+      try {
+        const recalculated = await recalculateRecommendationQueue({ excludedSymbols: [proposal.symbol] });
+        return json(response, 200, { proposal, ...recalculated, recalculated: true });
+      } catch (error) {
+        auditLog.push({
+          id: randomUUID(),
+          at: now(),
+          event: "recommendations_recalculation_failed",
+          proposalId: proposal.id,
+          error: error.message ?? "recommendation_recalculation_unavailable",
+        });
+        return json(response, 200, {
+          proposal,
+          recommendations: [],
+          strategy: strategySummary(),
+          recalculated: false,
+          recalculationError: error.message ?? "recommendation_recalculation_unavailable",
+        });
+      }
     }
 
     const approval = approvalReceipt(proposal);

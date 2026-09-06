@@ -161,6 +161,7 @@ Research and market data
 - Added an isolated, deterministic portfolio-position-sizing model.
 - Made stale or incomplete portfolio inputs a hard incomplete result rather than estimating capacity.
 - Added explainable binding constraints and three opportunity classifications without enabling rotation execution.
+- Made denial invalidate and recalculate every remaining proposal while leaving cash unchanged; the denied symbol stays excluded for that signal date.
 
 ### Version 3.3 — 2026-09-06
 

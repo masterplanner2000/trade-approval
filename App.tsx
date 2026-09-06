@@ -659,6 +659,7 @@ export default function App() {
   const brokerFailureCount = useRef(0);
   const orderWorkflowInFlight = useRef(false);
   const recommendationScanInFlight = useRef(false);
+  const recalculatedRecommendations = useRef<Proposal[] | null>(null);
   const dismissToast = useCallback(() => setAppToast(null), []);
 
   function applyShadowScan(scan: ShadowScan) {
@@ -920,10 +921,27 @@ export default function App() {
         body: JSON.stringify({ decision }),
       });
       if (!response.ok) throw new Error("decision_rejected");
-      const result = await response.json() as { approval?: { token: string } };
+      const result = await response.json() as {
+        approval?: { token: string };
+        recommendations?: QueuedServiceRecommendation[];
+        strategy?: StrategySummary;
+        recalculated?: boolean;
+      };
       if (decision === "denied") {
-        setStrategy((current) => current ? { ...current, completedCount: current.completedCount + 1 } : current);
-        setAppToast({ tone: "info", title: "Recommendation denied", message: "No order was sent." });
+        const refreshedCards = result.strategy
+          ? (result.recommendations ?? [])
+            .filter((item) => item.broker?.ok)
+            .map((item) => serviceProposalToCard(item.proposal, item.broker, result.strategy!))
+          : [];
+        recalculatedRecommendations.current = refreshedCards;
+        if (result.strategy) setStrategy(result.strategy);
+        setAppToast({
+          tone: "info",
+          title: "Recommendation denied",
+          message: result.recalculated
+            ? "No order was sent. Remaining recommendations were recalculated."
+            : "No order was sent. The scanner will continue looking for current recommendations.",
+        });
         return true;
       }
       const token = result.approval?.token;
@@ -1007,9 +1025,9 @@ export default function App() {
     }
   }
 
-  function dismissResolvedLiveCard(decision: "approved" | "denied") {
+  function dismissResolvedLiveCard(decision: "approved" | "denied", replacementCards: Proposal[] | null = null) {
     if (cardAnimating.current) return;
-    const remaining = realRecommendations.filter((item) => item.id !== proposal.id);
+    const remaining = replacementCards ?? realRecommendations.filter((item) => item.id !== proposal.id);
     const next = remaining[0] ?? null;
     cardAnimating.current = true;
     setTransitionCard(next);
@@ -1039,7 +1057,9 @@ export default function App() {
 
   async function completeDecision(decision: "approved" | "denied") {
     const succeeded = await executeDecision(decision);
-    if (succeeded) dismissResolvedLiveCard(decision);
+    const replacementCards = decision === "denied" ? recalculatedRecommendations.current : null;
+    recalculatedRecommendations.current = null;
+    if (succeeded) dismissResolvedLiveCard(decision, replacementCards);
   }
 
   function decide(decision: "approved" | "denied") {

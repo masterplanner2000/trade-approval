@@ -37,6 +37,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-021 | Portfolio rotations are sequential and contingent on confirmed fills | Confirmed | 2026-09-06 |
 | D-022 | Use a local SQLite trading ledger with immutable, idempotent lifecycle records | Confirmed | 2026-09-06 |
 | D-023 | Position sizing must be deterministic, portfolio-aware, and explainable | Confirmed | 2026-09-06 |
+| D-024 | Denial triggers recommendation recalculation without changing cash | Confirmed | 2026-09-06 |
 
 ---
 
@@ -247,6 +248,14 @@ This is the living record of product, design, trading-safety, data, and technica
 **Safety boundary:** Missing, invalid, future-dated, or stale portfolio data produces an `INCOMPLETE` result with no recommended amount. A possible rotation is classification only and cannot authorize either leg.
 **Implementation status:** The pure calculation model and unit tests are implemented independently of broker and ledger code. Reconciled IBKR inputs and user-configured policy are required before it replaces prototype sizing.
 
+### D-024 — Denial triggers recommendation recalculation without changing cash
+
+**Status:** Confirmed
+**Decision:** A successful denial records no order and reserves no cash. It invalidates the remaining displayed proposals and rebuilds them from the current strategy capacity and fresh execution quotes before showing the next card.
+**Reason:** The next card should reflect current portfolio capacity rather than retain order terms calculated against an earlier snapshot. Displayed and denied proposals must never consume buying capacity.
+**Recurrence rule:** The denied symbol remains excluded for the same completed-data signal date so continuous scanning does not immediately recreate the rejected idea. A later trading signal may qualify again.
+**Future integration:** Once reconciliation is authoritative, the same refresh will use reconciled settled cash, pending commitments, positions, fills, and portfolio risk.
+
 ---
 
 ## Open decisions
@@ -306,6 +315,7 @@ This is the living record of product, design, trading-safety, data, and technica
 - Added the implementation sequence and acceptance criteria to `PROJECT_PLAN.md`.
 - Added the SQLite durable-ledger foundation and verified restart-safe proposal, decision, and submission idempotency behavior.
 - Added the deterministic portfolio-sizing foundation with explicit binding constraints and fail-closed freshness checks.
+- Made denial trigger a fresh recommendation calculation without changing or reserving cash.
 # 2026-09-04 — Replace the minimum share-price filter
 
 **Decision:** Remove the arbitrary minimum share-price rule. Require at least 240 completed daily bars and $50 million in 20-day average dollar volume during scanning. Before creating a recommendation, require a current bid and ask with a spread no wider than 0.25%; try the next ranked eligible candidate when the highest-ranked candidate fails this execution check.

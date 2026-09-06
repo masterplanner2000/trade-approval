@@ -18,6 +18,8 @@ The trading sleeve is managed separately from long-term savings and automated-in
 - Require a fresh IBKR bid/ask and acceptable spread for each actionable card.
 - Return every candidate that passes; use pagination or incremental delivery only as a transport and UI optimization.
 - Freeze the exact terms of a displayed proposal until it is decided or expires.
+- After a denial, keep cash unchanged but invalidate and recalculate the remaining recommendation set from current strategy capacity and fresh quotes.
+- Do not show the denied symbol again for the same completed-data signal date.
 
 ### 2. Durable trading ledger — in progress
 
