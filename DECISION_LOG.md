@@ -38,6 +38,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-022 | Use a local SQLite trading ledger with immutable, idempotent lifecycle records | Confirmed | 2026-09-06 |
 | D-023 | Position sizing must be deterministic, portfolio-aware, and explainable | Confirmed | 2026-09-06 |
 | D-024 | Denial triggers recommendation recalculation without changing cash | Confirmed | 2026-09-06 |
+| D-025 | Adaptive sizing operates only inside editable user limits | Confirmed | 2026-09-06 |
 
 ---
 
@@ -256,6 +257,14 @@ This is the living record of product, design, trading-safety, data, and technica
 **Recurrence rule:** The denied symbol remains excluded for the same completed-data signal date so continuous scanning does not immediately recreate the rejected idea. A later trading signal may qualify again.
 **Future integration:** Once reconciliation is authoritative, the same refresh will use reconciled settled cash, pending commitments, positions, fills, and portfolio risk.
 
+### D-025 — Adaptive sizing operates only inside editable user limits
+
+**Status:** Confirmed
+**Decision:** Provide smart paper defaults and an accessible Settings page, while preserving user-editable hard limits for the trading sleeve, risk, deployment, cash reserve, concentration, and simultaneous positions. Adaptive conditions may reduce effective operating limits but may never raise them above the saved limits.
+**Reason:** Market-aware sizing is useful only when it cannot silently expand the amount the user has authorized. Separating hard boundaries from an adaptive multiplier keeps control understandable and auditable.
+**Implementation:** The hamburger menu opens Settings. The authenticated Mac service persists and validates the policy. The page previews an operating level using available observed-risk and broker states.
+**Safety boundary:** The adaptive preview does not yet control submitted amounts. It becomes authoritative only after reconciled portfolio inputs and a versioned market-regime model are connected and tested.
+
 ---
 
 ## Open decisions
@@ -316,6 +325,7 @@ This is the living record of product, design, trading-safety, data, and technica
 - Added the SQLite durable-ledger foundation and verified restart-safe proposal, decision, and submission idempotency behavior.
 - Added the deterministic portfolio-sizing foundation with explicit binding constraints and fail-closed freshness checks.
 - Made denial trigger a fresh recommendation calculation without changing or reserving cash.
+- Added persisted, editable adaptive paper-policy settings with hard-limit enforcement.
 # 2026-09-04 — Replace the minimum share-price filter
 
 **Decision:** Remove the arbitrary minimum share-price rule. Require at least 240 completed daily bars and $50 million in 20-day average dollar volume during scanning. Before creating a recommendation, require a current bid and ask with a spread no wider than 0.25%; try the next ranked eligible candidate when the highest-ranked candidate fails this execution check.

@@ -32,6 +32,8 @@ Run the deterministic risk tests with `npm run test:risk`.
 
 The isolated `portfolio-position-sizing-v1` model calculates whole-share quantities from the most restrictive cash, buying-power, stop-loss, daily-risk, open-risk, position, total-exposure, sector, correlation, liquidity, pending-order, and open-position constraint. It returns the binding constraint and fails as `INCOMPLETE` when its portfolio snapshot is missing or stale. It is intentionally not connected to order generation until ledger-backed IBKR reconciliation supplies authoritative inputs. Run its tests with `npm run test:sizing`.
 
+The app menu includes an accessible Settings page for the paper trading sleeve and hard risk limits. Smart defaults and the adaptive-mode preference are validated and stored by the authenticated local service. The displayed operating level is currently a paper preview; it cannot affect order sizing until reconciled portfolio and versioned market-regime inputs are connected.
+
 ## Run
 
 1. Install dependencies with `npm install`.

@@ -14,6 +14,8 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
+  Switch,
+  TextInput,
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -36,6 +38,36 @@ function useVisualTheme() {
 type Decision = "pending" | "approved" | "denied" | "expired";
 type BrokerConnectionStatus = "checking" | "connected" | "disconnected";
 type AppToast = { tone: "info" | "success" | "danger"; title: string; message?: string };
+type AppPage = "review" | "settings";
+type RiskPolicy = {
+  adaptive: boolean;
+  sleeveValue: number;
+  normalRiskPercent: number;
+  hardRiskPercent: number;
+  dailyLossPercent: number;
+  totalOpenRiskPercent: number;
+  maximumPositionPercent: number;
+  maximumDeployedPercent: number;
+  minimumCashReservePercent: number;
+  maximumSectorPercent: number;
+  maximumCorrelatedPercent: number;
+  maximumPositions: number;
+};
+
+const SMART_RISK_POLICY: RiskPolicy = {
+  adaptive: true,
+  sleeveValue: 50_000,
+  normalRiskPercent: 0.25,
+  hardRiskPercent: 0.5,
+  dailyLossPercent: 0.75,
+  totalOpenRiskPercent: 1.25,
+  maximumPositionPercent: 7.5,
+  maximumDeployedPercent: 60,
+  minimumCashReservePercent: 40,
+  maximumSectorPercent: 20,
+  maximumCorrelatedPercent: 25,
+  maximumPositions: 5,
+};
 
 type Proposal = {
   id: string;
@@ -616,9 +648,112 @@ function PreviewCardFace({ proposal }: { proposal: Proposal }) {
   );
 }
 
+function PolicyField({ label, value, suffix, accessibilityLabel, onChange }: {
+  label: string;
+  value: number;
+  suffix: string;
+  accessibilityLabel: string;
+  onChange: (value: number) => void;
+}) {
+  const { colors, styles } = useVisualTheme();
+  return (
+    <View style={styles.policyField}>
+      <Text style={styles.policyFieldLabel}>{label}</Text>
+      <View style={styles.policyInputWrap}>
+        {suffix === "$" ? <Text style={styles.policySuffix}>$</Text> : null}
+        <TextInput
+          accessibilityLabel={accessibilityLabel}
+          keyboardType="decimal-pad"
+          value={String(value)}
+          onChangeText={(text) => {
+            const parsed = Number(text.replaceAll(",", ""));
+            if (text.trim() !== "" && Number.isFinite(parsed) && parsed >= 0) onChange(parsed);
+          }}
+          selectionColor={colors.ink}
+          style={styles.policyInput}
+        />
+        {suffix !== "$" ? <Text style={styles.policySuffix}>{suffix}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+function SettingsPage({ policy, operatingPercent, operatingReason, saving, onChange, onSave }: {
+  policy: RiskPolicy;
+  operatingPercent: number;
+  operatingReason: string;
+  saving: boolean;
+  onChange: (policy: RiskPolicy) => void;
+  onSave: () => void;
+}) {
+  const { colors, styles } = useVisualTheme();
+  const set = (field: keyof RiskPolicy, value: number | boolean) => onChange({ ...policy, [field]: value });
+  return (
+    <View style={styles.settingsPage}>
+      <Text style={styles.settingsEyebrow}>PAPER RISK POLICY</Text>
+      <Text accessibilityRole="header" style={styles.settingsTitle}>Settings</Text>
+      <Text style={styles.settingsIntro}>Set the boundaries. Adaptive mode may reduce risk as conditions worsen, but it can never exceed your limits.</Text>
+
+      <View style={styles.policySection}>
+        <View style={styles.adaptiveRow}>
+          <View style={styles.adaptiveCopy}>
+            <Text style={styles.policySectionTitle}>Adaptive sizing</Text>
+            <Text style={styles.policyHelp}>Automatically scale amounts within your limits.</Text>
+          </View>
+          <Switch
+            accessibilityLabel="Adaptive sizing"
+            accessibilityHint="Allows the paper sizing model to reduce operating risk based on market and portfolio conditions"
+            value={policy.adaptive}
+            onValueChange={(value) => set("adaptive", value)}
+            trackColor={{ false: colors.border, true: colors.actionApprove }}
+            thumbColor="#FFFFFF"
+          />
+        </View>
+        <View style={styles.operatingCard}>
+          <Text style={styles.operatingLabel}>Current operating level</Text>
+          <Text style={styles.operatingValue}>{policy.adaptive ? `${operatingPercent}%` : "Fixed"}</Text>
+          <Text style={styles.operatingReason}>{policy.adaptive ? operatingReason : "Using your normal limits without adaptive reduction."}</Text>
+          <Text style={styles.operatingFootnote}>Paper preview · reconciled portfolio inputs are not connected yet.</Text>
+        </View>
+      </View>
+
+      <View style={styles.policySection}>
+        <Text style={styles.policySectionTitle}>Trading sleeve</Text>
+        <Text style={styles.policyHelp}>Kept separate from long-term savings and investing accounts.</Text>
+        <PolicyField label="Sleeve value" accessibilityLabel="Trading sleeve value in dollars" value={policy.sleeveValue} suffix="$" onChange={(value) => set("sleeveValue", value)} />
+        <PolicyField label="Minimum cash reserve" accessibilityLabel="Minimum cash reserve percent" value={policy.minimumCashReservePercent} suffix="%" onChange={(value) => set("minimumCashReservePercent", value)} />
+        <PolicyField label="Maximum deployed" accessibilityLabel="Maximum deployed capital percent" value={policy.maximumDeployedPercent} suffix="%" onChange={(value) => set("maximumDeployedPercent", value)} />
+      </View>
+
+      <View style={styles.policySection}>
+        <Text style={styles.policySectionTitle}>Loss limits</Text>
+        <PolicyField label="Normal risk per trade" accessibilityLabel="Normal risk per trade percent" value={policy.normalRiskPercent} suffix="%" onChange={(value) => set("normalRiskPercent", value)} />
+        <PolicyField label="Hard maximum per trade" accessibilityLabel="Hard maximum risk per trade percent" value={policy.hardRiskPercent} suffix="%" onChange={(value) => set("hardRiskPercent", value)} />
+        <PolicyField label="Maximum daily loss" accessibilityLabel="Maximum daily loss percent" value={policy.dailyLossPercent} suffix="%" onChange={(value) => set("dailyLossPercent", value)} />
+        <PolicyField label="Maximum total open risk" accessibilityLabel="Maximum total open risk percent" value={policy.totalOpenRiskPercent} suffix="%" onChange={(value) => set("totalOpenRiskPercent", value)} />
+      </View>
+
+      <View style={styles.policySection}>
+        <Text style={styles.policySectionTitle}>Concentration limits</Text>
+        <PolicyField label="Maximum position" accessibilityLabel="Maximum single position percent" value={policy.maximumPositionPercent} suffix="%" onChange={(value) => set("maximumPositionPercent", value)} />
+        <PolicyField label="Maximum sector" accessibilityLabel="Maximum sector exposure percent" value={policy.maximumSectorPercent} suffix="%" onChange={(value) => set("maximumSectorPercent", value)} />
+        <PolicyField label="Maximum correlated" accessibilityLabel="Maximum correlated exposure percent" value={policy.maximumCorrelatedPercent} suffix="%" onChange={(value) => set("maximumCorrelatedPercent", value)} />
+        <PolicyField label="Maximum positions" accessibilityLabel="Maximum simultaneous positions" value={policy.maximumPositions} suffix="" onChange={(value) => set("maximumPositions", Math.round(value))} />
+      </View>
+
+      <Pressable accessibilityRole="button" accessibilityLabel="Save paper risk policy" accessibilityState={{ disabled: saving, busy: saving }} disabled={saving} onPress={onSave} style={({ pressed }) => [styles.policySave, saving && styles.homeActionDisabled, pressed && styles.homeActionPressed]}>
+        <Text style={styles.policySaveText}>{saving ? "Saving…" : "Save paper policy"}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function App() {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [darkMode, setDarkMode] = useState(false);
+  const [activePage, setActivePage] = useState<AppPage>("review");
+  const [riskPolicy, setRiskPolicy] = useState<RiskPolicy>(SMART_RISK_POLICY);
+  const [policySaving, setPolicySaving] = useState(false);
   const colors = darkMode ? darkPalette : palette;
   const activeTheme = darkMode ? darkTheme : theme;
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -661,6 +796,67 @@ export default function App() {
   const recommendationScanInFlight = useRef(false);
   const recalculatedRecommendations = useRef<Proposal[] | null>(null);
   const dismissToast = useCallback(() => setAppToast(null), []);
+  const adaptiveOperatingPercent = !riskPolicy.adaptive
+    ? 100
+    : paused || brokerConnectionStatus === "disconnected"
+      ? 0
+      : proposal.marketRisk?.level === "VERY_HIGH"
+        ? 35
+        : proposal.marketRisk?.level === "HIGH"
+          ? 60
+          : proposal.marketRisk?.level === "MODERATE"
+            ? 80
+            : 100;
+  const adaptiveOperatingReason = paused
+    ? "New recommendations are paused."
+    : brokerConnectionStatus === "disconnected"
+      ? "Paper broker data is unavailable, so new risk is paused."
+      : proposal.marketRisk?.level === "VERY_HIGH"
+        ? "Current observed volatility is very high."
+        : proposal.marketRisk?.level === "HIGH"
+          ? "Current observed volatility is elevated."
+          : proposal.marketRisk?.level === "MODERATE"
+            ? "Current observed volatility is moderate."
+      : "Current observed volatility is within the normal range.";
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_BASE_URL}/risk-policy`, { headers: { "x-app-token": APP_TOKEN } })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("policy_unavailable")))
+      .then((result: { policy?: RiskPolicy }) => {
+        if (active && result.policy) setRiskPolicy(result.policy);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  async function savePaperRiskPolicy() {
+    const invalid = riskPolicy.normalRiskPercent > riskPolicy.hardRiskPercent
+      || riskPolicy.minimumCashReservePercent + riskPolicy.maximumDeployedPercent > 100
+      || riskPolicy.maximumPositionPercent > riskPolicy.maximumDeployedPercent
+      || riskPolicy.maximumSectorPercent > riskPolicy.maximumDeployedPercent
+      || riskPolicy.maximumCorrelatedPercent > riskPolicy.maximumDeployedPercent
+      || riskPolicy.maximumPositions < 1;
+    if (invalid) {
+      setAppToast({ tone: "danger", title: "Policy needs attention", message: "Check that normal risk is below the hard maximum and that allocation limits do not conflict." });
+      return;
+    }
+    setPolicySaving(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/risk-policy`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-app-token": APP_TOKEN },
+        body: JSON.stringify({ policy: riskPolicy }),
+      });
+      if (!response.ok) throw new Error("policy_save_failed");
+      setAppToast({ tone: "success", title: "Paper policy saved", message: "The policy is stored on your Mac. Adaptive amounts remain a preview until reconciled inputs are connected." });
+      setActivePage("review");
+    } catch {
+      setAppToast({ tone: "danger", title: "Policy not saved", message: "Keep the local service running and try again." });
+    } finally {
+      setPolicySaving(false);
+    }
+  }
 
   function applyShadowScan(scan: ShadowScan) {
     if (!scan.selected) throw new Error(scan.error ?? "shadow_data_unavailable");
@@ -1293,9 +1489,13 @@ export default function App() {
 
   function openMenu() {
     const actions: Array<{ text: string; style?: "cancel"; onPress?: () => void }> = [];
+    if (activePage === "settings") {
+      actions.push({ text: "Back to recommendations", onPress: () => setActivePage("review") });
+    }
     if (!proposal.shadowMode) {
       actions.push({ text: "Back to scanner", onPress: returnToScanner });
     }
+    if (activePage !== "settings") actions.push({ text: "Settings", onPress: () => setActivePage("settings") });
     actions.push(
       { text: "Refresh recommendations", onPress: () => void openPaperRecommendation() },
       { text: "Preview examples", onPress: previewActiveProposal },
@@ -1351,6 +1551,18 @@ export default function App() {
             <Toast {...appToast} loading={appToast.tone === "info" && processing} onDismiss={dismissToast} duration={appToast.tone === "info" && processing ? 0 : 5500} />
           </View>
         )}
+
+        {activePage === "settings" ? (
+          <SettingsPage
+            policy={riskPolicy}
+            operatingPercent={adaptiveOperatingPercent}
+            operatingReason={adaptiveOperatingReason}
+            saving={policySaving}
+            onChange={setRiskPolicy}
+            onSave={() => void savePaperRiskPolicy()}
+          />
+        ) : (
+        <>
 
         {paused && (
           <View style={styles.pauseBanner}>
@@ -1616,6 +1828,9 @@ export default function App() {
           </View>
         )}
 
+        </>
+        )}
+
       </ScrollView>
 
       <Modal
@@ -1692,6 +1907,27 @@ return StyleSheet.create({
   appHeader: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   toastLayer: { position: "absolute", top: 66, left: spacing.large, right: spacing.large, zIndex: 20 },
+  settingsPage: { paddingTop: 30, paddingBottom: 44 },
+  settingsEyebrow: { color: colors.muted, ...typeRamp.caption, fontWeight: "400", letterSpacing: 1.1 },
+  settingsTitle: { color: colors.ink, ...typeRamp.display, marginTop: 2 },
+  settingsIntro: { color: colors.muted, ...typeRamp.body, marginTop: 8, marginBottom: 26, maxWidth: 540 },
+  policySection: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 20, paddingBottom: 18 },
+  policySectionTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600" },
+  policyHelp: { color: colors.muted, ...typeRamp.caption, marginTop: 3 },
+  adaptiveRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 20 },
+  adaptiveCopy: { flex: 1 },
+  operatingCard: { backgroundColor: colors.surfaceMuted, borderRadius: radius.large, padding: 18, marginTop: 18 },
+  operatingLabel: { color: colors.muted, ...typeRamp.caption },
+  operatingValue: { color: colors.ink, fontSize: 30, lineHeight: 36, fontWeight: "800", marginTop: 3 },
+  operatingReason: { color: colors.text, ...typeRamp.body, marginTop: 5 },
+  operatingFootnote: { color: colors.muted, ...typeRamp.caption, marginTop: 10 },
+  policyField: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  policyFieldLabel: { flex: 1, color: colors.muted, ...typeRamp.body },
+  policyInputWrap: { minWidth: 112, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5 },
+  policyInput: { minWidth: 78, minHeight: 44, color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: "400", textAlign: "right", paddingHorizontal: 8, borderWidth: 1, borderColor: colors.border, borderRadius: radius.small, backgroundColor: colors.surface },
+  policySuffix: { minWidth: 16, color: colors.muted, ...typeRamp.body },
+  policySave: { minHeight: 56, alignItems: "center", justifyContent: "center", backgroundColor: colors.actionApprove, borderRadius: radius.pill, marginTop: 12, paddingHorizontal: 20 },
+  policySaveText: { color: colors.actionApproveText, fontSize: 16, lineHeight: 22, fontWeight: "400" },
   menuButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 20 },
   marketPill: { height: 34, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.surfaceMuted, borderWidth: 0, borderRadius: radius.pill, paddingHorizontal: 12 },
   marketText: { color: colors.text, ...typeRamp.caption, fontWeight: "400" },

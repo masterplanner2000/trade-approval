@@ -51,6 +51,14 @@ The trading sleeve is managed separately from long-term savings and automated-in
 - Remove prototype share-count ceilings only after these controls and tests are in place.
 - Recalculate immediately before submission and fail closed if capacity changed.
 
+### 5a. Adaptive policy settings — interface and persistence implemented
+
+- **Implemented:** accessible Settings page opened from the hamburger menu.
+- **Implemented:** editable trading sleeve, cash reserve, deployment, loss, concentration, and position-count limits.
+- **Implemented:** smart paper defaults, adaptive-mode control, operating-level explanation, conflict validation, and authenticated persistence on the Mac service.
+- **Safety boundary:** adaptive behavior may reduce operating limits but cannot exceed saved hard limits.
+- **Next:** derive the operating multiplier from reconciled portfolio state and versioned market-regime inputs, then pass the effective policy to the sizing engine.
+
 ### 6. Opportunity classification
 
 Classify every qualified market setup as one of:

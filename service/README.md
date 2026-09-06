@@ -41,6 +41,8 @@ Endpoints:
 - `GET /audit`
 - `GET /research/sec?symbol=NVDA`
 - `GET /shadow/signals`
+- `GET /risk-policy` returns the persisted paper sizing policy or safe smart defaults.
+- `POST /risk-policy` validates and persists editable hard limits and the adaptive-mode preference.
 - `POST /shadow/scan`
 - `POST /recommendations/queue` returns every ranked candidate that currently passes the research scan and fresh IBKR spread check. The result count is market-driven rather than fixed. Each proposal expires independently; ATR volatility shortens the lifetime from 10 minutes to 5 or 2 minutes.
 - `POST /proposals/demo`

@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.4
+**Current architecture version:** 3.5
 **Last updated:** 2026-09-06
 **Status:** Living source of truth
 
@@ -155,6 +155,12 @@ Research and market data
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 3.5 — 2026-09-06
+
+- Added an accessible Settings destination to the application menu.
+- Added editable hard risk boundaries and an adaptive paper operating-level preview that can reduce, but never exceed, those limits.
+- Added authenticated local policy reads/writes and validation; sizing integration remains gated on reconciled portfolio inputs.
 
 ### Version 3.4 — 2026-09-06
 

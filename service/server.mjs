@@ -31,7 +31,22 @@ const ibkrPaperSubmitScript = join(serviceDirectory, "ibkr_submit_paper.py");
 const alpacaMarketCacheScript = join(serviceDirectory, "alpaca_market_cache.py");
 const strategyStatePath = join(serviceDirectory, "data", "strategy-state.json");
 const shadowLedgerPath = join(serviceDirectory, "data", "shadow-signals.json");
+const riskPolicyPath = join(serviceDirectory, "data", "risk-policy.json");
 const strategy = JSON.parse(readFileSync(strategyStatePath, "utf8"));
+const defaultRiskPolicy = {
+  adaptive: true,
+  sleeveValue: 50_000,
+  normalRiskPercent: 0.25,
+  hardRiskPercent: 0.5,
+  dailyLossPercent: 0.75,
+  totalOpenRiskPercent: 1.25,
+  maximumPositionPercent: 7.5,
+  maximumDeployedPercent: 60,
+  minimumCashReservePercent: 40,
+  maximumSectorPercent: 20,
+  maximumCorrelatedPercent: 25,
+  maximumPositions: 5,
+};
 const companies = {
   NVDA: "NVIDIA Corporation",
   AAPL: "Apple Inc.",
@@ -40,6 +55,37 @@ const companies = {
 
 function saveStrategy() {
   writeFileSync(strategyStatePath, `${JSON.stringify(strategy, null, 2)}\n`);
+}
+
+function readRiskPolicy() {
+  try {
+    return JSON.parse(readFileSync(riskPolicyPath, "utf8"));
+  } catch {
+    return { version: 1, updatedAt: null, policy: defaultRiskPolicy };
+  }
+}
+
+export function validateRiskPolicy(policy) {
+  const numericFields = Object.keys(defaultRiskPolicy).filter((field) => field !== "adaptive");
+  if (!policy || typeof policy !== "object" || typeof policy.adaptive !== "boolean") return false;
+  if (numericFields.some((field) => typeof policy[field] !== "number" || !Number.isFinite(policy[field]) || policy[field] < 0)) return false;
+  const percentageFields = numericFields.filter((field) => field.endsWith("Percent"));
+  return policy.sleeveValue > 0
+    && Number.isInteger(policy.maximumPositions)
+    && policy.maximumPositions >= 1
+    && percentageFields.every((field) => policy[field] <= 100)
+    && policy.normalRiskPercent <= policy.hardRiskPercent
+    && policy.minimumCashReservePercent + policy.maximumDeployedPercent <= 100
+    && policy.maximumPositionPercent <= policy.maximumDeployedPercent
+    && policy.maximumSectorPercent <= policy.maximumDeployedPercent
+    && policy.maximumCorrelatedPercent <= policy.maximumDeployedPercent;
+}
+
+function saveRiskPolicy(policy) {
+  const record = { version: 1, updatedAt: now(), policy };
+  mkdirSync(dirname(riskPolicyPath), { recursive: true });
+  writeFileSync(riskPolicyPath, `${JSON.stringify(record, null, 2)}\n`);
+  return record;
 }
 
 function readShadowLedger() {
@@ -424,6 +470,18 @@ async function route(request, response) {
 
   if (request.method === "GET" && url.pathname === "/strategy") {
     return json(response, 200, { strategy: strategySummary() });
+  }
+
+  if (request.method === "GET" && url.pathname === "/risk-policy") {
+    return json(response, 200, readRiskPolicy());
+  }
+
+  if (request.method === "POST" && url.pathname === "/risk-policy") {
+    const input = await body(request);
+    if (!validateRiskPolicy(input.policy)) return json(response, 400, { error: "invalid_risk_policy" });
+    const record = saveRiskPolicy(input.policy);
+    auditLog.push({ id: randomUUID(), at: now(), event: "risk_policy_saved", version: record.version });
+    return json(response, 200, record);
   }
 
   if (request.method === "GET" && url.pathname === "/audit") {

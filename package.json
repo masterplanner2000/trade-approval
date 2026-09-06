@@ -15,7 +15,7 @@
     "market:scan": ".venv-ibkr-10.49/bin/python service/alpaca_market_cache.py scan",
     "test:sec": "node --test service/sec_edgar.test.mjs service/recommendation_queue.test.mjs",
     "test:ledger": "node --test service/trading_ledger.test.mjs",
-    "test:sizing": "node --test service/portfolio_sizing.test.mjs",
+    "test:sizing": "node --test service/portfolio_sizing.test.mjs service/risk_policy.test.mjs",
     "test:risk": ".venv-ibkr-10.49/bin/python -m unittest discover -s service -p 'test_*.py' -v",
     "typecheck": "tsc --noEmit"
   },
