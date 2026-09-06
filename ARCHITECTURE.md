@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.6
+**Current architecture version:** 3.7
 **Last updated:** 2026-09-06
 **Status:** Living source of truth
 
@@ -111,8 +111,8 @@ flowchart LR
 
 | Component | Responsibility | Status | Next milestone |
 |---|---|---|---|
-| Mobile app | Review recommendations and approve or deny decisions | Prototype | Add Activity and Positions |
-| Secure application API | Coordinate the mobile client and local services | Prototype | Ledger-backed lifecycle integrated; add Activity reads and clearer service health |
+| Mobile app | Review recommendations and approve or deny decisions | Prototype | Activity and Positions added; enrich with reconciled broker state |
+| Secure application API | Coordinate the mobile client and local services | Prototype | Ledger-backed lifecycle and read APIs integrated; add clearer service health |
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Select licensed providers and cache model |
@@ -122,7 +122,7 @@ flowchart LR
 | Order service | Submit approved buys, protective stops, and separately approved ordinary sales | Prototype | Confirm durable broker identifiers |
 | Broker reconciliation | Match app state to IBKR orders, fills, and positions | Next | Build first |
 | Durable trading ledger | Persist proposals, decisions, submission attempts, broker orders, events, fills, and errors | Partial | Core proposal-to-submission routes integrated; add reconciliation and Activity reads |
-| Activity and Positions | Show pending, filled, protected, and closed trades | Next | Build after ledger schema |
+| Activity and Positions | Show pending, filled, protected, and closed trades | Partial | Ledger-backed views added; connect reconciled IBKR state |
 | Performance evaluation | Measure strategy and execution outcomes | Planned | Build after reconciled trade history exists |
 | Notifications | Deliver proposals, fills, exits, and safety alerts | Planned | Add after reliable event states exist |
 | Web app | Cross-platform account and review experience | Planned | Reuse API after mobile workflow is reliable |
@@ -155,6 +155,12 @@ Research and market data
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 3.7 — 2026-09-06
+
+- Added ledger-backed Activity and Positions read models and corresponding mobile views.
+- Kept Positions conservative: only recorded filled entries appear, and the interface labels them as awaiting IBKR reconciliation.
+- Added menu navigation and explicit empty, loading, unavailable, and refresh states.
 
 ### Version 3.6 — 2026-09-06
 

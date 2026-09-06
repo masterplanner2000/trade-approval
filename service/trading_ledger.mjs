@@ -398,6 +398,62 @@ export class TradingLedger {
     }));
   }
 
+  listActivity({ limit = 100 } = {}) {
+    const rows = this.database.prepare(`
+      SELECT p.*, d.decision, d.decided_at,
+        (SELECT status FROM submission_attempts sa WHERE sa.decision_id = d.id ORDER BY sa.started_at DESC, sa.rowid DESC LIMIT 1) AS submission_status
+      FROM proposals p
+      LEFT JOIN decisions d ON d.proposal_id = p.id
+      ORDER BY COALESCE(d.decided_at, p.created_at) DESC, p.rowid DESC
+      LIMIT ?
+    `).all(Math.max(1, Math.min(500, Number(limit) || 100)));
+    return rows.map((row) => {
+      const orders = this.listBrokerOrders(row.id);
+      const entry = orders.find((order) => order.role === "entry");
+      const status = entry?.status ?? row.submission_status ?? row.decision ?? row.status;
+      return {
+        id: row.id,
+        symbol: row.symbol,
+        side: row.side,
+        status,
+        occurredAt: row.decided_at ?? row.created_at,
+        quantity: parseJson(row.terms_json)?.quantity ?? null,
+        limitPrice: parseJson(row.terms_json)?.limitPrice ?? null,
+        environment: row.environment,
+        brokerOrderId: entry?.brokerOrderId ?? null,
+      };
+    });
+  }
+
+  listPositions() {
+    return this.listProposals().flatMap((proposal) => {
+      const orders = this.listBrokerOrders(proposal.id);
+      const entry = orders.find((order) => order.role === "entry");
+      if (!entry || entry.status.toLowerCase() !== "filled") return [];
+      const closed = orders.some((order) =>
+        ["exit", "protective_stop", "profit_target"].includes(order.role)
+        && order.status.toLowerCase() === "filled"
+      );
+      if (closed) return [];
+      const quantity = Number(entry.order?.filled ?? proposal.terms?.quantity ?? 0);
+      if (!(quantity > 0)) return [];
+      return [{
+        id: proposal.id,
+        symbol: proposal.symbol,
+        quantity,
+        averageEntryPrice: Number(entry.order?.averageFillPrice ?? proposal.terms?.limitPrice ?? 0),
+        currentPrice: null,
+        protectiveStopPrice: proposal.terms?.stopPrice ?? null,
+        profitTargetPrice: proposal.terms?.targetPrice ?? null,
+        environment: proposal.environment,
+        broker: proposal.broker,
+        accountId: proposal.accountId,
+        updatedAt: Math.max(...orders.map((order) => order.lastSeenAt)),
+        dataState: "ledger_only",
+      }];
+    });
+  }
+
   close() {
     this.database.close();
   }

@@ -179,3 +179,27 @@ test("broker order identity is linked once and updated on later observations", (
   assert.equal(stored.order.filled, 2);
   ledger.close();
 });
+
+test("activity read model combines proposal, decision, submission, and broker status", () => {
+  const ledger = new TradingLedger(":memory:");
+  ledger.recordProposal(proposal());
+  ledger.recordDecision({ id: "decision-1", proposalId: "proposal-1", decision: "approved", decidedAt: 2_000 });
+  ledger.beginSubmission({ id: "attempt-1", decisionId: "decision-1", idempotencyKey: "paper:decision-1", startedAt: 3_000 });
+  ledger.completeSubmission({ id: "attempt-1", status: "submitted", completedAt: 4_000, brokerOrderId: "12345" });
+  ledger.recordBrokerOrder({ proposalId: "proposal-1", submissionAttemptId: "attempt-1", broker: "IBKR", accountId: "paper-account", brokerOrderId: "12345", role: "entry", status: "PreSubmitted", order: { filled: 0 }, seenAt: 5_000 });
+  assert.deepEqual(ledger.listActivity(), [{
+    id: "proposal-1", symbol: "NVDA", side: "buy", status: "PreSubmitted", occurredAt: 2_000,
+    quantity: 2, limitPrice: 200, environment: "paper", brokerOrderId: "12345",
+  }]);
+  ledger.close();
+});
+
+test("positions include filled entries and disappear after a filled exit", () => {
+  const ledger = new TradingLedger(":memory:");
+  ledger.recordProposal(proposal({ terms: { quantity: 2, limitPrice: 200, stopPrice: 190, targetPrice: 220 } }));
+  ledger.recordBrokerOrder({ proposalId: "proposal-1", broker: "IBKR", accountId: "paper-account", brokerOrderId: "12345", role: "entry", status: "Filled", order: { filled: 2, averageFillPrice: 199.5 }, seenAt: 5_000 });
+  assert.equal(ledger.listPositions()[0].averageEntryPrice, 199.5);
+  ledger.recordBrokerOrder({ proposalId: "proposal-1", broker: "IBKR", accountId: "paper-account", brokerOrderId: "12346", parentBrokerOrderId: "12345", role: "profit_target", status: "Filled", order: { filled: 2 }, seenAt: 6_000 });
+  assert.deepEqual(ledger.listPositions(), []);
+  ledger.close();
+});

@@ -591,6 +591,18 @@ async function route(request, response) {
     return json(response, 200, { events: [...auditLog].reverse() });
   }
 
+  if (request.method === "GET" && url.pathname === "/activity") {
+    return json(response, 200, { items: ledger().listActivity({ limit: url.searchParams.get("limit") }) });
+  }
+
+  if (request.method === "GET" && url.pathname === "/positions") {
+    return json(response, 200, {
+      items: ledger().listPositions(),
+      reconciled: false,
+      message: "Positions reflect recorded fills only until IBKR reconciliation is connected.",
+    });
+  }
+
   if (request.method === "GET" && url.pathname === "/shadow/signals") {
     return json(response, 200, readShadowLedger());
   }

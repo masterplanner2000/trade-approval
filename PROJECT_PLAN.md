@@ -44,7 +44,8 @@ Evaluate a second, separately packaged offering for technically inclined custome
 - **Implemented:** generated proposals, approvals, denials, expirations, preview/What-If outcomes, final safety blocks, submission attempts, and acknowledged bracket-order identities are connected to the ledger.
 - **Implemented:** service startup restores proposal and decision state; durable submission idempotency replaces the in-memory consumed-approval set.
 - **Implemented:** a broker disconnect after transmission records an unknown outcome and blocks another transmission until reconciliation.
-- **Next:** preserve unselected recommendations and expose ledger-backed Activity reads.
+- **Implemented:** ledger-backed Activity and Positions read models and mobile views; positions fail closed until a filled entry is recorded.
+- **Next:** preserve unselected recommendations and enrich Activity with reconciled broker events.
 - **Next:** reconcile unknown attempts, current IBKR orders, fills, positions, and manual broker activity.
 
 ### 3. IBKR reconciliation
@@ -92,9 +93,10 @@ Classify every qualified market setup as one of:
 - Submit the sale first, wait for a confirmed fill, refresh settled cash and portfolio risk, then regenerate and revalidate the buy.
 - Never assume sale proceeds or release the buy solely because the sale was approved.
 
-### 8. Position and exit lifecycle
+### 8. Position and exit lifecycle — interface foundation implemented
 
-- Add Activity and Positions views.
+- **Implemented foundation:** Activity and Positions views backed by durable application records.
+- **Safety boundary:** unreconciled records are explicitly labeled and never presented as authoritative live broker state.
 - Verify protective orders remain active after fills or partial fills.
 - Treat ordinary profit targets as monitored thresholds that create sell-approval requests.
 - Permit automatic profit-taking only for separately defined, deterministic emergency exceptions.

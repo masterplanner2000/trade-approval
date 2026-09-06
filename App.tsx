@@ -38,7 +38,15 @@ function useVisualTheme() {
 type Decision = "pending" | "approved" | "denied" | "expired";
 type BrokerConnectionStatus = "checking" | "connected" | "disconnected";
 type AppToast = { tone: "info" | "success" | "danger"; title: string; message?: string };
-type AppPage = "review" | "settings";
+type AppPage = "review" | "activity" | "positions" | "settings";
+type ActivityItem = {
+  id: string; symbol: string; side: string; status: string; occurredAt: number;
+  quantity: number | null; limitPrice: number | null; environment: string; brokerOrderId: string | null;
+};
+type PositionItem = {
+  id: string; symbol: string; quantity: number; averageEntryPrice: number; currentPrice: number | null;
+  protectiveStopPrice: number | null; profitTargetPrice: number | null; updatedAt: number; dataState: "ledger_only";
+};
 type RiskPolicy = {
   adaptive: boolean;
   sleeveValue: number;
@@ -748,12 +756,68 @@ function SettingsPage({ policy, operatingPercent, operatingReason, saving, onCha
   );
 }
 
+function HistoryPage({ page, activity, positions, loading, error, onRefresh }: {
+  page: "activity" | "positions"; activity: ActivityItem[]; positions: PositionItem[];
+  loading: boolean; error: string | null; onRefresh: () => void;
+}) {
+  const { styles } = useVisualTheme();
+  const empty = page === "activity" ? activity.length === 0 : positions.length === 0;
+  return (
+    <View style={styles.historyPage}>
+      <Text accessibilityRole="header" style={styles.settingsTitle}>{page === "activity" ? "Activity" : "Positions"}</Text>
+      <Text style={styles.settingsIntro}>
+        {page === "activity" ? "A durable record of recommendation and order states." : "Filled paper positions recorded by the application."}
+      </Text>
+      {loading ? <Text style={styles.historyMessage}>Loading…</Text> : error ? <Text style={styles.historyMessage}>Activity service is unavailable.</Text> : null}
+      {!loading && !error && empty ? (
+        <View style={styles.historyEmpty}>
+          <Text style={styles.historyEmptyTitle}>{page === "activity" ? "No activity yet" : "No recorded positions"}</Text>
+          <Text style={styles.historyMessage}>{page === "activity" ? "Decisions and order updates will appear here." : "A position appears after the ledger observes a filled entry."}</Text>
+        </View>
+      ) : null}
+      {!loading && !error && page === "activity" && activity.map((item) => (
+        <View key={item.id} style={styles.historyRow}>
+          <View style={styles.historyRowMain}>
+            <Text style={styles.historySymbol}>{item.symbol}</Text>
+            <Text style={styles.historyMeta}>{item.side.toUpperCase()} · {item.quantity ?? "—"} shares{item.limitPrice ? ` at ${money(item.limitPrice)}` : ""}</Text>
+          </View>
+          <View style={styles.historyRowEnd}>
+            <Text style={styles.historyStatus}>{item.status.replaceAll("_", " ")}</Text>
+            <Text style={styles.historyTime}>{new Date(item.occurredAt).toLocaleDateString()}</Text>
+          </View>
+        </View>
+      ))}
+      {!loading && !error && page === "positions" && positions.map((item) => (
+        <View key={item.id} style={styles.positionCard}>
+          <View style={styles.historyRow}>
+            <View style={styles.historyRowMain}><Text style={styles.historySymbol}>{item.symbol}</Text><Text style={styles.historyMeta}>{item.quantity} shares</Text></View>
+            <Text style={styles.historyStatus}>{money(item.quantity * item.averageEntryPrice)}</Text>
+          </View>
+          <View style={styles.positionTerms}>
+            <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Average entry</Text><Text style={styles.tradeTermValue}>{money(item.averageEntryPrice)}</Text></View>
+            <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Protective stop</Text><Text style={styles.tradeTermValue}>{item.protectiveStopPrice ? money(item.protectiveStopPrice) : "—"}</Text></View>
+            <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Profit target</Text><Text style={styles.tradeTermValue}>{item.profitTargetPrice ? money(item.profitTargetPrice) : "—"}</Text></View>
+          </View>
+          <Text style={styles.positionNotice}>Awaiting live IBKR reconciliation</Text>
+        </View>
+      ))}
+      <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
+        <Text style={styles.previewProposalButtonText}>Refresh</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function App() {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [darkMode, setDarkMode] = useState(false);
   const [activePage, setActivePage] = useState<AppPage>("review");
   const [riskPolicy, setRiskPolicy] = useState<RiskPolicy>(SMART_RISK_POLICY);
   const [policySaving, setPolicySaving] = useState(false);
+  const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
+  const [positionItems, setPositionItems] = useState<PositionItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const colors = darkMode ? darkPalette : palette;
   const activeTheme = darkMode ? darkTheme : theme;
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -856,6 +920,32 @@ export default function App() {
     } finally {
       setPolicySaving(false);
     }
+  }
+
+  async function loadHistory() {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const headers = { "x-app-token": APP_TOKEN };
+      const [activityResponse, positionsResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/activity`, { headers }),
+        fetch(`${API_BASE_URL}/positions`, { headers }),
+      ]);
+      if (!activityResponse.ok || !positionsResponse.ok) throw new Error("history_unavailable");
+      const activityResult = await activityResponse.json();
+      const positionsResult = await positionsResponse.json();
+      setActivityItems(activityResult.items ?? []);
+      setPositionItems(positionsResult.items ?? []);
+    } catch {
+      setHistoryError("history_unavailable");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  function openHistory(page: "activity" | "positions") {
+    setActivePage(page);
+    void loadHistory();
   }
 
   function applyShadowScan(scan: ShadowScan) {
@@ -1489,12 +1579,14 @@ export default function App() {
 
   function openMenu() {
     const actions: Array<{ text: string; style?: "cancel"; onPress?: () => void }> = [];
-    if (activePage === "settings") {
+    if (activePage !== "review") {
       actions.push({ text: "Back to recommendations", onPress: () => setActivePage("review") });
     }
     if (!proposal.shadowMode) {
       actions.push({ text: "Back to scanner", onPress: returnToScanner });
     }
+    if (activePage !== "activity") actions.push({ text: "Activity", onPress: () => openHistory("activity") });
+    if (activePage !== "positions") actions.push({ text: "Positions", onPress: () => openHistory("positions") });
     if (activePage !== "settings") actions.push({ text: "Settings", onPress: () => setActivePage("settings") });
     actions.push(
       { text: "Refresh recommendations", onPress: () => void openPaperRecommendation() },
@@ -1561,6 +1653,8 @@ export default function App() {
             onChange={setRiskPolicy}
             onSave={() => void savePaperRiskPolicy()}
           />
+        ) : activePage === "activity" || activePage === "positions" ? (
+          <HistoryPage page={activePage} activity={activityItems} positions={positionItems} loading={historyLoading} error={historyError} onRefresh={() => void loadHistory()} />
         ) : (
         <>
 
@@ -1928,6 +2022,20 @@ return StyleSheet.create({
   policySuffix: { minWidth: 16, color: colors.muted, ...typeRamp.body },
   policySave: { minHeight: 56, alignItems: "center", justifyContent: "center", backgroundColor: colors.actionApprove, borderRadius: radius.pill, marginTop: 12, paddingHorizontal: 20 },
   policySaveText: { color: colors.actionApproveText, fontSize: 16, lineHeight: 22, fontWeight: "400" },
+  historyPage: { flex: 1, paddingTop: 10, paddingBottom: 30 },
+  historyMessage: { color: colors.muted, ...typeRamp.body, marginTop: 8 },
+  historyEmpty: { backgroundColor: colors.surfaceMuted, borderRadius: radius.medium, padding: 20, marginTop: 24 },
+  historyEmptyTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600" },
+  historyRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, minHeight: 72, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  historyRowMain: { flex: 1 },
+  historyRowEnd: { maxWidth: "45%", alignItems: "flex-end" },
+  historySymbol: { color: colors.ink, ...typeRamp.heading, fontWeight: "600" },
+  historyMeta: { color: colors.muted, ...typeRamp.caption, marginTop: 3 },
+  historyStatus: { color: colors.ink, ...typeRamp.body, fontWeight: "500", textTransform: "capitalize", textAlign: "right" },
+  historyTime: { color: colors.muted, ...typeRamp.caption, marginTop: 3 },
+  positionCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.medium, paddingHorizontal: 16, marginTop: 18, overflow: "hidden" },
+  positionTerms: { paddingVertical: 8 },
+  positionNotice: { color: colors.warning, ...typeRamp.caption, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingVertical: 12 },
   menuButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 20 },
   marketPill: { height: 34, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.surfaceMuted, borderWidth: 0, borderRadius: radius.pill, paddingHorizontal: 12 },
   marketText: { color: colors.text, ...typeRamp.caption, fontWeight: "400" },
