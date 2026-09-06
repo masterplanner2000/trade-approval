@@ -19,11 +19,13 @@ The trading sleeve is managed separately from long-term savings and automated-in
 - Return every candidate that passes; use pagination or incremental delivery only as a transport and UI optimization.
 - Freeze the exact terms of a displayed proposal until it is decided or expires.
 
-### 2. Durable trading ledger — next
+### 2. Durable trading ledger — in progress
 
-- Persist proposals, decisions, approval receipts, submission attempts, broker identifiers, errors, and timestamps.
-- Preserve approved, denied, expired, blocked, and unselected recommendations.
-- Make restart recovery deterministic and idempotent.
+- **Implemented foundation:** versioned SQLite schema for proposals, decisions, submission attempts, broker orders, and lifecycle events.
+- **Implemented foundation:** immutable proposal replay checks, one decision per proposal, single idempotency key per submission, and restart persistence tests.
+- **Next:** connect proposal creation, decisions, safety results, and submission results in `server.mjs` to the ledger.
+- **Next:** preserve blocked, expired, and unselected recommendations and expose ledger-backed activity reads.
+- **Next:** replace in-memory duplicate protection with ledger recovery for interrupted submissions.
 
 ### 3. IBKR reconciliation
 
@@ -87,4 +89,3 @@ The durable-ledger and reconciliation milestone is complete only when:
 3. Manual broker changes are detected and displayed.
 4. The app can distinguish submitted, pending, partially filled, filled, cancelled, rejected, protected, and closed states.
 5. Portfolio-aware sizing remains disabled until balances, positions, open orders, and fills are fresh and reconciled.
-

@@ -35,6 +35,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-019 | Preload a bounded recommendation queue | Superseded by D-020 | 2026-09-06 |
 | D-020 | Recommendation count is market- and portfolio-driven | Confirmed | 2026-09-06 |
 | D-021 | Portfolio rotations are sequential and contingent on confirmed fills | Confirmed | 2026-09-06 |
+| D-022 | Use a local SQLite trading ledger with immutable, idempotent lifecycle records | Confirmed | 2026-09-06 |
 
 ---
 
@@ -230,6 +231,13 @@ This is the living record of product, design, trading-safety, data, and technica
 **Prerequisites:** Durable ledger, IBKR reconciliation, authoritative portfolio snapshot, portfolio-aware sizing, and explicit trading-sleeve policy.
 **Initial UI categories:** Actionable with cash, qualified but capacity-blocked, and possible rotation.
 
+### D-022 — Use a local SQLite trading ledger with immutable, idempotent lifecycle records
+
+**Status:** Confirmed  
+**Decision:** Store proposals, decisions, submission attempts, broker-order identities, and lifecycle events in a versioned local SQLite database. Proposal terms are immutable after creation, a proposal may have only one decision, and every broker submission uses a durable unique idempotency key.  
+**Reason:** In-memory maps and sets lose intent and duplicate protection when the service restarts. The application needs durable evidence before it can reconcile broker state or report trustworthy performance.  
+**Implementation status:** The schema, storage API, and restart/idempotency tests are implemented. Existing service routes still require integration before the ledger becomes authoritative at runtime.
+
 ---
 
 ## Open decisions
@@ -287,6 +295,7 @@ This is the living record of product, design, trading-safety, data, and technica
 - Superseded the fixed three-card queue with a market- and portfolio-driven recommendation-set policy.
 - Confirmed that sell-to-buy rotations must wait for a confirmed sale fill and fresh portfolio revalidation.
 - Added the implementation sequence and acceptance criteria to `PROJECT_PLAN.md`.
+- Added the SQLite durable-ledger foundation and verified restart-safe proposal, decision, and submission idempotency behavior.
 # 2026-09-04 — Replace the minimum share-price filter
 
 **Decision:** Remove the arbitrary minimum share-price rule. Require at least 240 completed daily bars and $50 million in 20-day average dollar volume during scanning. Before creating a recommendation, require a current bid and ask with a spread no wider than 0.25%; try the next ranked eligible candidate when the highest-ranked candidate fails this execution check.

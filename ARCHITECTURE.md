@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.2
+**Current architecture version:** 3.3
 **Last updated:** 2026-09-06
 **Status:** Living source of truth
 
@@ -121,7 +121,7 @@ flowchart LR
 | Safety validation | Recheck price, account, approval, limits, and What-If | Prototype | Preserve exact validation results |
 | Order service | Submit approved buys, protective stops, and separately approved ordinary sales | Prototype | Confirm durable broker identifiers |
 | Broker reconciliation | Match app state to IBKR orders, fills, and positions | Next | Build first |
-| Durable trading ledger | Persist proposals, decisions, orders, fills, and errors | Next | Build with reconciliation |
+| Durable trading ledger | Persist proposals, decisions, submission attempts, broker orders, events, fills, and errors | Partial | SQLite schema and idempotency core implemented; connect service routes next |
 | Activity and Positions | Show pending, filled, protected, and closed trades | Next | Build after ledger schema |
 | Performance evaluation | Measure strategy and execution outcomes | Planned | Build after reconciled trade history exists |
 | Notifications | Deliver proposals, fills, exits, and safety alerts | Planned | Add after reliable event states exist |
@@ -155,6 +155,12 @@ Research and market data
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 3.3 — 2026-09-06
+
+- Implemented the first SQLite-backed durable-ledger module for immutable proposals, one-decision-per-proposal enforcement, idempotent submission attempts, broker-order records, and lifecycle events.
+- Verified that approvals and submission idempotency survive closing and reopening the database.
+- Kept the existing service routes on their current in-memory state until the next integration step; reconciliation remains unimplemented.
 
 ### Version 3.2 — 2026-09-06
 

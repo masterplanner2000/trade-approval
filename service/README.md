@@ -2,6 +2,12 @@
 
 This local service is the boundary between the phone interface and a future user-owned trading agent.
 
+## Durable trading ledger
+
+`trading_ledger.mjs` defines the first version of the local SQLite lifecycle ledger. It stores immutable proposal terms, one decision per proposal, restart-safe submission idempotency keys, broker-order identities, and append-only lifecycle events. Run `npm run test:ledger` to verify persistence and duplicate protection.
+
+The storage module is implemented, but `server.mjs` still uses its existing in-memory maps and sets. Connecting the service routes to the ledger is the next milestone; until that integration is complete, restarting the running service can still lose active runtime state.
+
 ## Alpaca research cache and scanner
 
 Alpaca supplies the active U.S.-equity asset master and adjusted completed SIP daily bars. `npm run market:refresh` removes non-tradable, OTC and obvious non-common-stock instruments, ranks the survivors by the latest completed session's dollar volume, stores the top 500 and roughly 430 calendar days of history in `data/market-cache.sqlite3`, and never stores credentials. `npm run market:status` reports cache coverage; `npm run market:scan` evaluates the cached universe without contacting IBKR.
