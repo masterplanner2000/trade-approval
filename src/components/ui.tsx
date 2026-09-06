@@ -39,7 +39,14 @@ export function ActionButton({ label, tone, disabled, pending = false, onPress }
   const theme = useTheme<Theme>();
   const primary = tone === "primary";
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [{ flex: 1, opacity: disabled && !pending ? 0.35 : pressed ? 0.72 : 1 }]}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled), busy: pending }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [{ flex: 1, opacity: disabled && !pending ? 0.35 : pressed ? 0.72 : 1 }]}
+    >
       <Box
         height={56}
         flexDirection="row"
@@ -48,11 +55,11 @@ export function ActionButton({ label, tone, disabled, pending = false, onPress }
         justifyContent="center"
         borderRadius="pill"
         borderWidth={1}
-        borderColor={primary ? "accent" : "border"}
-        backgroundColor={primary ? "accent" : "surface"}
+        borderColor={primary ? "actionApprove" : "actionDeny"}
+        backgroundColor={primary ? "actionApprove" : "surface"}
       >
-        {pending ? <ActivityIndicator size="small" color={primary ? theme.colors.surface : theme.colors.ink} /> : null}
-        <AppText color={primary ? "surface" : "ink"} {...typeRamp.label} fontSize={16} lineHeight={22} fontWeight="400">{label}</AppText>
+        {pending ? <ActivityIndicator size="small" color={primary ? theme.colors.actionApproveText : theme.colors.actionDeny} /> : null}
+        <AppText color={primary ? "actionApproveText" : "actionDeny"} {...typeRamp.label} fontSize={16} lineHeight={22} fontWeight="400">{label}</AppText>
       </Box>
     </Pressable>
   );

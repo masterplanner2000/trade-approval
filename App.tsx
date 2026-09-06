@@ -14,6 +14,7 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ActionButton, Toast } from "./src/components/ui";
@@ -525,7 +526,93 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function PreviewCardFace({ proposal }: { proposal: Proposal }) {
+  const { colors, styles } = useVisualTheme();
+  const previewState: Decision = proposal.decision === "expired" || Date.now() >= proposal.expiresAt ? "expired" : proposal.decision;
+  const previewExpiringSoon = previewState === "pending" && proposal.expiresAt - Date.now() <= 60_000;
+  return (
+    <>
+      <View style={styles.cardBody}>
+        <View style={styles.companyIdentity}>
+          <CompanyMark symbol={proposal.symbol} size={42} />
+          <Text style={styles.company} numberOfLines={1}>{proposal.company}</Text>
+        </View>
+        <Text style={styles.tradeHeadline}>
+          {proposal.side === "BUY" ? "Buy" : "Sell"} {money(proposal.positionValue)} of {proposal.symbol}
+        </Text>
+        <Text style={styles.tradePrice}>at current price {money(proposal.currentPrice)}</Text>
+        <View style={styles.tradeTerms}>
+          <View style={styles.tradeTermRow}>
+            <Text style={styles.tradeTermLabel}>{proposal.side === "BUY" ? "Receive" : "Sell"}</Text>
+            <Text style={styles.tradeTermValue}>{proposal.quantity} shares</Text>
+          </View>
+          <View style={styles.tradeTermRow}>
+            <Text style={styles.tradeTermLabel}>Limit price</Text>
+            <Text style={styles.tradeTermValue}>{money(proposal.limitPrice)}</Text>
+          </View>
+          <View style={styles.tradeTermRow}>
+            <Text style={styles.tradeTermLabel}>Risk</Text>
+            <View style={styles.riskChip}>
+              <Text style={styles.riskChipText}>{qualitativeRisk(proposal.marketRisk)}</Text>
+            </View>
+          </View>
+          <View style={styles.tradeTermRow}>
+            <Text style={styles.tradeTermLabel}>{previewState === "pending" ? "Expires in" : "Status"}</Text>
+            <View style={[
+              styles.timer,
+              previewExpiringSoon && styles.timerWarning,
+              previewState === "expired" && styles.timerExpired,
+              previewState !== "pending" && previewState !== "expired" && styles.timerClosed,
+            ]}>
+              <ClockIcon size={15} color={previewState === "expired" ? "#B42318" : previewExpiringSoon ? "#854D0E" : colors.muted} weight="regular" />
+              <Text style={[
+                styles.timerValue,
+                previewExpiringSoon && styles.timerWarningText,
+                previewState === "expired" && styles.timerExpiredText,
+                previewState !== "pending" && previewState !== "expired" && styles.timerClosedText,
+              ]}>
+                {previewState === "pending" ? countdown(proposal.expiresAt) : previewState.toUpperCase()}
+              </Text>
+            </View>
+          </View>
+          {proposal.automaticExits && (
+            <>
+              <View style={styles.tradeTermRow}>
+                <Text style={styles.tradeTermLabel}>Profit target</Text>
+                <Text style={styles.tradeTermValue}>Sell at {money(proposal.targetPrice)}</Text>
+              </View>
+              <View style={styles.tradeTermRow}>
+                <Text style={styles.tradeTermLabel}>Total profit</Text>
+                <Text style={styles.tradeTermValue}>+{money(proposal.potentialUpside)}</Text>
+              </View>
+              <View style={styles.tradeTermRow}>
+                <Text style={styles.tradeTermLabel}>Time horizon</Text>
+                <Text style={styles.tradeTermValue}>{proposal.targetTimeframe}</Text>
+              </View>
+              <View style={styles.tradeTermRow}>
+                <Text style={styles.tradeTermLabel}>Protective stop</Text>
+                <Text style={styles.tradeTermValue}>Trigger at {money(proposal.stopPrice)}</Text>
+              </View>
+            </>
+          )}
+        </View>
+        <View style={styles.infoCard}>
+          <Text style={styles.infoCardTitle}>Why this trade</Text>
+          <Text style={styles.infoCardBody}>{firstTwoSentences(proposal.companyCatalyst)}</Text>
+        </View>
+      </View>
+      <View style={styles.cardFooter}>
+        <View style={styles.actions}>
+          <ActionButton label="Deny" tone="secondary" onPress={() => {}} />
+          <ActionButton label="Approve" tone="primary" onPress={() => {}} />
+        </View>
+      </View>
+    </>
+  );
+}
+
 export default function App() {
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [darkMode, setDarkMode] = useState(false);
   const colors = darkMode ? darkPalette : palette;
   const activeTheme = darkMode ? darkTheme : theme;
@@ -545,17 +632,22 @@ export default function App() {
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [appToast, setAppToast] = useState<AppToast | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [showRecommendationSkeleton, setShowRecommendationSkeleton] = useState(false);
   const [decisionInFlight, setDecisionInFlight] = useState<"approved" | "denied" | null>(null);
   const [strategy, setStrategy] = useState<StrategySummary | null>(null);
   const [uiPreview, setUiPreview] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [reviewedExampleIds, setReviewedExampleIds] = useState<string[]>([]);
   const [sampleDeckComplete, setSampleDeckComplete] = useState(false);
+  const [transitionCard, setTransitionCard] = useState<Proposal | null>(null);
   const [openSection, setOpenSection] = useState<"rationale" | "strategy" | "news" | null>(null);
   const [cardWidth, setCardWidth] = useState(0);
   const cardPosition = useRef(new Animated.ValueXY()).current;
   const cardEntryProgress = useRef(new Animated.Value(1)).current;
+  const skeletonPulse = useRef(new Animated.Value(0.52)).current;
   const cardAnimating = useRef(false);
+  const cardWasDragged = useRef(false);
+  const suppressCardTapUntil = useRef(0);
   const brokerCheckInFlight = useRef(false);
   const brokerFailureCount = useRef(0);
   const orderWorkflowInFlight = useRef(false);
@@ -727,6 +819,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!processing || !proposal.shadowMode) {
+      setShowRecommendationSkeleton(false);
+      skeletonPulse.stopAnimation();
+      skeletonPulse.setValue(0.52);
+      return;
+    }
+    const delay = setTimeout(() => setShowRecommendationSkeleton(true), 250);
+    return () => clearTimeout(delay);
+  }, [processing, proposal.shadowMode, skeletonPulse]);
+
+  useEffect(() => {
+    if (!showRecommendationSkeleton) return;
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(skeletonPulse, { toValue: 0.92, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(skeletonPulse, { toValue: 0.52, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ]));
+    animation.start();
+    return () => animation.stop();
+  }, [showRecommendationSkeleton, skeletonPulse]);
+
+  useEffect(() => {
     void checkBrokerConnection();
     const connectionTimer = setInterval(() => void checkBrokerConnection(), 15000);
     return () => clearInterval(connectionTimer);
@@ -764,6 +877,7 @@ export default function App() {
 
   const expired = proposal.decision === "pending" && Date.now() >= proposal.expiresAt;
   const state: Decision = expired ? "expired" : proposal.decision;
+  const expiringSoon = state === "pending" && proposal.expiresAt - Date.now() <= 60_000;
   const brokerReady = broker !== null && brokerConnectionStatus === "connected";
   const actionable = state === "pending" && !paused && brokerReady && !proposal.shadowMode;
   const timer = countdown(proposal.expiresAt);
@@ -932,6 +1046,7 @@ export default function App() {
     setPreviewIndex(0);
     setReviewedExampleIds([]);
     setSampleDeckComplete(false);
+    setTransitionCard(null);
     cardAnimating.current = false;
     cardPosition.setValue({ x: 0, y: 0 });
     cardEntryProgress.setValue(1);
@@ -978,7 +1093,7 @@ export default function App() {
     });
   }
 
-  function navigateSampleCard(step: -1 | 1, exitDirection: -1 | 1, releaseVelocity = 0) {
+  function navigateSampleCard(step: -1 | 1, exitDirection: -1 | 1) {
     if (cardAnimating.current) return;
     const available = UI_PROPOSALS
       .map((item, index) => ({ item, index }))
@@ -994,30 +1109,31 @@ export default function App() {
 
     const nextPosition = (currentPosition + step + available.length) % available.length;
     const next = available[nextPosition]!;
+    const preparedNext: Proposal = {
+      ...next.item,
+      decision: next.item.decision === "expired" ? "expired" : "pending",
+      expiresAt: next.item.decision === "expired" ? Date.now() - 30 * 1000 : Date.now() + (next.index + 3) * 60 * 1000,
+    };
     cardAnimating.current = true;
-    Animated.spring(cardPosition, {
-      toValue: { x: exitDirection * Math.max(cardWidth + 90, 460), y: 18 },
-      velocity: { x: releaseVelocity, y: 0 },
-      stiffness: 190,
-      damping: 23,
-      mass: 0.82,
-      useNativeDriver: true,
-    }).start(() => {
-      cardEntryProgress.setValue(0);
-      setPreviewIndex(next.index);
-      setProposal({
-        ...next.item,
-        decision: next.item.decision === "expired" ? "expired" : "pending",
-        expiresAt: next.item.decision === "expired" ? Date.now() - 30 * 1000 : Date.now() + (next.index + 3) * 60 * 1000,
-      });
-      cardPosition.setValue({ x: 0, y: 0 });
-      requestAnimationFrame(() => {
-        Animated.timing(cardEntryProgress, {
-          toValue: 1,
-          duration: 220,
-          easing: Easing.bezier(0.22, 1, 0.36, 1),
-          useNativeDriver: true,
-        }).start(() => { cardAnimating.current = false; });
+    setTransitionCard(preparedNext);
+    requestAnimationFrame(() => {
+      Animated.timing(cardPosition, {
+        toValue: { x: exitDirection * viewportWidth * 1.5, y: 0 },
+        duration: 300,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }).start(() => {
+        cardEntryProgress.setValue(0);
+        setPreviewIndex(next.index);
+        setProposal(preparedNext);
+        requestAnimationFrame(() => {
+          cardPosition.setValue({ x: 0, y: 0 });
+          cardEntryProgress.setValue(1);
+          requestAnimationFrame(() => {
+            setTransitionCard(null);
+            cardAnimating.current = false;
+          });
+        });
       });
     });
   }
@@ -1025,63 +1141,58 @@ export default function App() {
   const cardPanResponder = PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) =>
       uiPreview && Math.abs(gesture.dx) > 7 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
+    onMoveShouldSetPanResponderCapture: (_, gesture) =>
+      uiPreview && Math.abs(gesture.dx) > 7 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
+    onPanResponderGrant: () => {
+      cardWasDragged.current = false;
+      cardPosition.stopAnimation();
+    },
     onPanResponderMove: (_, gesture) => {
-      cardPosition.setValue({ x: gesture.dx, y: Math.min(18, Math.abs(gesture.dx) * 0.035) });
+      if (Math.abs(gesture.dx) > 4) cardWasDragged.current = true;
+      cardPosition.setValue({ x: gesture.dx, y: 0 });
     },
     onPanResponderRelease: (_, gesture) => {
-      const projectedDistance = gesture.dx + gesture.vx * 110;
-      if (Math.abs(projectedDistance) >= 72 || Math.abs(gesture.vx) >= 0.55) {
+      if (cardWasDragged.current) suppressCardTapUntil.current = Date.now() + 400;
+      const swipeThreshold = Math.min(viewportWidth * 0.25, 110);
+      const projectedDistance = gesture.dx + gesture.vx * 120;
+      const intentionalFlick = Math.abs(gesture.vx) >= 0.35 && Math.abs(gesture.dx) >= 18;
+      if (Math.abs(gesture.dx) >= swipeThreshold || intentionalFlick) {
         const direction: -1 | 1 = projectedDistance >= 0 ? 1 : -1;
-        navigateSampleCard(direction, direction, gesture.vx);
+        navigateSampleCard(direction, direction);
       } else {
-        Animated.spring(cardPosition, {
+        Animated.timing(cardPosition, {
           toValue: { x: 0, y: 0 },
-          stiffness: 250,
-          damping: 24,
-          mass: 0.8,
+          duration: 300,
+          easing: Easing.out(Easing.ease),
           useNativeDriver: true,
         }).start();
       }
     },
     onPanResponderTerminate: () => {
-      Animated.spring(cardPosition, {
+      if (cardWasDragged.current) suppressCardTapUntil.current = Date.now() + 400;
+      Animated.timing(cardPosition, {
         toValue: { x: 0, y: 0 },
-        stiffness: 250,
-        damping: 24,
-        mass: 0.8,
+        duration: 300,
+        easing: Easing.out(Easing.ease),
         useNativeDriver: true,
       }).start();
     },
+    onPanResponderTerminationRequest: () => false,
   });
 
   const cardRotation = cardPosition.x.interpolate({
-    inputRange: [-240, 0, 240],
-    outputRange: ["-8deg", "0deg", "8deg"],
+    inputRange: [-viewportWidth, 0, viewportWidth],
+    outputRange: [`-${viewportWidth / 20}deg`, "0deg", `${viewportWidth / 20}deg`],
+    extrapolate: "extend",
+  });
+  const nextCardOpacity = cardPosition.x.interpolate({
+    inputRange: [-18, 0, 18],
+    outputRange: [0, 1, 1],
     extrapolate: "clamp",
   });
-  const cardBrowseScale = cardPosition.x.interpolate({
-    inputRange: [-260, 0, 260],
-    outputRange: [0.965, 1, 0.965],
-    extrapolate: "clamp",
-  });
-  const nextCardScale = cardPosition.x.interpolate({
-    inputRange: [-520, 0, 520],
-    outputRange: [1, 0.985, 1],
-    extrapolate: "clamp",
-  });
-  const nextCardTranslateY = cardPosition.x.interpolate({
-    inputRange: [-520, 0, 520],
-    outputRange: [0, 10, 0],
-    extrapolate: "clamp",
-  });
-  const backCardScale = cardPosition.x.interpolate({
-    inputRange: [-520, 0, 520],
-    outputRange: [0.985, 0.97, 0.985],
-    extrapolate: "clamp",
-  });
-  const backCardTranslateY = cardPosition.x.interpolate({
-    inputRange: [-520, 0, 520],
-    outputRange: [10, 20, 10],
+  const previousCardOpacity = cardPosition.x.interpolate({
+    inputRange: [-18, 0, 18],
+    outputRange: [1, 0, 0],
     extrapolate: "clamp",
   });
   const cardEntryOpacity = cardEntryProgress.interpolate({
@@ -1096,6 +1207,17 @@ export default function App() {
     inputRange: [0, 1],
     outputRange: [10, 0],
   });
+  const availablePreviewCards = UI_PROPOSALS.filter((item) => !reviewedExampleIds.includes(item.id));
+  const activePreviewPosition = availablePreviewCards.findIndex((item) => item.id === proposal.id);
+  const nextPreviewCard = activePreviewPosition >= 0 && availablePreviewCards.length > 1
+    ? availablePreviewCards[(activePreviewPosition + 1) % availablePreviewCards.length]
+    : null;
+  const previousPreviewCard = activePreviewPosition >= 0 && availablePreviewCards.length > 1
+    ? availablePreviewCards[(activePreviewPosition - 1 + availablePreviewCards.length) % availablePreviewCards.length]
+    : null;
+  const backPreviewCard = activePreviewPosition >= 0 && availablePreviewCards.length > 2
+    ? availablePreviewCards[(activePreviewPosition + 2) % availablePreviewCards.length]
+    : null;
 
   function returnToScanner() {
     setOpenSection(null);
@@ -1177,7 +1299,43 @@ export default function App() {
           </View>
         )}
 
-        {proposal.shadowMode && (
+        {proposal.shadowMode && showRecommendationSkeleton && (
+          <View style={[styles.deckStage, { height: Math.max(420, viewportHeight - 150) }]}>
+            <View pointerEvents="none" style={[styles.stackCard, styles.stackCardBack]} />
+            <View pointerEvents="none" style={[styles.stackCard, styles.stackCardNext]} />
+            <View style={styles.proposalCard}>
+              <Animated.View style={[styles.cardBody, { opacity: skeletonPulse }]}>
+                <View style={styles.skeletonIdentityRow}>
+                  <View style={styles.skeletonLogo} />
+                  <View style={[styles.skeletonLine, styles.skeletonCompany]} />
+                </View>
+                <View style={[styles.skeletonLine, styles.skeletonHeadline]} />
+                <View style={[styles.skeletonLine, styles.skeletonPrice]} />
+                <View style={styles.skeletonTerms}>
+                  {[0, 1, 2, 3, 4].map((item) => (
+                    <View key={item} style={styles.skeletonTermRow}>
+                      <View style={[styles.skeletonLine, styles.skeletonTermLabel]} />
+                      <View style={[styles.skeletonLine, styles.skeletonTermValue]} />
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.skeletonInfoBlock}>
+                  <View style={[styles.skeletonLine, styles.skeletonInfoTitle]} />
+                  <View style={[styles.skeletonLine, styles.skeletonInfoLine]} />
+                  <View style={[styles.skeletonLine, styles.skeletonInfoLineShort]} />
+                </View>
+              </Animated.View>
+              <View style={styles.cardFooter}>
+                <View style={styles.actions}>
+                  <View style={styles.skeletonButton} />
+                  <View style={styles.skeletonButton} />
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {proposal.shadowMode && !showRecommendationSkeleton && (
           <View style={styles.homeDashboard}>
             <Text style={styles.homeEyebrow}>{paused ? "SCANNER PAUSED" : "SCANNER ACTIVE"}</Text>
             <Text style={styles.homeTitle}>
@@ -1223,18 +1381,47 @@ export default function App() {
 
         {!proposal.shadowMode && sampleDeckComplete && (
           <View style={styles.deckComplete}>
-            <Text style={styles.deckCompleteTitle}>Review complete</Text>
-            <Text style={styles.deckCompleteBody}>You approved or denied all {UI_PROPOSALS.length} sample proposals.</Text>
-            <Pressable onPress={previewActiveProposal} style={styles.previewProposalButton}>
-              <Text style={styles.previewProposalButtonText}>Review again</Text>
+            <View style={styles.deckCompleteIcon}>
+              <CheckCircleIcon size={34} color={colors.actionApprove} weight="fill" />
+            </View>
+            <Text style={styles.deckCompleteEyebrow}>0 recommendations remaining</Text>
+            <Text style={styles.deckCompleteTitle}>You’re all caught up</Text>
+            <Text style={styles.deckCompleteBody}>
+              You reviewed all {UI_PROPOSALS.length} suggested trades. New recommendations will appear when the scanner finds them.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Review sample trades again"
+              onPress={previewActiveProposal}
+              style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}
+            >
+              <Text style={styles.previewProposalButtonText}>Review sample trades again</Text>
             </Pressable>
           </View>
         )}
 
         {!proposal.shadowMode && !sampleDeckComplete && (
-          <View style={styles.deckStage}>
-            {uiPreview && <Animated.View pointerEvents="none" style={[styles.stackCard, styles.stackCardBack, { transform: [{ translateY: backCardTranslateY }, { scale: backCardScale }] }]} />}
-            {uiPreview && <Animated.View pointerEvents="none" style={[styles.stackCard, styles.stackCardNext, { transform: [{ translateY: nextCardTranslateY }, { scale: nextCardScale }] }]} />}
+          <View style={[styles.deckStage, { height: Math.max(420, viewportHeight - 150) }]}>
+            {uiPreview && backPreviewCard && (
+              <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardBack]}>
+                <PreviewCardFace proposal={backPreviewCard} />
+              </Animated.View>
+            )}
+            {uiPreview && nextPreviewCard && (
+              <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: nextCardOpacity }]}>
+                <PreviewCardFace proposal={nextPreviewCard} />
+              </Animated.View>
+            )}
+            {uiPreview && previousPreviewCard && previousPreviewCard.id !== nextPreviewCard?.id && (
+              <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: previousCardOpacity }]}>
+                <PreviewCardFace proposal={previousPreviewCard} />
+              </Animated.View>
+            )}
+            {uiPreview && transitionCard && (
+              <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardTransition]}>
+                <PreviewCardFace proposal={transitionCard} />
+              </Animated.View>
+            )}
             <Animated.View
             {...(uiPreview ? cardPanResponder.panHandlers : {})}
             style={[
@@ -1246,7 +1433,6 @@ export default function App() {
                   { translateY: Animated.add(cardPosition.y, cardEntryTranslateY) },
                   { rotate: cardRotation },
                   { scale: cardEntryScale },
-                  { scale: cardBrowseScale },
                 ],
               },
             ]}
@@ -1254,7 +1440,7 @@ export default function App() {
             <Pressable
               onLayout={(event) => setCardWidth(event.nativeEvent.layout.width)}
               onPress={(event) => {
-                if (!uiPreview || cardWidth === 0) return;
+                if (!uiPreview || cardWidth === 0 || Date.now() < suppressCardTapUntil.current) return;
                 if (event.nativeEvent.locationX >= cardWidth / 2) navigateSampleCard(1, 1);
                 else navigateSampleCard(1, -1);
               }}
@@ -1286,9 +1472,19 @@ export default function App() {
                 </View>
                 <View style={styles.tradeTermRow}>
                   <Text style={styles.tradeTermLabel}>{state === "pending" ? "Expires in" : "Status"}</Text>
-                  <View style={[styles.timer, state !== "pending" && styles.timerClosed]}>
-                    <ClockIcon size={15} color={colors.muted} weight="regular" />
-                    <Text style={[styles.timerValue, state !== "pending" && styles.timerClosedText]}>{state === "pending" ? timer : state.toUpperCase()}</Text>
+                  <View style={[
+                    styles.timer,
+                    expiringSoon && styles.timerWarning,
+                    state === "expired" && styles.timerExpired,
+                    state !== "pending" && state !== "expired" && styles.timerClosed,
+                  ]}>
+                    <ClockIcon size={15} color={state === "expired" ? "#B42318" : expiringSoon ? "#854D0E" : colors.muted} weight="regular" />
+                    <Text style={[
+                      styles.timerValue,
+                      expiringSoon && styles.timerWarningText,
+                      state === "expired" && styles.timerExpiredText,
+                      state !== "pending" && state !== "expired" && styles.timerClosedText,
+                    ]}>{state === "pending" ? timer : state.toUpperCase()}</Text>
                   </View>
                 </View>
                 {proposal.automaticExits && (
@@ -1328,7 +1524,7 @@ export default function App() {
                   onPress={() => uiPreview ? animateSampleDecision("denied") : decide("denied")}
                 />
                 <ActionButton
-                  label={decisionInFlight === "approved" ? "Submitting…" : "Approve buy"}
+                  label={decisionInFlight === "approved" ? "Submitting…" : "Approve"}
                   tone="primary"
                   pending={decisionInFlight === "approved"}
                   disabled={!uiPreview && (!actionable || processing)}
@@ -1485,14 +1681,33 @@ return StyleSheet.create({
   previewNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
   nextExample: { paddingVertical: 4, paddingLeft: 12 },
   nextExampleText: { color: colors.text, ...typeRamp.caption, fontWeight: "600" },
-  deckStage: { flex: 1, minHeight: 590, marginTop: 8, marginBottom: 12, paddingTop: 20 },
-  stackCard: { position: "absolute", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 28, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowRadius: 8 },
-  stackCardBack: { top: 0, bottom: 20, left: 14, right: 14, zIndex: 1, shadowOpacity: 0.03 },
-  stackCardNext: { top: 10, bottom: 10, left: 7, right: 7, zIndex: 2, shadowOpacity: 0.045 },
+  deckStage: { position: "relative", width: "100%", marginTop: 8, marginBottom: 12 },
+  stackCard: { position: "absolute", overflow: "hidden", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 28, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowRadius: 8 },
+  stackCardLayer: { position: "absolute", top: 0, bottom: 0, left: 0, right: 0 },
+  stackCardBack: { zIndex: 1 },
+  stackCardNext: { zIndex: 2 },
+  stackCardTransition: { zIndex: 2 },
   proposalCard: { flex: 1, zIndex: 3, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 28, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.055, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
-  deckComplete: { minHeight: 420, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 28, marginTop: 8, padding: 28 },
+  skeletonIdentityRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  skeletonLogo: { width: 42, height: 42, borderRadius: radius.pill, backgroundColor: colors.surfaceMuted },
+  skeletonLine: { backgroundColor: colors.surfaceMuted, borderRadius: radius.pill },
+  skeletonCompany: { width: "48%", height: 18 },
+  skeletonHeadline: { width: "88%", height: 30, marginTop: 18 },
+  skeletonPrice: { width: "45%", height: 16, marginTop: 8 },
+  skeletonTerms: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: 22, paddingTop: 6 },
+  skeletonTermRow: { minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  skeletonTermLabel: { width: "28%", height: 14 },
+  skeletonTermValue: { width: "34%", height: 14 },
+  skeletonInfoBlock: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: 8, paddingTop: 16 },
+  skeletonInfoTitle: { width: "32%", height: 17 },
+  skeletonInfoLine: { width: "100%", height: 14, marginTop: 12 },
+  skeletonInfoLineShort: { width: "68%", height: 14, marginTop: 8 },
+  skeletonButton: { flex: 1, height: 56, borderRadius: radius.pill, backgroundColor: colors.surfaceMuted },
+  deckComplete: { minHeight: 420, alignItems: "center", justifyContent: "center", marginTop: 8, paddingHorizontal: 28, paddingVertical: 40 },
+  deckCompleteIcon: { width: 64, height: 64, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, marginBottom: 18 },
+  deckCompleteEyebrow: { color: colors.muted, ...typeRamp.caption, textAlign: "center", marginBottom: 7 },
   deckCompleteTitle: { color: colors.ink, ...typeRamp.title, textAlign: "center" },
-  deckCompleteBody: { color: colors.muted, ...typeRamp.body, textAlign: "center", marginTop: 8 },
+  deckCompleteBody: { color: colors.muted, ...typeRamp.body, textAlign: "center", marginTop: 9, maxWidth: 340 },
   cardBody: { flexGrow: 1, paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 },
   cardPosition: { alignItems: "center", marginBottom: 10 },
   cardPositionText: { color: colors.muted, ...typeRamp.caption },
@@ -1561,6 +1776,10 @@ return StyleSheet.create({
   currentPrice: { color: colors.ink, fontSize: 22, fontWeight: "800" },
   quoteAge: { color: colors.muted, fontSize: 10 },
   timer: { height: 32, backgroundColor: colors.surfaceMuted, borderWidth: 0, paddingHorizontal: 10, borderRadius: radius.pill, minWidth: 70, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 5 },
+  timerWarning: { backgroundColor: "#FEF3C7" },
+  timerWarningText: { color: "#854D0E" },
+  timerExpired: { backgroundColor: "#FEE4E2" },
+  timerExpiredText: { color: "#B42318" },
   timerClosed: { backgroundColor: colors.surfaceMuted, borderColor: colors.surfaceMuted },
   timerLabel: { color: colors.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1.1 },
   timerValue: { color: colors.text, ...typeRamp.caption, fontWeight: "400" },

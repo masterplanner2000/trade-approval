@@ -17,6 +17,9 @@ export type AppPalette = {
   warningSoft: string;
   danger: string;
   dangerSoft: string;
+  actionApprove: string;
+  actionApproveText: string;
+  actionDeny: string;
 };
 
 export const palette: AppPalette = {
@@ -36,6 +39,9 @@ export const palette: AppPalette = {
   warningSoft: "#F3F3F3",
   danger: "#404040",
   dangerSoft: "#F3F3F3",
+  actionApprove: "#00663A",
+  actionApproveText: "#FFFFFF",
+  actionDeny: "#B42318",
 };
 
 export const darkPalette: AppPalette = {
@@ -55,6 +61,9 @@ export const darkPalette: AppPalette = {
   warningSoft: "#352B17",
   danger: "#FF8F88",
   dangerSoft: "#3A1E1D",
+  actionApprove: "#00663A",
+  actionApproveText: "#FFFFFF",
+  actionDeny: "#FF8F88",
 };
 
 export const radius = {
@@ -98,6 +107,9 @@ const createAppTheme = (colors: AppPalette) => createTheme({
     warningSoft: colors.warningSoft,
     danger: colors.danger,
     dangerSoft: colors.dangerSoft,
+    actionApprove: colors.actionApprove,
+    actionApproveText: colors.actionApproveText,
+    actionDeny: colors.actionDeny,
     transparent: "transparent",
   },
   spacing: {
