@@ -30,6 +30,8 @@ The thresholds are proposed test variables. This score does not predict success 
 
 Run the deterministic risk tests with `npm run test:risk`.
 
+The isolated `portfolio-position-sizing-v1` model calculates whole-share quantities from the most restrictive cash, buying-power, stop-loss, daily-risk, open-risk, position, total-exposure, sector, correlation, liquidity, pending-order, and open-position constraint. It returns the binding constraint and fails as `INCOMPLETE` when its portfolio snapshot is missing or stale. It is intentionally not connected to order generation until ledger-backed IBKR reconciliation supplies authoritative inputs. Run its tests with `npm run test:sizing`.
+
 ## Run
 
 1. Install dependencies with `npm install`.

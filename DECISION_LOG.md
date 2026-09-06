@@ -36,6 +36,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-020 | Recommendation count is market- and portfolio-driven | Confirmed | 2026-09-06 |
 | D-021 | Portfolio rotations are sequential and contingent on confirmed fills | Confirmed | 2026-09-06 |
 | D-022 | Use a local SQLite trading ledger with immutable, idempotent lifecycle records | Confirmed | 2026-09-06 |
+| D-023 | Position sizing must be deterministic, portfolio-aware, and explainable | Confirmed | 2026-09-06 |
 
 ---
 
@@ -238,6 +239,14 @@ This is the living record of product, design, trading-safety, data, and technica
 **Reason:** In-memory maps and sets lose intent and duplicate protection when the service restarts. The application needs durable evidence before it can reconcile broker state or report trustworthy performance.  
 **Implementation status:** The schema, storage API, and restart/idempotency tests are implemented. Existing service routes still require integration before the ledger becomes authoritative at runtime.
 
+### D-023 — Position sizing must be deterministic, portfolio-aware, and explainable
+
+**Status:** Confirmed
+**Decision:** Calculate whole-share quantity from the most restrictive current constraint, including loss at the stop, settled cash, available funds, buying power, configured cash reserve, daily and total open-risk budgets, position and total exposure, sector and correlated exposure, liquidity, pending buys, and open-position count.
+**Reason:** Confidence scores and available cash alone cannot establish a safe amount. The user must be able to see which policy constraint determined the recommendation.
+**Safety boundary:** Missing, invalid, future-dated, or stale portfolio data produces an `INCOMPLETE` result with no recommended amount. A possible rotation is classification only and cannot authorize either leg.
+**Implementation status:** The pure calculation model and unit tests are implemented independently of broker and ledger code. Reconciled IBKR inputs and user-configured policy are required before it replaces prototype sizing.
+
 ---
 
 ## Open decisions
@@ -296,6 +305,7 @@ This is the living record of product, design, trading-safety, data, and technica
 - Confirmed that sell-to-buy rotations must wait for a confirmed sale fill and fresh portfolio revalidation.
 - Added the implementation sequence and acceptance criteria to `PROJECT_PLAN.md`.
 - Added the SQLite durable-ledger foundation and verified restart-safe proposal, decision, and submission idempotency behavior.
+- Added the deterministic portfolio-sizing foundation with explicit binding constraints and fail-closed freshness checks.
 # 2026-09-04 — Replace the minimum share-price filter
 
 **Decision:** Remove the arbitrary minimum share-price rule. Require at least 240 completed daily bars and $50 million in 20-day average dollar volume during scanning. Before creating a recommendation, require a current bid and ask with a spread no wider than 0.25%; try the next ranked eligible candidate when the highest-ranked candidate fails this execution check.

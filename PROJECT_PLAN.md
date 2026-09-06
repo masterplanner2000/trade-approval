@@ -39,10 +39,13 @@ The trading sleeve is managed separately from long-term savings and automated-in
 - Keep trading-sleeve limits separate from unrelated brokerage holdings.
 - Mark sizing unavailable when any required input is missing or stale.
 
-### 5. Portfolio-aware sizing
+### 5. Portfolio-aware sizing — calculation foundation implemented
 
-- Size primarily from loss at the protective stop.
-- Apply the most restrictive of available cash, broker buying power, per-trade risk, remaining daily risk, maximum position size, total strategy allocation, sector/correlation limits, liquidity, and open-position limits.
+- **Implemented foundation:** pure, versioned whole-share sizing from loss at the protective stop.
+- **Implemented foundation:** apply the most restrictive of settled cash, available funds, buying power, cash reserve, per-trade risk, remaining daily risk, total open risk, maximum position size, total strategy allocation, sector/correlation limits, liquidity, and open-position limits.
+- **Implemented foundation:** return the binding constraint and classify the result as actionable with cash, capacity-blocked, or a possible rotation that still requires sequential approval and fill.
+- **Implemented safety boundary:** stale or missing portfolio inputs return `INCOMPLETE` with no amount.
+- **Next:** connect reconciled IBKR portfolio snapshots and user-configured trading-sleeve policy.
 - Remove prototype share-count ceilings only after these controls and tests are in place.
 - Recalculate immediately before submission and fail closed if capacity changed.
 

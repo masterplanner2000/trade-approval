@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.3
+**Current architecture version:** 3.4
 **Last updated:** 2026-09-06
 **Status:** Living source of truth
 
@@ -117,7 +117,7 @@ flowchart LR
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Select licensed providers and cache model |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | Add intraday inputs and portfolio eligibility |
-| Risk and position sizing | Calculate quantity, loss, concentration, and limits | Partial | Complete trade- and portfolio-risk inputs |
+| Risk and position sizing | Calculate quantity, loss, concentration, and limits | Partial | Pure sizing model implemented; connect reconciled IBKR inputs |
 | Safety validation | Recheck price, account, approval, limits, and What-If | Prototype | Preserve exact validation results |
 | Order service | Submit approved buys, protective stops, and separately approved ordinary sales | Prototype | Confirm durable broker identifiers |
 | Broker reconciliation | Match app state to IBKR orders, fills, and positions | Next | Build first |
@@ -155,6 +155,12 @@ Research and market data
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 3.4 — 2026-09-06
+
+- Added an isolated, deterministic portfolio-position-sizing model.
+- Made stale or incomplete portfolio inputs a hard incomplete result rather than estimating capacity.
+- Added explainable binding constraints and three opportunity classifications without enabling rotation execution.
 
 ### Version 3.3 — 2026-09-06
 
