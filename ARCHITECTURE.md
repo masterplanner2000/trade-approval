@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.7
+**Current architecture version:** 3.8
 **Last updated:** 2026-09-06
 **Status:** Living source of truth
 
@@ -155,6 +155,16 @@ Research and market data
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 3.8 — 2026-09-06
+
+- Added a dedicated read-only IBKR Paper reconciliation collector for balances, positions, open orders, order status, and executions.
+- Persisted complete source snapshots and normalized broker activity by stable broker identity.
+- Added application-versus-external activity classification based on order references.
+- Made portfolio output fail closed when collection is partial, required values are missing, the environment is wrong, or the snapshot is stale.
+- Linked recognized IBKR order references to exact proposals, decisions, and submission attempts; broker evidence can safely resolve an unknown submission without retransmission.
+- Added adaptive reconciliation polling and authoritative reconciled data to the existing Activity and Positions reads.
+- Full cancellation, partial-fill, protection-gap, and closed-position lifecycle reconciliation remains next.
 
 ### Version 3.7 — 2026-09-06
 

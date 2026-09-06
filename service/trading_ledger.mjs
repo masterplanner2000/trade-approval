@@ -320,6 +320,12 @@ export class TradingLedger {
     return normalizeAttempt(this.database.prepare("SELECT * FROM submission_attempts WHERE idempotency_key = ?").get(idempotencyKey));
   }
 
+  listSubmissionAttemptsForDecision(decisionId) {
+    return this.database.prepare(`
+      SELECT * FROM submission_attempts WHERE decision_id = ? ORDER BY started_at DESC, rowid DESC
+    `).all(decisionId).map(normalizeAttempt);
+  }
+
   recordBrokerOrder({
     id = randomUUID(), proposalId, submissionAttemptId = null, broker, accountId,
     brokerOrderId, parentBrokerOrderId = null, role, status, order, seenAt = this.clock(),

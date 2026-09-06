@@ -274,6 +274,14 @@ This is the living record of product, design, trading-safety, data, and technica
 **Separate opportunity:** Explore a standalone educational product that teaches technically inclined customers how to build and operate their own recommendation engine and connect it through a documented interface. Keep this distinct from the hosted application in positioning, support, security boundaries, pricing, and legal review.
 **Safety and compliance boundary:** User acceptance of investment risk and the absence of performance claims do not by themselves settle whether specific compensated recommendations constitute regulated investment advice. Obtain qualified securities counsel before offering personalized recommendations or live brokerage execution publicly.
 
+### D-027 — Build portfolio state only from complete broker reconciliation snapshots
+
+**Status:** Confirmed and foundation implemented.
+**Decision:** Collect balances, positions, open orders, and executions together in a dedicated read-only IBKR Paper reconciliation request. Persist the source snapshot and broker activity before exposing the derived portfolio view.
+**Reason:** Independently timed balance, position, and order requests can describe different account states. Sizing and safety checks require a traceable snapshot with an explicit capture time and completeness state.
+**Manual activity:** Classify stable broker identities and order references as application-linked or external. External activity must be surfaced and incorporated rather than silently overwritten by the application ledger.
+**Safety boundary:** Missing required values, partial callbacks, a non-paper environment, or stale data produce `INCOMPLETE`. Broker evidence may resolve an unknown submission only when its application order reference matches an exact durable decision; reconciliation never retransmits an order.
+
 ---
 
 ## Open decisions
@@ -347,6 +355,7 @@ This is the living record of product, design, trading-safety, data, and technica
 - Connected the runtime proposal, decision, validation, submission, and acknowledged bracket-order path to the ledger; ambiguous submission outcomes now require reconciliation rather than retrying.
 - Established GTM validation as a separate workstream focused on novice-to-intermediate investors paying for convenience, clarity, control, and reliable execution.
 - Recorded a separate educational opportunity for teaching customers to build their own compatible recommendation engines.
+- Added the read-only IBKR reconciliation collector, durable reconciliation records, manual-activity classification, and a freshness-gated authoritative portfolio foundation.
 # 2026-09-04 — Replace the minimum share-price filter
 
 **Decision:** Remove the arbitrary minimum share-price rule. Require at least 240 completed daily bars and $50 million in 20-day average dollar volume during scanning. Before creating a recommendation, require a current bid and ask with a spread no wider than 0.25%; try the next ranked eligible candidate when the highest-ranked candidate fails this execution check.

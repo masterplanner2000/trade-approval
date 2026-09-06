@@ -8,7 +8,7 @@ This local service is the boundary between the phone interface and a future user
 
 The proposal-through-submission service path now writes to the ledger. On startup, unresolved proposals and their decisions are restored, successful preview and What-If gates are recovered, and a repeated submission uses its durable idempotency record instead of contacting IBKR again. If connectivity is lost after transmission begins, the attempt is marked `unknown` and another transmission is blocked until broker reconciliation determines what happened.
 
-IBKR reconciliation, fill import, unselected recommendations, and ledger-backed Activity reads are not yet implemented.
+Read-only IBKR reconciliation collects balances, positions, open orders, and executions into a complete source snapshot. It runs every 5 seconds while orders are active, every 15 seconds while positions are open, and every 60 seconds while the account is quiet. Recognized application order references are linked back to the ledger; broker evidence resolves an otherwise unknown submission without retransmitting it. External/manual broker activity remains visible rather than being overwritten.
 
 ## Alpaca research cache and scanner
 
@@ -41,6 +41,10 @@ Endpoints:
 - `GET /health`
 - `GET /proposals`
 - `GET /audit`
+- `GET /activity` returns application lifecycle records plus externally observed IBKR activity.
+- `GET /positions` returns fresh reconciled IBKR Paper positions when available and clearly falls back to ledger-only filled entries otherwise.
+- `POST /broker/reconcile` requests an immediate read-only reconciliation cycle.
+- `GET /broker/portfolio` returns the latest freshness-gated authoritative portfolio snapshot.
 - `GET /research/sec?symbol=NVDA`
 - `GET /shadow/signals`
 - `GET /risk-policy` returns the persisted paper sizing policy or safe smart defaults.

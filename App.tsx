@@ -45,7 +45,7 @@ type ActivityItem = {
 };
 type PositionItem = {
   id: string; symbol: string; quantity: number; averageEntryPrice: number; currentPrice: number | null;
-  protectiveStopPrice: number | null; profitTargetPrice: number | null; updatedAt: number; dataState: "ledger_only";
+  protectiveStopPrice: number | null; profitTargetPrice: number | null; updatedAt: number; dataState: "ledger_only" | "reconciled";
 };
 type RiskPolicy = {
   adaptive: boolean;
@@ -798,7 +798,7 @@ function HistoryPage({ page, activity, positions, loading, error, onRefresh }: {
             <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Protective stop</Text><Text style={styles.tradeTermValue}>{item.protectiveStopPrice ? money(item.protectiveStopPrice) : "—"}</Text></View>
             <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Profit target</Text><Text style={styles.tradeTermValue}>{item.profitTargetPrice ? money(item.profitTargetPrice) : "—"}</Text></View>
           </View>
-          <Text style={styles.positionNotice}>Awaiting live IBKR reconciliation</Text>
+          <Text style={styles.positionNotice}>{item.dataState === "reconciled" ? "Confirmed from IBKR Paper" : "Awaiting live IBKR reconciliation"}</Text>
         </View>
       ))}
       <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
@@ -927,6 +927,9 @@ export default function App() {
     setHistoryError(null);
     try {
       const headers = { "x-app-token": APP_TOKEN };
+      if (brokerConnectionStatus === "connected") {
+        await fetch(`${API_BASE_URL}/broker/reconcile`, { method: "POST", headers }).catch(() => undefined);
+      }
       const [activityResponse, positionsResponse] = await Promise.all([
         fetch(`${API_BASE_URL}/activity`, { headers }),
         fetch(`${API_BASE_URL}/positions`, { headers }),

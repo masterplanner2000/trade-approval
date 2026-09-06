@@ -50,8 +50,13 @@ Evaluate a second, separately packaged offering for technically inclined custome
 
 ### 3. IBKR reconciliation
 
-- Import current paper-account balances, positions, open orders, order statuses, and fills.
-- Reconcile app records with manual activity performed in TWS or IBKR Mobile.
+- **Implemented foundation:** collect a single complete, read-only paper-account snapshot containing balances, positions, open orders, order status, and executions.
+- **Implemented foundation:** persist reconciliation runs and broker activity durably by stable broker identity.
+- **Implemented foundation:** classify order and execution references as application-linked or external/manual.
+- **Implemented safety boundary:** the portfolio view is `INCOMPLETE` when any required balance is absent, collection is partial, the environment is not paper, or the snapshot is stale.
+- **Implemented:** link observed app orders to their exact ledger proposal, decision, and submission attempt through IBKR order references; resolve ambiguous submission outcomes when broker evidence proves the order exists.
+- **Implemented:** adaptive read-only reconciliation cadence—5 seconds with active orders, 15 seconds with positions, and 60 seconds while quiet—plus startup and manual refresh.
+- **Next:** reconcile cancellations, partial fills, completed fills, missing protective orders, and manual activity into the full ledger lifecycle.
 - Treat IBKR as authoritative for broker state and the ledger as authoritative for application intent and history.
 
 ### 4. Authoritative portfolio snapshot

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { getSecCompanyResearch, summarizeSecResearch } from "./sec_edgar.mjs";
+import { authoritativePortfolio, BrokerReconciliationStore, reconcileSnapshotToLedger } from "./broker_reconciliation.mjs";
 import { TradingLedger } from "./trading_ledger.mjs";
 
 const port = Number(process.env.TRADE_APPROVAL_PORT ?? 8787);
@@ -13,6 +14,7 @@ const host = process.env.TRADE_APPROVAL_HOST ?? "127.0.0.1";
 const appToken = process.env.TRADE_APPROVAL_APP_TOKEN ?? "";
 const whatIfEnabled = process.env.IBKR_ENABLE_WHAT_IF === "true";
 const paperSubmitEnabled = process.env.IBKR_ENABLE_PAPER_SUBMIT === "true";
+const reconciliationEnabled = process.env.IBKR_ENABLE_RECONCILIATION !== "false";
 const maximumBidAskSpreadPercent = 0.25;
 const signingSecret = process.env.APPROVAL_SIGNING_SECRET ?? "paper-development-only";
 const proposals = new Map();
@@ -28,12 +30,14 @@ const ibkrPython = join(projectDirectory, ".venv-ibkr-10.49", "bin", "python");
 const ibkrSnapshotScript = join(serviceDirectory, "ibkr_snapshot.py");
 const ibkrWhatIfScript = join(serviceDirectory, "ibkr_what_if.py");
 const ibkrPaperSubmitScript = join(serviceDirectory, "ibkr_submit_paper.py");
+const ibkrReconciliationScript = join(serviceDirectory, "ibkr_reconciliation.py");
 const alpacaMarketCacheScript = join(serviceDirectory, "alpaca_market_cache.py");
 const strategyStatePath = join(serviceDirectory, "data", "strategy-state.json");
 const shadowLedgerPath = join(serviceDirectory, "data", "shadow-signals.json");
 const tradingLedgerPath = process.env.TRADE_LEDGER_PATH ?? join(serviceDirectory, "data", "trading-ledger.sqlite3");
 const riskPolicyPath = join(serviceDirectory, "data", "risk-policy.json");
 let tradingLedger = null;
+let reconciliationStore = null;
 const strategy = JSON.parse(readFileSync(strategyStatePath, "utf8"));
 const defaultRiskPolicy = {
   adaptive: true,
@@ -58,6 +62,11 @@ const companies = {
 function ledger() {
   if (!tradingLedger) tradingLedger = new TradingLedger(tradingLedgerPath);
   return tradingLedger;
+}
+
+function reconciliations() {
+  if (!reconciliationStore) reconciliationStore = new BrokerReconciliationStore(tradingLedgerPath);
+  return reconciliationStore;
 }
 
 function proposalLedgerRecord(proposal) {
@@ -471,6 +480,71 @@ function ibkrSnapshot(symbol = "NVDA") {
   return request;
 }
 
+let reconciliationQueue = Promise.resolve();
+function ibkrReconciliation() {
+  const request = reconciliationQueue.then(async () => {
+    try {
+      const { stdout } = await execFileAsync(ibkrPython, [ibkrReconciliationScript], {
+        timeout: 35_000,
+        maxBuffer: 1024 * 1024,
+      });
+      return JSON.parse(stdout);
+    } catch (error) {
+      const output = error.stdout?.trim();
+      if (output) return JSON.parse(output);
+      throw error;
+    }
+  });
+  reconciliationQueue = request.catch(() => undefined);
+  return request;
+}
+
+function knownDecisionPrefixes() {
+  return [...proposals.values()]
+    .map((proposal) => proposal.decisionId?.slice(0, 12))
+    .filter(Boolean);
+}
+
+async function performReconciliation() {
+  const snapshot = await ibkrReconciliation();
+  if (!snapshot.ok || !snapshot.complete) {
+    const error = new Error(snapshot.error ?? "ibkr_reconciliation_incomplete");
+    error.snapshot = snapshot;
+    throw error;
+  }
+  const result = reconciliations().record(snapshot, { knownDecisionPrefixes: knownDecisionPrefixes() });
+  const linkedOrders = reconcileSnapshotToLedger(snapshot, ledger());
+  recordLedgerEvent({
+    event: "ibkr_reconciliation_completed",
+    eventKey: `reconciliation:${result.runId}`,
+    portfolioStatus: result.portfolio.status,
+    externalActivityCount: result.activity.filter((item) => item.ownership === "external").length,
+    linkedOrderCount: linkedOrders.length,
+  });
+  return { snapshot, result, linkedOrders };
+}
+
+function reconciliationDelay(snapshot) {
+  if ((snapshot?.openOrders?.length ?? 0) > 0) return 5_000;
+  if ((snapshot?.positions?.length ?? 0) > 0) return 15_000;
+  return 60_000;
+}
+
+function scheduleReconciliation(delay = 1_000) {
+  if (!reconciliationEnabled) return;
+  const timer = setTimeout(async () => {
+    let nextDelay = 60_000;
+    try {
+      const { snapshot } = await performReconciliation();
+      nextDelay = reconciliationDelay(snapshot);
+    } catch {
+      nextDelay = 60_000;
+    }
+    scheduleReconciliation(nextDelay);
+  }, delay);
+  timer.unref();
+}
+
 async function ibkrWhatIf(receipt) {
   const request = {
     account: receipt.accountId,
@@ -556,7 +630,10 @@ async function route(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
   if (request.method === "GET" && url.pathname === "/health") {
-    return json(response, 200, { ok: true, environment: "paper", paused });
+    const latest = reconciliations().latest();
+    return json(response, 200, { ok: true, environment: "paper", paused, reconciliation: {
+      enabled: reconciliationEnabled, status: latest?.status ?? "not_started", capturedAt: latest?.capturedAt ?? null,
+    } });
   }
 
   if (request.method === "GET" && url.pathname === "/proposals") {
@@ -592,10 +669,31 @@ async function route(request, response) {
   }
 
   if (request.method === "GET" && url.pathname === "/activity") {
-    return json(response, 200, { items: ledger().listActivity({ limit: url.searchParams.get("limit") }) });
+    const applicationItems = ledger().listActivity({ limit: url.searchParams.get("limit") });
+    const externalItems = reconciliations().listActivity().filter((item) => item.ownership === "external").map((item) => ({
+      id: `external:${item.type}:${item.brokerIdentity}`,
+      symbol: item.symbol ?? "—", side: item.payload?.action ?? item.payload?.side ?? "external",
+      status: item.type === "execution" ? "Filled outside app" : item.payload?.status ?? "External order",
+      occurredAt: item.lastSeenAt, quantity: item.payload?.quantity ?? null,
+      limitPrice: item.payload?.limitPrice ?? item.payload?.price ?? null,
+      environment: "paper", brokerOrderId: item.brokerIdentity,
+    }));
+    return json(response, 200, { items: [...applicationItems, ...externalItems].sort((a, b) => b.occurredAt - a.occurredAt) });
   }
 
   if (request.method === "GET" && url.pathname === "/positions") {
+    const latest = reconciliations().latest();
+    if (latest) {
+      const portfolio = authoritativePortfolio(latest.snapshot);
+      if (portfolio.status === "COMPLETE") {
+        return json(response, 200, { items: portfolio.positions.map((position) => ({
+          id: `ibkr:${position.contractId ?? position.symbol}`, symbol: position.symbol,
+          quantity: position.quantity, averageEntryPrice: position.averageCost, currentPrice: null,
+          protectiveStopPrice: null, profitTargetPrice: null, updatedAt: portfolio.asOf,
+          dataState: "reconciled",
+        })), reconciled: true, asOf: portfolio.asOf });
+      }
+    }
     return json(response, 200, {
       items: ledger().listPositions(),
       reconciled: false,
@@ -635,6 +733,27 @@ async function route(request, response) {
         error: error.message === "invalid_symbol" ? error.message : "ibkr_unavailable",
       });
     }
+  }
+
+  if (request.method === "POST" && url.pathname === "/broker/reconcile") {
+    try {
+      const { result, linkedOrders } = await performReconciliation();
+      return json(response, 200, { ok: true, ...result, linkedOrders });
+    } catch (error) {
+      return json(response, 503, { ok: false, error: "ibkr_reconciliation_unavailable", detail: error.message });
+    }
+  }
+
+  if (request.method === "GET" && url.pathname === "/broker/portfolio") {
+    const latest = reconciliations().latest();
+    if (!latest) return json(response, 404, { ok: false, error: "no_reconciliation_snapshot" });
+    const portfolio = authoritativePortfolio(latest.snapshot);
+    return json(response, portfolio.status === "COMPLETE" ? 200 : 409, {
+      ok: portfolio.status === "COMPLETE",
+      reconciliationRunId: latest.id,
+      portfolio,
+      brokerActivity: reconciliations().listActivity(),
+    });
   }
 
   if (request.method === "GET" && url.pathname === "/research/sec") {
@@ -1023,5 +1142,6 @@ if (process.argv[1] === new URL(import.meta.url).pathname) {
     route(request, response).catch((error) => json(response, 500, { error: "internal_error", detail: error.message }));
   }).listen(port, host, () => {
     console.log(`Paper proposal service listening on http://${host}:${port}`);
+    scheduleReconciliation();
   });
 }

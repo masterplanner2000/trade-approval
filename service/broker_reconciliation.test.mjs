@@ -1,0 +1,64 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { authoritativePortfolio, BrokerReconciliationStore, proposalReference, reconcileSnapshotToLedger } from "./broker_reconciliation.mjs";
+import { TradingLedger } from "./trading_ledger.mjs";
+
+function snapshot(overrides = {}) {
+  return {
+    ok: true, complete: true, environment: "paper", readOnly: true, account: "DUR…217",
+    capturedAt: 10_000,
+    summary: Object.fromEntries([
+      ["NetLiquidation", 100_000], ["TotalCashValue", 80_000], ["SettledCash", 79_000],
+      ["AvailableFunds", 78_000], ["BuyingPower", 78_000], ["GrossPositionValue", 20_000],
+      ["MaintMarginReq", 0], ["UnrealizedPnL", 500], ["RealizedPnL", -50],
+    ].map(([key, value]) => [key, { value, currency: "USD" }])),
+    positions: [{ symbol: "NVDA", quantity: 5, averageCost: 180 }],
+    openOrders: [], executions: [], warnings: [], ...overrides,
+  };
+}
+
+test("order references identify the decision prefix and bracket role", () => {
+  assert.deepEqual(proposalReference("trade-approval-abc123-entry"), { decisionPrefix: "abc123", role: "entry" });
+  assert.equal(proposalReference("manual-order"), null);
+});
+
+test("authoritative portfolio fails closed when stale or incomplete", () => {
+  assert.equal(authoritativePortfolio(snapshot(), { now: 20_000 }).status, "COMPLETE");
+  const stale = authoritativePortfolio(snapshot(), { now: 50_001 });
+  assert.equal(stale.status, "INCOMPLETE");
+  assert.ok(stale.missing.includes("freshSnapshot"));
+});
+
+test("reconciliation is durable, idempotent by broker identity, and detects external activity", () => {
+  const store = new BrokerReconciliationStore(":memory:");
+  const input = snapshot({
+    openOrders: [
+      { orderId: 10, permanentId: 100, symbol: "NVDA", orderRef: "trade-approval-abc123-entry" },
+      { orderId: 11, permanentId: 101, symbol: "AAPL", orderRef: null },
+    ],
+    executions: [{ executionId: "exec-1", symbol: "MSFT", orderRef: "manual-order" }],
+  });
+  store.record(input, { knownDecisionPrefixes: ["abc123"] });
+  store.record({ ...input, capturedAt: 11_000 }, { knownDecisionPrefixes: ["abc123"] });
+  const activity = store.listActivity();
+  assert.equal(activity.length, 3);
+  assert.equal(activity.find((item) => item.brokerIdentity === "100").ownership, "application");
+  assert.equal(activity.find((item) => item.brokerIdentity === "101").ownership, "external");
+  assert.equal(activity.find((item) => item.brokerIdentity === "100").firstSeenAt, 10_000);
+  assert.equal(activity.find((item) => item.brokerIdentity === "100").lastSeenAt, 11_000);
+  assert.equal(store.latest().capturedAt, 11_000);
+  store.close();
+});
+
+test("broker evidence links to the ledger and resolves an unknown submission", () => {
+  const ledger = new TradingLedger(":memory:");
+  ledger.recordProposal({ id: "proposal-1", createdAt: 1_000, expiresAt: 20_000, environment: "paper", broker: "IBKR", accountId: "DUR…217", symbol: "NVDA", side: "buy", terms: { quantity: 2, limitPrice: 200 } });
+  ledger.recordDecision({ id: "abc123456789-full", proposalId: "proposal-1", decision: "approved", decidedAt: 2_000 });
+  ledger.beginSubmission({ id: "attempt-1", decisionId: "abc123456789-full", idempotencyKey: "paper:abc123456789-full", startedAt: 3_000 });
+  ledger.completeSubmission({ id: "attempt-1", status: "unknown", completedAt: 4_000, errorCode: "connection_lost" });
+  const linked = reconcileSnapshotToLedger(snapshot({ openOrders: [{ orderId: 10, permanentId: 100, symbol: "NVDA", orderRef: "trade-approval-abc123456789-entry", status: "PreSubmitted" }] }), ledger);
+  assert.equal(linked.length, 1);
+  assert.equal(ledger.getSubmissionAttempt("attempt-1").status, "submitted");
+  assert.equal(ledger.listBrokerOrders("proposal-1")[0].brokerOrderId, "100");
+  ledger.close();
+});
