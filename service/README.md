@@ -6,7 +6,9 @@ This local service is the boundary between the phone interface and a future user
 
 `trading_ledger.mjs` defines the first version of the local SQLite lifecycle ledger. It stores immutable proposal terms, one decision per proposal, restart-safe submission idempotency keys, broker-order identities, and append-only lifecycle events. Run `npm run test:ledger` to verify persistence and duplicate protection.
 
-The storage module is implemented, but `server.mjs` still uses its existing in-memory maps and sets. Connecting the service routes to the ledger is the next milestone; until that integration is complete, restarting the running service can still lose active runtime state.
+The proposal-through-submission service path now writes to the ledger. On startup, unresolved proposals and their decisions are restored, successful preview and What-If gates are recovered, and a repeated submission uses its durable idempotency record instead of contacting IBKR again. If connectivity is lost after transmission begins, the attempt is marked `unknown` and another transmission is blocked until broker reconciliation determines what happened.
+
+IBKR reconciliation, fill import, unselected recommendations, and ledger-backed Activity reads are not yet implemented.
 
 ## Alpaca research cache and scanner
 

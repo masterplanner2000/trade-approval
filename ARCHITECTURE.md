@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.5
+**Current architecture version:** 3.6
 **Last updated:** 2026-09-06
 **Status:** Living source of truth
 
@@ -112,7 +112,7 @@ flowchart LR
 | Component | Responsibility | Status | Next milestone |
 |---|---|---|---|
 | Mobile app | Review recommendations and approve or deny decisions | Prototype | Add Activity and Positions |
-| Secure application API | Coordinate the mobile client and local services | Prototype | Durable state and clearer service health |
+| Secure application API | Coordinate the mobile client and local services | Prototype | Ledger-backed lifecycle integrated; add Activity reads and clearer service health |
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Select licensed providers and cache model |
@@ -121,7 +121,7 @@ flowchart LR
 | Safety validation | Recheck price, account, approval, limits, and What-If | Prototype | Preserve exact validation results |
 | Order service | Submit approved buys, protective stops, and separately approved ordinary sales | Prototype | Confirm durable broker identifiers |
 | Broker reconciliation | Match app state to IBKR orders, fills, and positions | Next | Build first |
-| Durable trading ledger | Persist proposals, decisions, submission attempts, broker orders, events, fills, and errors | Partial | SQLite schema and idempotency core implemented; connect service routes next |
+| Durable trading ledger | Persist proposals, decisions, submission attempts, broker orders, events, fills, and errors | Partial | Core proposal-to-submission routes integrated; add reconciliation and Activity reads |
 | Activity and Positions | Show pending, filled, protected, and closed trades | Next | Build after ledger schema |
 | Performance evaluation | Measure strategy and execution outcomes | Planned | Build after reconciled trade history exists |
 | Notifications | Deliver proposals, fills, exits, and safety alerts | Planned | Add after reliable event states exist |
@@ -155,6 +155,13 @@ Research and market data
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 3.6 — 2026-09-06
+
+- Connected generated proposals, approvals, denials, expirations, validation outcomes, submission attempts, and acknowledged IBKR bracket-order identities to SQLite.
+- Restored unresolved proposal state and successful preview/What-If gates when the service starts.
+- Replaced in-memory submission consumption with durable idempotency; ambiguous broker outcomes now fail closed pending reconciliation.
+- Broker reconciliation, fill import, unselected recommendations, and ledger-backed Activity reads remain in progress.
 
 ### Version 3.5 — 2026-09-06
 

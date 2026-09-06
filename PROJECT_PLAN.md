@@ -25,9 +25,11 @@ The trading sleeve is managed separately from long-term savings and automated-in
 
 - **Implemented foundation:** versioned SQLite schema for proposals, decisions, submission attempts, broker orders, and lifecycle events.
 - **Implemented foundation:** immutable proposal replay checks, one decision per proposal, single idempotency key per submission, and restart persistence tests.
-- **Next:** connect proposal creation, decisions, safety results, and submission results in `server.mjs` to the ledger.
-- **Next:** preserve blocked, expired, and unselected recommendations and expose ledger-backed activity reads.
-- **Next:** replace in-memory duplicate protection with ledger recovery for interrupted submissions.
+- **Implemented:** generated proposals, approvals, denials, expirations, preview/What-If outcomes, final safety blocks, submission attempts, and acknowledged bracket-order identities are connected to the ledger.
+- **Implemented:** service startup restores proposal and decision state; durable submission idempotency replaces the in-memory consumed-approval set.
+- **Implemented:** a broker disconnect after transmission records an unknown outcome and blocks another transmission until reconciliation.
+- **Next:** preserve unselected recommendations and expose ledger-backed Activity reads.
+- **Next:** reconcile unknown attempts, current IBKR orders, fills, positions, and manual broker activity.
 
 ### 3. IBKR reconciliation
 

@@ -90,7 +90,7 @@ export class TradingLedger {
         id TEXT PRIMARY KEY,
         created_at INTEGER NOT NULL,
         expires_at INTEGER,
-        status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'expired', 'submitted', 'blocked')),
+        status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'expired', 'submitted', 'blocked', 'replaced')),
         environment TEXT NOT NULL,
         broker TEXT NOT NULL,
         account_id TEXT NOT NULL,
@@ -205,6 +205,29 @@ export class TradingLedger {
     return normalizeProposal(this.database.prepare("SELECT * FROM proposals WHERE id = ?").get(id));
   }
 
+  listProposals() {
+    return this.database.prepare("SELECT * FROM proposals ORDER BY created_at, rowid").all().map(normalizeProposal);
+  }
+
+  setProposalStatus(id, status, { occurredAt = this.clock(), payload = null } = {}) {
+    const allowed = new Set(["pending", "approved", "denied", "expired", "submitted", "blocked", "replaced"]);
+    if (!allowed.has(status)) throw new Error("ledger_invalid_proposal_status");
+    return this.transaction(() => {
+      const proposal = this.getProposal(id);
+      if (!proposal) throw new Error("ledger_proposal_not_found");
+      if (proposal.status === status) return { updated: false, proposal };
+      this.database.prepare("UPDATE proposals SET status = ? WHERE id = ?").run(status, id);
+      this.appendEvent({
+        eventKey: `proposal:${id}:status:${status}`,
+        proposalId: id,
+        eventType: `proposal_${status}`,
+        occurredAt,
+        payload,
+      });
+      return { updated: true, proposal: this.getProposal(id) };
+    });
+  }
+
   recordDecision({ id, proposalId, decision, decidedAt = this.clock(), approvalFingerprint = null, payload = null }) {
     required(id, "decision_id");
     required(proposalId, "decision_proposal_id");
@@ -233,6 +256,10 @@ export class TradingLedger {
 
   getDecision(id) {
     return normalizeDecision(this.database.prepare("SELECT * FROM decisions WHERE id = ?").get(id));
+  }
+
+  getDecisionForProposal(proposalId) {
+    return normalizeDecision(this.database.prepare("SELECT * FROM decisions WHERE proposal_id = ?").get(proposalId));
   }
 
   beginSubmission({ id = randomUUID(), decisionId, idempotencyKey, startedAt = this.clock() }) {
@@ -287,6 +314,63 @@ export class TradingLedger {
 
   getSubmissionAttempt(id) {
     return normalizeAttempt(this.database.prepare("SELECT * FROM submission_attempts WHERE id = ?").get(id));
+  }
+
+  getSubmissionByIdempotencyKey(idempotencyKey) {
+    return normalizeAttempt(this.database.prepare("SELECT * FROM submission_attempts WHERE idempotency_key = ?").get(idempotencyKey));
+  }
+
+  recordBrokerOrder({
+    id = randomUUID(), proposalId, submissionAttemptId = null, broker, accountId,
+    brokerOrderId, parentBrokerOrderId = null, role, status, order, seenAt = this.clock(),
+  }) {
+    required(proposalId, "broker_order_proposal_id");
+    required(brokerOrderId, "broker_order_id");
+    return this.transaction(() => {
+      const existing = this.database.prepare(`
+        SELECT * FROM broker_orders WHERE broker = ? AND account_id = ? AND broker_order_id = ?
+      `).get(broker, accountId, String(brokerOrderId));
+      if (existing && existing.proposal_id !== proposalId) throw new Error("ledger_broker_order_conflict");
+      this.database.prepare(`
+        INSERT INTO broker_orders
+          (id, proposal_id, submission_attempt_id, broker, account_id, broker_order_id,
+           parent_broker_order_id, role, status, order_json, first_seen_at, last_seen_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (broker, account_id, broker_order_id) DO UPDATE SET
+          submission_attempt_id = COALESCE(excluded.submission_attempt_id, broker_orders.submission_attempt_id),
+          parent_broker_order_id = excluded.parent_broker_order_id,
+          role = excluded.role,
+          status = excluded.status,
+          order_json = excluded.order_json,
+          last_seen_at = excluded.last_seen_at
+      `).run(
+        id, proposalId, submissionAttemptId, broker, accountId, String(brokerOrderId),
+        parentBrokerOrderId == null ? null : String(parentBrokerOrderId), role, status,
+        stableJson(order), seenAt, seenAt,
+      );
+      return this.database.prepare(`
+        SELECT * FROM broker_orders WHERE broker = ? AND account_id = ? AND broker_order_id = ?
+      `).get(broker, accountId, String(brokerOrderId));
+    });
+  }
+
+  listBrokerOrders(proposalId) {
+    return this.database.prepare(`
+      SELECT * FROM broker_orders WHERE proposal_id = ? ORDER BY first_seen_at, rowid
+    `).all(proposalId).map((row) => ({
+      id: row.id,
+      proposalId: row.proposal_id,
+      submissionAttemptId: row.submission_attempt_id,
+      broker: row.broker,
+      accountId: row.account_id,
+      brokerOrderId: row.broker_order_id,
+      parentBrokerOrderId: row.parent_broker_order_id,
+      role: row.role,
+      status: row.status,
+      order: parseJson(row.order_json),
+      firstSeenAt: row.first_seen_at,
+      lastSeenAt: row.last_seen_at,
+    }));
   }
 
   appendEvent({ id = randomUUID(), eventKey = null, proposalId = null, decisionId = null, submissionAttemptId = null, eventType, occurredAt = this.clock(), payload = null }) {

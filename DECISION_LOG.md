@@ -239,7 +239,7 @@ This is the living record of product, design, trading-safety, data, and technica
 **Status:** Confirmed  
 **Decision:** Store proposals, decisions, submission attempts, broker-order identities, and lifecycle events in a versioned local SQLite database. Proposal terms are immutable after creation, a proposal may have only one decision, and every broker submission uses a durable unique idempotency key.  
 **Reason:** In-memory maps and sets lose intent and duplicate protection when the service restarts. The application needs durable evidence before it can reconcile broker state or report trustworthy performance.  
-**Implementation status:** The schema, storage API, and restart/idempotency tests are implemented. Existing service routes still require integration before the ledger becomes authoritative at runtime.
+**Implementation status:** The schema and storage API are implemented and the proposal-through-submission service path now writes to the ledger. Startup restores unresolved proposal and decision state, validation results are recorded, and submission idempotency survives restarts. IBKR reconciliation, fill import, unselected recommendations, and Activity reads remain in progress.
 
 ### D-023 — Position sizing must be deterministic, portfolio-aware, and explainable
 
@@ -326,6 +326,7 @@ This is the living record of product, design, trading-safety, data, and technica
 - Added the deterministic portfolio-sizing foundation with explicit binding constraints and fail-closed freshness checks.
 - Made denial trigger a fresh recommendation calculation without changing or reserving cash.
 - Added persisted, editable adaptive paper-policy settings with hard-limit enforcement.
+- Connected the runtime proposal, decision, validation, submission, and acknowledged bracket-order path to the ledger; ambiguous submission outcomes now require reconciliation rather than retrying.
 # 2026-09-04 — Replace the minimum share-price filter
 
 **Decision:** Remove the arbitrary minimum share-price rule. Require at least 240 completed daily bars and $50 million in 20-day average dollar volume during scanning. Before creating a recommendation, require a current bid and ask with a spread no wider than 0.25%; try the next ranked eligible candidate when the highest-ranked candidate fails this execution check.

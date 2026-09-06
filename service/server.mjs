@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { getSecCompanyResearch, summarizeSecResearch } from "./sec_edgar.mjs";
+import { TradingLedger } from "./trading_ledger.mjs";
 
 const port = Number(process.env.TRADE_APPROVAL_PORT ?? 8787);
 const host = process.env.TRADE_APPROVAL_HOST ?? "127.0.0.1";
@@ -19,7 +20,6 @@ const proposalSnapshots = new Map();
 const auditLog = [];
 const previewPassed = new Set();
 const whatIfPassed = new Set();
-const consumedApprovals = new Set();
 let paused = false;
 const execFileAsync = promisify(execFile);
 const serviceDirectory = dirname(fileURLToPath(import.meta.url));
@@ -31,7 +31,9 @@ const ibkrPaperSubmitScript = join(serviceDirectory, "ibkr_submit_paper.py");
 const alpacaMarketCacheScript = join(serviceDirectory, "alpaca_market_cache.py");
 const strategyStatePath = join(serviceDirectory, "data", "strategy-state.json");
 const shadowLedgerPath = join(serviceDirectory, "data", "shadow-signals.json");
+const tradingLedgerPath = process.env.TRADE_LEDGER_PATH ?? join(serviceDirectory, "data", "trading-ledger.sqlite3");
 const riskPolicyPath = join(serviceDirectory, "data", "risk-policy.json");
+let tradingLedger = null;
 const strategy = JSON.parse(readFileSync(strategyStatePath, "utf8"));
 const defaultRiskPolicy = {
   adaptive: true,
@@ -52,6 +54,104 @@ const companies = {
   AAPL: "Apple Inc.",
   MSFT: "Microsoft Corporation",
 };
+
+function ledger() {
+  if (!tradingLedger) tradingLedger = new TradingLedger(tradingLedgerPath);
+  return tradingLedger;
+}
+
+function proposalLedgerRecord(proposal) {
+  const { status, decisionId: _decisionId, ...terms } = proposal;
+  return {
+    id: proposal.id,
+    createdAt: proposal.createdAt,
+    expiresAt: proposal.expiresAt,
+    status,
+    environment: proposal.environment,
+    broker: proposal.broker,
+    accountId: proposal.accountId,
+    symbol: proposal.symbol,
+    side: proposal.side,
+    terms,
+    source: {
+      agentId: proposal.agentId ?? null,
+      category: proposal.category ?? null,
+      signalDate: proposal.signalDate ?? null,
+      universeSource: proposal.universeSource ?? null,
+    },
+  };
+}
+
+function restoreLedgerState() {
+  for (const row of ledger().listProposals()) {
+    const decision = ledger().getDecisionForProposal(row.id);
+    proposals.set(row.id, {
+      ...row.terms,
+      id: row.id,
+      environment: row.environment,
+      broker: row.broker,
+      accountId: row.accountId,
+      symbol: row.symbol,
+      side: row.side,
+      createdAt: row.createdAt,
+      expiresAt: row.expiresAt,
+      status: row.status,
+      decisionId: decision?.id ?? null,
+    });
+    if (decision) {
+      const eventTypes = new Set(ledger().listEvents(row.id).map((event) => event.eventType));
+      if (eventTypes.has("order_preview_ready")) previewPassed.add(decision.id);
+      if (eventTypes.has("ibkr_what_if_passed")) whatIfPassed.add(decision.id);
+    }
+  }
+}
+
+function recordLedgerEvent(event) {
+  ledger().appendEvent({
+    eventKey: event.eventKey ?? null,
+    proposalId: event.proposalId ?? null,
+    decisionId: event.decisionId ?? null,
+    submissionAttemptId: event.submissionAttemptId ?? null,
+    eventType: event.event,
+    occurredAt: event.at ?? now(),
+    payload: event,
+  });
+}
+
+function expireProposal(proposal) {
+  if (proposal.status !== "pending") return;
+  const decisionId = `expired:${proposal.id}`;
+  ledger().recordDecision({
+    id: decisionId,
+    proposalId: proposal.id,
+    decision: "expired",
+    payload: { expiresAt: proposal.expiresAt },
+  });
+  proposal.status = "expired";
+  proposal.decisionId = decisionId;
+}
+
+function recordSubmittedBrokerOrders(proposal, receipt, submissionAttempt, submission) {
+  const orders = [
+    { role: "entry", value: submission.result },
+    { role: "profit_target", value: submission.exitOrders?.[0] },
+    { role: "protective_stop", value: submission.exitOrders?.[1] },
+  ];
+  for (const { role, value } of orders) {
+    if (!value?.orderId) continue;
+    ledger().recordBrokerOrder({
+      proposalId: proposal.id,
+      submissionAttemptId: submissionAttempt.id,
+      broker: receipt.broker,
+      accountId: receipt.accountId,
+      brokerOrderId: value.orderId,
+      parentBrokerOrderId: value.parentId ?? null,
+      role,
+      status: value.status ?? "Unknown",
+      order: value,
+    });
+  }
+}
 
 function saveStrategy() {
   writeFileSync(strategyStatePath, `${JSON.stringify(strategy, null, 2)}\n`);
@@ -230,9 +330,6 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
     status: "pending",
     decisionId: null
   };
-  proposals.set(proposal.id, proposal);
-  if (snapshot) proposalSnapshots.set(proposal.id, snapshot);
-  auditLog.push({ id: randomUUID(), at: now(), event: "proposal_created", proposalId: proposal.id });
   return proposal;
 }
 
@@ -278,10 +375,12 @@ async function recommendationQueue({ additionalExcludedSymbols = [] } = {}) {
     const secResearch = await getSecCompanyResearch(candidate.symbol).catch(() => null);
     const proposal = seedProposal(snapshot, secResearch, candidate);
     if (proposal.quantity < 1) {
-      proposals.delete(proposal.id);
-      proposalSnapshots.delete(proposal.id);
       continue;
     }
+    ledger().recordProposal(proposalLedgerRecord(proposal));
+    proposals.set(proposal.id, proposal);
+    proposalSnapshots.set(proposal.id, snapshot);
+    auditLog.push({ id: randomUUID(), at: now(), event: "proposal_created", proposalId: proposal.id });
     created.push(proposal);
   }
   if (created.length === 0) throw new Error("no_candidate_with_acceptable_spread");
@@ -307,6 +406,7 @@ async function recalculateRecommendationQueue({ excludedSymbols = [] } = {}) {
   for (const proposal of proposals.values()) {
     if (proposal.status !== "pending") continue;
     proposal.status = "replaced";
+    ledger().setProposalStatus(proposal.id, "replaced");
     proposalSnapshots.delete(proposal.id);
     replacedProposalIds.push(proposal.id);
   }
@@ -462,7 +562,10 @@ async function route(request, response) {
   if (request.method === "GET" && url.pathname === "/proposals") {
     const items = [...proposals.values()].map((proposal) =>
       proposal.status === "pending" && proposal.expiresAt <= now()
-        ? { ...proposal, status: "expired" }
+        ? (() => {
+            expireProposal(proposal);
+            return proposal;
+          })()
         : proposal
     );
     return json(response, 200, { paused, proposals: items });
@@ -633,6 +736,14 @@ async function route(request, response) {
         proposalId: proposal.id,
         decisionId: receipt.decisionId,
       });
+      recordLedgerEvent({
+        at: now(),
+        event: ready ? "order_preview_ready" : "order_preview_blocked",
+        eventKey: `preview:${receipt.decisionId}:${ready ? "ready" : "blocked"}`,
+        proposalId: proposal.id,
+        decisionId: receipt.decisionId,
+        checks,
+      });
       return json(response, ready ? 200 : 409, { preview });
     } catch {
       return json(response, 503, { error: "ibkr_unavailable" });
@@ -657,6 +768,14 @@ async function route(request, response) {
       proposalId: proposal.id,
       decisionId: receipt.decisionId,
     });
+    recordLedgerEvent({
+      at: now(),
+      event: result.ok ? "ibkr_what_if_passed" : "ibkr_what_if_blocked",
+      eventKey: `what-if:${receipt.decisionId}:${result.ok ? "passed" : "blocked"}`,
+      proposalId: proposal.id,
+      decisionId: receipt.decisionId,
+      result,
+    });
     return json(response, result.ok ? 200 : 409, { whatIf: result });
   }
 
@@ -667,15 +786,32 @@ async function route(request, response) {
     const receipt = typeof input.token === "string" ? verifyApprovalToken(input.token) : null;
     if (!receipt) return json(response, 401, { error: "invalid_or_expired_approval" });
     const proposal = proposals.get(receipt.proposalId);
-    if (!proposal || proposal.status !== "approved" || proposal.decisionId !== receipt.decisionId) {
+    if (!proposal || proposal.decisionId !== receipt.decisionId) {
       return json(response, 409, { error: "approval_does_not_match_proposal" });
+    }
+    const idempotencyKey = `paper:${receipt.decisionId}`;
+    const existingAttempt = ledger().getSubmissionByIdempotencyKey(idempotencyKey);
+    if (existingAttempt) {
+      if (existingAttempt.status === "submitted") {
+        return json(response, 200, {
+          submission: existingAttempt.response?.submission ?? existingAttempt.response,
+          replayed: true,
+        });
+      }
+      return json(response, 409, {
+        error: existingAttempt.status === "unknown"
+          ? "submission_outcome_unknown_reconciliation_required"
+          : "approval_already_used",
+        attempt: existingAttempt,
+      });
+    }
+    if (proposal.status !== "approved") {
+      return json(response, 409, { error: "proposal_not_approved" });
     }
     if (!previewPassed.has(receipt.decisionId) || !whatIfPassed.has(receipt.decisionId)) {
       return json(response, 409, { error: "preview_and_what_if_required" });
     }
-    if (consumedApprovals.has(receipt.decisionId)) {
-      return json(response, 409, { error: "approval_already_used" });
-    }
+    let submissionAttempt = null;
     try {
       const snapshot = await ibkrSnapshot(receipt.symbol);
       const referencePrice = snapshot.quote.ask ?? snapshot.quote.last ?? snapshot.quote.close;
@@ -707,12 +843,36 @@ async function route(request, response) {
           decisionId: receipt.decisionId,
           checks: safetyChecks,
         });
+        recordLedgerEvent({
+          at: now(),
+          event: "final_safety_check_blocked",
+          eventKey: `safety:${receipt.decisionId}:blocked`,
+          proposalId: proposal.id,
+          decisionId: receipt.decisionId,
+          checks: safetyChecks,
+        });
         return json(response, 409, { error: "final_safety_check_blocked", checks: safetyChecks });
       }
 
-      // Consume before contacting IBKR so retries cannot create duplicate orders.
-      consumedApprovals.add(receipt.decisionId);
+      // Persist before contacting IBKR. Any retry or restart observes this row
+      // and cannot unknowingly transmit a duplicate order.
+      const begun = ledger().beginSubmission({
+        decisionId: receipt.decisionId,
+        idempotencyKey,
+      });
+      if (!begun.created) {
+        return json(response, 409, { error: "approval_already_used", attempt: begun.attempt });
+      }
+      submissionAttempt = begun.attempt;
       const submission = await ibkrPaperSubmit(receipt);
+      ledger().completeSubmission({
+        id: submissionAttempt.id,
+        status: submission.ok ? "submitted" : "failed",
+        brokerOrderId: submission.result?.orderId == null ? null : String(submission.result.orderId),
+        errorCode: submission.ok ? null : submission.error ?? submission.errors?.[0]?.code?.toString() ?? "ibkr_submission_failed",
+        response: { submission },
+      });
+      if (submission.ok) recordSubmittedBrokerOrders(proposal, receipt, submissionAttempt, submission);
       if (submission.ok) {
         proposal.status = "submitted";
         const notional = roundPrice(receipt.quantity * receipt.limitPrice);
@@ -741,9 +901,20 @@ async function route(request, response) {
         brokerWarnings: submission.warnings ?? [],
       });
       return json(response, submission.ok ? 200 : 409, { submission });
-    } catch {
-      consumedApprovals.add(receipt.decisionId);
-      return json(response, 503, { error: "ibkr_unavailable_approval_consumed" });
+    } catch (error) {
+      if (submissionAttempt) {
+        ledger().completeSubmission({
+          id: submissionAttempt.id,
+          status: "unknown",
+          errorCode: "ibkr_unavailable",
+          response: { message: error.message ?? "IBKR submission outcome is unknown" },
+        });
+      }
+      return json(response, 503, {
+        error: submissionAttempt
+          ? "ibkr_unavailable_submission_outcome_unknown"
+          : "ibkr_unavailable_before_submission",
+      });
     }
   }
 
@@ -753,15 +924,34 @@ async function route(request, response) {
     const input = await body(request);
     if (!proposal) return json(response, 404, { error: "proposal_not_found" });
     if (paused) return json(response, 409, { error: "agents_paused" });
-    if (proposal.status !== "pending") return json(response, 409, { error: "proposal_already_decided" });
-    if (proposal.expiresAt <= now()) return json(response, 410, { error: "proposal_expired" });
     if (input.decision !== "approved" && input.decision !== "denied") {
       return json(response, 400, { error: "invalid_decision" });
+    }
+    if (proposal.status !== "pending") {
+      const existingDecision = ledger().getDecisionForProposal(proposal.id);
+      if (existingDecision?.decision === input.decision) {
+        return json(response, 200, {
+          proposal,
+          approval: existingDecision.payload?.approval ?? null,
+          replayed: true,
+        });
+      }
+      return json(response, 409, { error: "proposal_already_decided" });
+    }
+    if (proposal.expiresAt <= now()) {
+      expireProposal(proposal);
+      return json(response, 410, { error: "proposal_expired" });
     }
 
     proposal.status = input.decision;
     if (input.decision === "denied") {
       proposal.decisionId = randomUUID();
+      ledger().recordDecision({
+        id: proposal.decisionId,
+        proposalId: proposal.id,
+        decision: "denied",
+        payload: { symbol: proposal.symbol, signalDate: proposal.signalDate ?? null },
+      });
       strategy.completed.push({
         proposalId: proposal.id,
         symbol: proposal.symbol,
@@ -797,6 +987,14 @@ async function route(request, response) {
 
     const approval = approvalReceipt(proposal);
     proposal.decisionId = approval.receipt.decisionId;
+    ledger().recordDecision({
+      id: proposal.decisionId,
+      proposalId: proposal.id,
+      decision: "approved",
+      decidedAt: approval.receipt.approvedAt,
+      approvalFingerprint: approval.token.split(".")[1],
+      payload: { approval },
+    });
     auditLog.push({ id: randomUUID(), at: now(), event: "proposal_approved", proposalId: proposal.id, decisionId: proposal.decisionId });
     return json(response, 200, { proposal, approval });
   }
@@ -808,6 +1006,7 @@ if (process.argv[1] === new URL(import.meta.url).pathname) {
   if (host !== "127.0.0.1" && host !== "::1" && !appToken) {
     throw new Error("TRADE_APPROVAL_APP_TOKEN is required when listening beyond localhost");
   }
+  restoreLedgerState();
   createServer((request, response) => {
     route(request, response).catch((error) => json(response, 500, { error: "internal_error", detail: error.message }));
   }).listen(port, host, () => {

@@ -133,3 +133,49 @@ test("denied decisions cannot begin submissions", () => {
   );
   ledger.close();
 });
+
+test("proposal lifecycle status and proposal listing are durable", () => {
+  const { directory, path } = fixture();
+  try {
+    let ledger = new TradingLedger(path);
+    ledger.recordProposal(proposal());
+    ledger.setProposalStatus("proposal-1", "replaced", { occurredAt: 2_000 });
+    ledger.close();
+
+    ledger = new TradingLedger(path);
+    assert.equal(ledger.listProposals()[0].status, "replaced");
+    assert.deepEqual(
+      ledger.listEvents("proposal-1").map(({ eventType }) => eventType),
+      ["proposal_created", "proposal_replaced"],
+    );
+    ledger.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("broker order identity is linked once and updated on later observations", () => {
+  const ledger = new TradingLedger(":memory:");
+  ledger.recordProposal(proposal());
+  ledger.recordDecision({ id: "decision-1", proposalId: "proposal-1", decision: "approved", decidedAt: 2_000 });
+  ledger.beginSubmission({ id: "attempt-1", decisionId: "decision-1", idempotencyKey: "paper:decision-1", startedAt: 3_000 });
+  const order = {
+    proposalId: "proposal-1",
+    submissionAttemptId: "attempt-1",
+    broker: "IBKR",
+    accountId: "paper-account",
+    brokerOrderId: "12345",
+    role: "entry",
+    status: "PreSubmitted",
+    order: { action: "BUY", quantity: 2 },
+    seenAt: 4_000,
+  };
+  ledger.recordBrokerOrder(order);
+  ledger.recordBrokerOrder({ ...order, status: "Filled", order: { ...order.order, filled: 2 }, seenAt: 5_000 });
+  const [stored] = ledger.listBrokerOrders("proposal-1");
+  assert.equal(stored.status, "Filled");
+  assert.equal(stored.firstSeenAt, 4_000);
+  assert.equal(stored.lastSeenAt, 5_000);
+  assert.equal(stored.order.filled, 2);
+  ledger.close();
+});
