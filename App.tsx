@@ -1394,11 +1394,11 @@ export default function App() {
             <View style={styles.homeScannerPanel}>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Scan</Text>
-                <Text style={styles.homeScannerValue}>Every 30 seconds</Text>
+                <Text style={styles.homeScannerValue}>Continuous · fresh quote checks</Text>
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Recommendations</Text>
-                <Text style={styles.homeScannerValue}>Buys only</Text>
+                <Text style={styles.homeScannerValue}>All currently qualified buys</Text>
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Protection</Text>

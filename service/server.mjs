@@ -13,7 +13,6 @@ const appToken = process.env.TRADE_APPROVAL_APP_TOKEN ?? "";
 const whatIfEnabled = process.env.IBKR_ENABLE_WHAT_IF === "true";
 const paperSubmitEnabled = process.env.IBKR_ENABLE_PAPER_SUBMIT === "true";
 const maximumBidAskSpreadPercent = 0.25;
-const recommendationQueueLimit = 3;
 const signingSecret = process.env.APPROVAL_SIGNING_SECRET ?? "paper-development-only";
 const proposals = new Map();
 const proposalSnapshots = new Map();
@@ -115,6 +114,12 @@ export function recommendationTtlMs(candidate = {}) {
   return 10 * 60 * 1000;
 }
 
+export function eligibleQueueCandidates(scan = {}, excludedSymbols = new Set()) {
+  return (scan.evaluations ?? [])
+    .filter((candidate) => candidate.eligible && !excludedSymbols.has(candidate.symbol))
+    .sort((left, right) => right.recommendationScore - left.recommendationScore);
+}
+
 function seedProposal(snapshot = null, secResearch = null, candidate = null) {
   const referencePrice = snapshot?.quote?.last ?? snapshot?.quote?.close ?? 183.1;
   const bid = snapshot?.quote?.bid ?? referencePrice;
@@ -181,19 +186,7 @@ async function recommendationQueue() {
 
   const existing = [...proposals.values()]
     .filter((proposal) => proposal.status === "pending" && proposal.expiresAt > now())
-    .sort((left, right) => left.createdAt - right.createdAt)
-    .slice(0, recommendationQueueLimit);
-  if (existing.length >= recommendationQueueLimit) {
-    const recommendations = await Promise.all(existing.map(async (proposal) => {
-      const broker = proposalSnapshots.get(proposal.id) ?? await ibkrSnapshot(proposal.symbol);
-      proposalSnapshots.set(proposal.id, broker);
-      return { proposal, broker };
-    }));
-    return {
-      recommendations,
-      strategy: strategySummary(),
-    };
-  }
+    .sort((left, right) => left.createdAt - right.createdAt);
 
   const scan = await scanDailyShadowSignals();
   if (!scan.ok) throw new Error(scan.error ?? "scanner_unavailable");
@@ -201,13 +194,10 @@ async function recommendationQueue() {
     ...existing.map((proposal) => proposal.symbol),
     ...strategy.completed.filter((item) => item.outcome === "submitted").map((item) => item.symbol),
   ]);
-  const candidates = (scan.evaluations ?? [])
-    .filter((candidate) => candidate.eligible && !excludedSymbols.has(candidate.symbol))
-    .sort((left, right) => right.recommendationScore - left.recommendationScore);
+  const candidates = eligibleQueueCandidates(scan, excludedSymbols);
 
   const created = [...existing];
   for (const evaluated of candidates) {
-    if (created.length >= recommendationQueueLimit) break;
     const snapshot = await ibkrSnapshot(evaluated.symbol);
     const bid = snapshot?.quote?.bid;
     const ask = snapshot?.quote?.ask;

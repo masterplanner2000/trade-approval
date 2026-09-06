@@ -32,7 +32,9 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-016 | Keep a versioned architecture source of truth | Confirmed | 2026-08-31 |
 | D-017 | Recommend buys only; require approval for ordinary profit-taking | Confirmed | 2026-08-31 |
 | D-018 | Support an explicit in-app light/dark appearance control | Confirmed | 2026-08-31 |
-| D-019 | Preload a bounded recommendation queue | Confirmed | 2026-09-05 |
+| D-019 | Preload a bounded recommendation queue | Superseded by D-020 | 2026-09-06 |
+| D-020 | Recommendation count is market- and portfolio-driven | Confirmed | 2026-09-06 |
+| D-021 | Portfolio rotations are sequential and contingent on confirmed fills | Confirmed | 2026-09-06 |
 
 ---
 
@@ -206,11 +208,27 @@ This is the living record of product, design, trading-safety, data, and technica
 
 ### D-019 — Preload a bounded recommendation queue
 
-**Status:** Confirmed
+**Status:** Superseded by D-020
 **Decision:** The recommendation service returns up to three ranked, fully prepared proposals. Each proposal has its own exact order terms and expiration. Swiping or tapping only browses this queue; a proposal is removed only after its approval or denial is successfully recorded.
 **Reason:** The next card should be immediately readable without a blank or loading flash, while financial decisions must remain explicit and recoverable. A bounded queue also limits stale quotes and unused approvals.
 **Initial implementation:** Eligible cached Alpaca candidates are ranked, then checked one-by-one against a fresh IBKR quote and the 0.25% spread limit. Proposal lifetimes are 10 minutes below 3% ATR, 5 minutes from 3% to below 5% ATR, and 2 minutes at 5% ATR or above. Submission still rechecks price, account, receipt, bracket terms, notional, and remaining strategy capital.
 **Prototype limitation:** The queue and decision state are held in service memory. A restart discards unresolved queue state; durable persistence and broker reconciliation remain required before production use.
+
+### D-020 — Recommendation count is market- and portfolio-driven
+
+**Status:** Confirmed
+**Decision:** Evaluate the full eligible universe and preserve every candidate that passes the current strategy and fresh execution checks. Zero, one, or many recommendations may be produced. A page size, preload window, or card batch may optimize delivery but must never determine investment eligibility.
+**Reason:** A fixed card count can suppress legitimate opportunities or encourage the system to manufacture activity. Market quality, current broker conditions, portfolio capacity, and risk policy are the correct constraints.
+**Implementation:** The local MVP no longer stops after three candidates. It returns all candidates that pass the completed-daily-data scan and fresh IBKR spread validation. Intraday signals and portfolio eligibility remain future milestones.
+**Implications:** Once generated, a displayed proposal keeps immutable terms until decision or expiry. The engine must separately report qualified, actionable, and capacity-blocked counts.
+
+### D-021 — Portfolio rotations are sequential and contingent on confirmed fills
+
+**Status:** Confirmed
+**Decision:** The engine may eventually propose replacing an existing position with a stronger opportunity, but it may not assume that approved sale proceeds are available. A rotation executes the sale first, confirms its fill, refreshes cash and portfolio risk, and only then regenerates and revalidates the buy.
+**Reason:** Approvals, fills, settlement, prices, and portfolio exposure can change between the two legs. Treating a rotation as an atomic swap would create unfunded or stale orders and obscure two distinct investment decisions.
+**Prerequisites:** Durable ledger, IBKR reconciliation, authoritative portfolio snapshot, portfolio-aware sizing, and explicit trading-sleeve policy.
+**Initial UI categories:** Actionable with cash, qualified but capacity-blocked, and possible rotation.
 
 ---
 
@@ -263,6 +281,12 @@ This is the living record of product, design, trading-safety, data, and technica
 - Confirmed a bounded recommendation queue that preloads up to three complete cards.
 - Kept browsing non-destructive and tied removal to a successfully recorded decision.
 - Made proposal expiration volatility-tiered and documented the in-memory prototype limitation.
+
+### 2026-09-06
+
+- Superseded the fixed three-card queue with a market- and portfolio-driven recommendation-set policy.
+- Confirmed that sell-to-buy rotations must wait for a confirmed sale fill and fresh portfolio revalidation.
+- Added the implementation sequence and acceptance criteria to `PROJECT_PLAN.md`.
 # 2026-09-04 — Replace the minimum share-price filter
 
 **Decision:** Remove the arbitrary minimum share-price rule. Require at least 240 completed daily bars and $50 million in 20-day average dollar volume during scanning. Before creating a recommendation, require a current bid and ask with a spread no wider than 0.25%; try the next ranked eligible candidate when the highest-ranked candidate fails this execution check.

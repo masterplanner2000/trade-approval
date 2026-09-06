@@ -36,7 +36,7 @@ Endpoints:
 - `GET /research/sec?symbol=NVDA`
 - `GET /shadow/signals`
 - `POST /shadow/scan`
-- `POST /recommendations/queue` returns up to three ranked, fully prepared paper recommendations. Each passes a fresh IBKR spread check and expires independently; ATR volatility shortens the lifetime from 10 minutes to 5 or 2 minutes.
+- `POST /recommendations/queue` returns every ranked candidate that currently passes the research scan and fresh IBKR spread check. The result count is market-driven rather than fixed. Each proposal expires independently; ATR volatility shortens the lifetime from 10 minutes to 5 or 2 minutes.
 - `POST /proposals/demo`
 - `POST /proposals/:id/decision` with `{ "decision": "approved" }` or `denied`
 - `POST /orders/preview` with a signed approval token; validates and previews but cannot submit

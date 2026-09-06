@@ -1,7 +1,7 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.1
-**Last updated:** 2026-09-05
+**Current architecture version:** 3.2
+**Last updated:** 2026-09-06
 **Status:** Living source of truth
 
 This document explains the major application components, their responsibilities, and how information moves from research to recommendations, approval, broker execution, reconciliation, and performance evaluation.
@@ -21,7 +21,7 @@ flowchart LR
         risk["Calculate risk and position size"]
         rules["Apply portfolio rules"]
         recommend["Create exact buy recommendation"]
-        queue["Build bounded recommendation queue"]
+        queue["Build market-driven recommendation set"]
 
         sources ==> normalize
         normalize ==> scan
@@ -116,7 +116,7 @@ flowchart LR
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Select licensed providers and cache model |
-| Recommendation engine | Produce ranked, exact proposed trades with rationale | Prototype | Validate the strategy and persist the queue |
+| Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | Add intraday inputs and portfolio eligibility |
 | Risk and position sizing | Calculate quantity, loss, concentration, and limits | Partial | Complete trade- and portfolio-risk inputs |
 | Safety validation | Recheck price, account, approval, limits, and What-If | Prototype | Preserve exact validation results |
 | Order service | Submit approved buys, protective stops, and separately approved ordinary sales | Prototype | Confirm durable broker identifiers |
@@ -133,7 +133,7 @@ flowchart LR
 ```text
 Research and market data
         → normalize and scan
-        → ranked recommendations, risk, sizing, and bounded queue
+        → ranked recommendations, risk, sizing, and market-driven recommendation set
         → human buy decision
         → safety validation
         → buy plus protective stop
@@ -155,6 +155,13 @@ Research and market data
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 3.2 — 2026-09-06
+
+- Removed the fixed three-proposal engine ceiling; recommendation count is now determined by current scanner and execution eligibility.
+- Clarified that pagination or incremental delivery may optimize transport without becoming a trading rule.
+- Established durable reconciliation and an authoritative portfolio snapshot as prerequisites for portfolio-aware sizing and rotations.
+- Added `PROJECT_PLAN.md` with the agreed implementation sequence and milestone acceptance criteria.
 
 ### Version 3.1 — 2026-09-05
 
