@@ -9,6 +9,22 @@ The scanner evaluates the eligible market and may return zero, one, or many oppo
 
 The trading sleeve is managed separately from long-term savings and automated-investing accounts. Cash is a valid allocation; the engine must never generate a trade merely to remain fully invested.
 
+## Go-to-market discovery — separate workstream
+
+The initial customer hypothesis is an inexperienced or intermediate self-directed investor who is interested in active investing but does not want to spend hours assembling market data, AI research, sizing logic, broker integrations, monitoring, and operational safeguards. The proposed value is a clear approval inbox for researched and automatically sized trades, with the user retaining the final decision.
+
+Do not market guaranteed returns or imply that the application removes investment risk. Validate the product around time saved, understandable rationale, disciplined risk controls, reliable brokerage connectivity, monitoring, and trustworthy records.
+
+Before scaling development for a public launch:
+
+1. Interview prospective customers and test the problem and language without pitching returns.
+2. Run a paper-only cohort and measure connection completion, comprehension, repeat engagement, retention, and trust through negative outcomes.
+3. Test willingness to pay with an actual checkout or refundable preorder rather than survey answers alone.
+4. Define the initial broker and customer niche before attempting broad brokerage coverage.
+5. Obtain securities and market-data counsel before personalized recommendations or public live execution.
+
+Evaluate a second, separately packaged offering for technically inclined customers: instructions, reference architecture, and tools for building a compatible recommendation engine. It must have its own positioning, support model, security boundaries, legal review, and a versioned integration contract. It should not delay validation of the core approval application.
+
 ## Delivery sequence
 
 ### 1. Market-driven recommendation set — implemented in the local MVP

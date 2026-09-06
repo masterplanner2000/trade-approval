@@ -265,6 +265,15 @@ This is the living record of product, design, trading-safety, data, and technica
 **Implementation:** The hamburger menu opens Settings. The authenticated Mac service persists and validates the policy. The page previews an operating level using available observed-risk and broker states.
 **Safety boundary:** The adaptive preview does not yet control submitted amounts. It becomes authoritative only after reconciled portfolio inputs and a versioned market-regime model are connected and tested.
 
+### D-026 — Treat go-to-market validation as a separate product workstream
+
+**Status:** Confirmed direction; customer demand and pricing remain hypotheses to validate.
+**Decision:** Develop a dedicated GTM workstream for inexperienced and intermediate self-directed investors who want researched, clearly explained, automatically sized trade proposals without building and operating their own AI system. Position the application around convenience, clarity, user control, risk discipline, and reliable broker execution—not promised profits.
+**Primary hypothesis:** People with investable savings, limited active-trading experience, and limited time may pay for an approval inbox that combines market scanning, rationale, sizing, risk context, execution, monitoring, and an auditable history.
+**Validation required:** Test brokerage-connection completion, repeated recommendation review, comprehension, approval/denial behavior, retention over four to eight weeks, willingness to pay, and trust after losing or rejected trades. Pricing discussed so far is only a hypothesis and is not yet a decision.
+**Separate opportunity:** Explore a standalone educational product that teaches technically inclined customers how to build and operate their own recommendation engine and connect it through a documented interface. Keep this distinct from the hosted application in positioning, support, security boundaries, pricing, and legal review.
+**Safety and compliance boundary:** User acceptance of investment risk and the absence of performance claims do not by themselves settle whether specific compensated recommendations constitute regulated investment advice. Obtain qualified securities counsel before offering personalized recommendations or live brokerage execution publicly.
+
 ---
 
 ## Open decisions
@@ -298,6 +307,15 @@ This is the living record of product, design, trading-safety, data, and technica
 - Initial live position and daily-loss limits
 - Conditions that automatically return the system to paper-only mode
 
+### O-006 — GTM, customer segment, and willingness to pay
+
+- Which novice-to-intermediate self-directed investor has the strongest problem and highest willingness to pay?
+- Is the winning promise convenience, disciplined decision-making, research compression, execution reliability, or a combination?
+- Which paper-only beta behaviors predict paid retention?
+- What subscription price and trial structure convert without implying performance guarantees?
+- Should the build-your-own-engine education product be a course, documentation package, community, or developer toolkit?
+- What engine interface and certification rules protect the app when customers connect third-party or self-built agents?
+
 ---
 
 ## Change history
@@ -327,6 +345,8 @@ This is the living record of product, design, trading-safety, data, and technica
 - Made denial trigger a fresh recommendation calculation without changing or reserving cash.
 - Added persisted, editable adaptive paper-policy settings with hard-limit enforcement.
 - Connected the runtime proposal, decision, validation, submission, and acknowledged bracket-order path to the ledger; ambiguous submission outcomes now require reconciliation rather than retrying.
+- Established GTM validation as a separate workstream focused on novice-to-intermediate investors paying for convenience, clarity, control, and reliable execution.
+- Recorded a separate educational opportunity for teaching customers to build their own compatible recommendation engines.
 # 2026-09-04 — Replace the minimum share-price filter
 
 **Decision:** Remove the arbitrary minimum share-price rule. Require at least 240 completed daily bars and $50 million in 20-day average dollar volume during scanning. Before creating a recommendation, require a current bid and ask with a spread no wider than 0.25%; try the next ranked eligible candidate when the highest-ranked candidate fails this execution check.
