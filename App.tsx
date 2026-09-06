@@ -161,6 +161,11 @@ type ServiceProposal = {
   };
 };
 
+type QueuedServiceRecommendation = {
+  proposal: ServiceProposal;
+  broker: BrokerSnapshot;
+};
+
 type StrategySummary = {
   id: string;
   name: string;
@@ -639,6 +644,8 @@ export default function App() {
   const [previewIndex, setPreviewIndex] = useState(0);
   const [reviewedExampleIds, setReviewedExampleIds] = useState<string[]>([]);
   const [sampleDeckComplete, setSampleDeckComplete] = useState(false);
+  const [realRecommendations, setRealRecommendations] = useState<Proposal[]>([]);
+  const [realDeckComplete, setRealDeckComplete] = useState(false);
   const [transitionCard, setTransitionCard] = useState<Proposal | null>(null);
   const [openSection, setOpenSection] = useState<"rationale" | "strategy" | "news" | null>(null);
   const [cardWidth, setCardWidth] = useState(0);
@@ -713,19 +720,11 @@ export default function App() {
     applyShadowScan(result.scan);
   }
 
-  function applyServiceProposal(serviceProposal: ServiceProposal, snapshot: BrokerSnapshot, strategySummary: StrategySummary) {
+  function serviceProposalToCard(serviceProposal: ServiceProposal, snapshot: BrokerSnapshot, strategySummary: StrategySummary): Proposal {
     const positionValue = serviceProposal.quantity * serviceProposal.limitPrice;
     const potentialUpside = serviceProposal.quantity * (serviceProposal.targetPrice - serviceProposal.limitPrice);
-    setBroker(snapshot);
-    setBrokerUnavailable(false);
-    setOrderPreview(null);
-    setWhatIfResult(null);
-    setPaperSubmission(null);
-    setWorkflowError(null);
-    setProcessing(false);
-    setStrategy(strategySummary);
-    setProposal((current) => ({
-      ...current,
+    return {
+      ...PAPER_PROPOSAL,
       id: serviceProposal.id,
       symbol: serviceProposal.symbol,
       company: serviceProposal.company,
@@ -743,7 +742,7 @@ export default function App() {
       potentialUpside,
       potentialUpsidePercent: ((serviceProposal.targetPrice - serviceProposal.limitPrice) / serviceProposal.limitPrice) * 100,
       rationale: serviceProposal.rationale,
-      companyCatalyst: serviceProposal.researchContext ?? current.companyCatalyst,
+      companyCatalyst: serviceProposal.researchContext ?? "This recommendation passed the current deterministic market, liquidity, and risk rules.",
       strategyName: strategySummary.name,
       strategyContext: `${money(strategySummary.currentExposure)} currently allocated of a ${money(strategySummary.capitalLimit)} paper limit across up to ${strategySummary.maxOpenPositions} positions.`,
       accountLabel: `IBKR Paper ${snapshot.account ?? "connected"}`,
@@ -755,17 +754,37 @@ export default function App() {
       automaticExits: serviceProposal.exitPolicy.automatic,
       marketRisk: serviceProposal.marketRisk,
       exitPlan: `If the buy fills, IBKR Paper will automatically place a profit-taking sell at ${money(serviceProposal.exitPolicy.profitTargetPrice)} and a protective stop sell triggered at ${money(serviceProposal.exitPolicy.protectiveStopPrice)}.`,
-    }));
+    };
+  }
+
+  function applyServiceProposal(serviceProposal: ServiceProposal, snapshot: BrokerSnapshot, strategySummary: StrategySummary) {
+    setBroker(snapshot);
+    setBrokerUnavailable(false);
+    setOrderPreview(null);
+    setWhatIfResult(null);
+    setPaperSubmission(null);
+    setWorkflowError(null);
+    setProcessing(false);
+    setStrategy(strategySummary);
+    setProposal(serviceProposalToCard(serviceProposal, snapshot, strategySummary));
   }
 
   async function createPaperProposal() {
-    const response = await fetch(`${API_BASE_URL}/recommendations/next`, {
+    const response = await fetch(`${API_BASE_URL}/recommendations/queue`, {
       method: "POST",
       headers: { "x-app-token": APP_TOKEN },
     });
-    const result = await response.json() as { proposal: ServiceProposal; broker: BrokerSnapshot; strategy: StrategySummary; error?: string };
+    const result = await response.json() as { recommendations: QueuedServiceRecommendation[]; strategy: StrategySummary; error?: string };
     if (!response.ok) throw new Error(result.error ?? "proposal_unavailable");
-    applyServiceProposal(result.proposal, result.broker, result.strategy);
+    const cards = result.recommendations
+      .filter((item) => item.broker?.ok)
+      .map((item) => serviceProposalToCard(item.proposal, item.broker, result.strategy));
+    if (cards.length === 0) throw new Error("recommendation_queue_empty");
+    const first = result.recommendations.find((item) => item.proposal.id === cards[0]?.id);
+    if (!first?.broker?.ok) throw new Error("recommendation_queue_empty");
+    setRealRecommendations(cards);
+    setRealDeckComplete(false);
+    applyServiceProposal(first.proposal, first.broker, result.strategy);
     setNoEligibleRecommendation(false);
     setBrokerConnectionStatus("connected");
     setUiPreview(false);
@@ -990,16 +1009,31 @@ export default function App() {
 
   function dismissResolvedLiveCard(decision: "approved" | "denied") {
     if (cardAnimating.current) return;
+    const remaining = realRecommendations.filter((item) => item.id !== proposal.id);
+    const next = remaining[0] ?? null;
     cardAnimating.current = true;
+    setTransitionCard(next);
     Animated.timing(cardPosition, {
-      toValue: { x: decision === "approved" ? 520 : -520, y: 18 },
+      toValue: { x: (decision === "approved" ? 1 : -1) * viewportWidth * 1.5, y: 0 },
       duration: 280,
       easing: Easing.bezier(0.4, 0, 0.2, 1),
       useNativeDriver: true,
     }).start(() => {
-      cardPosition.setValue({ x: 0, y: 0 });
-      cardAnimating.current = false;
-      returnToScanner();
+      cardEntryProgress.setValue(0);
+      setRealRecommendations(remaining);
+      if (next) setProposal(next);
+      else {
+        setRealDeckComplete(true);
+        setProposal(SHADOW_LOADING);
+      }
+      requestAnimationFrame(() => {
+        cardPosition.setValue({ x: 0, y: 0 });
+        cardEntryProgress.setValue(1);
+        requestAnimationFrame(() => {
+          setTransitionCard(null);
+          cardAnimating.current = false;
+        });
+      });
     });
   }
 
@@ -1046,6 +1080,7 @@ export default function App() {
     setPreviewIndex(0);
     setReviewedExampleIds([]);
     setSampleDeckComplete(false);
+    setRealDeckComplete(false);
     setTransitionCard(null);
     cardAnimating.current = false;
     cardPosition.setValue({ x: 0, y: 0 });
@@ -1095,9 +1130,10 @@ export default function App() {
 
   function navigateSampleCard(step: -1 | 1, exitDirection: -1 | 1) {
     if (cardAnimating.current) return;
-    const available = UI_PROPOSALS
+    const source = uiPreview ? UI_PROPOSALS : realRecommendations;
+    const available = source
       .map((item, index) => ({ item, index }))
-      .filter(({ item }) => !reviewedExampleIds.includes(item.id));
+      .filter(({ item }) => !uiPreview || !reviewedExampleIds.includes(item.id));
     const currentPosition = available.findIndex(({ item }) => item.id === proposal.id);
     if (available.length < 2 || currentPosition === -1) {
       Animated.spring(cardPosition, {
@@ -1109,11 +1145,11 @@ export default function App() {
 
     const nextPosition = (currentPosition + step + available.length) % available.length;
     const next = available[nextPosition]!;
-    const preparedNext: Proposal = {
-      ...next.item,
-      decision: next.item.decision === "expired" ? "expired" : "pending",
-      expiresAt: next.item.decision === "expired" ? Date.now() - 30 * 1000 : Date.now() + (next.index + 3) * 60 * 1000,
-    };
+    const preparedNext: Proposal = uiPreview ? {
+        ...next.item,
+        decision: next.item.decision === "expired" ? "expired" : "pending",
+        expiresAt: next.item.decision === "expired" ? Date.now() - 30 * 1000 : Date.now() + (next.index + 3) * 60 * 1000,
+      } : next.item;
     cardAnimating.current = true;
     setTransitionCard(preparedNext);
     requestAnimationFrame(() => {
@@ -1124,7 +1160,7 @@ export default function App() {
         useNativeDriver: true,
       }).start(() => {
         cardEntryProgress.setValue(0);
-        setPreviewIndex(next.index);
+        if (uiPreview) setPreviewIndex(next.index);
         setProposal(preparedNext);
         requestAnimationFrame(() => {
           cardPosition.setValue({ x: 0, y: 0 });
@@ -1140,9 +1176,9 @@ export default function App() {
 
   const cardPanResponder = PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) =>
-      uiPreview && Math.abs(gesture.dx) > 7 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
+      (uiPreview || realRecommendations.length > 1) && Math.abs(gesture.dx) > 7 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
     onMoveShouldSetPanResponderCapture: (_, gesture) =>
-      uiPreview && Math.abs(gesture.dx) > 7 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
+      (uiPreview || realRecommendations.length > 1) && Math.abs(gesture.dx) > 7 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1,
     onPanResponderGrant: () => {
       cardWasDragged.current = false;
       cardPosition.stopAnimation();
@@ -1207,16 +1243,18 @@ export default function App() {
     inputRange: [0, 1],
     outputRange: [10, 0],
   });
-  const availablePreviewCards = UI_PROPOSALS.filter((item) => !reviewedExampleIds.includes(item.id));
-  const activePreviewPosition = availablePreviewCards.findIndex((item) => item.id === proposal.id);
-  const nextPreviewCard = activePreviewPosition >= 0 && availablePreviewCards.length > 1
-    ? availablePreviewCards[(activePreviewPosition + 1) % availablePreviewCards.length]
+  const availableDeckCards = uiPreview
+    ? UI_PROPOSALS.filter((item) => !reviewedExampleIds.includes(item.id))
+    : realRecommendations;
+  const activePreviewPosition = availableDeckCards.findIndex((item) => item.id === proposal.id);
+  const nextPreviewCard = activePreviewPosition >= 0 && availableDeckCards.length > 1
+    ? availableDeckCards[(activePreviewPosition + 1) % availableDeckCards.length]
     : null;
-  const previousPreviewCard = activePreviewPosition >= 0 && availablePreviewCards.length > 1
-    ? availablePreviewCards[(activePreviewPosition - 1 + availablePreviewCards.length) % availablePreviewCards.length]
+  const previousPreviewCard = activePreviewPosition >= 0 && availableDeckCards.length > 1
+    ? availableDeckCards[(activePreviewPosition - 1 + availableDeckCards.length) % availableDeckCards.length]
     : null;
-  const backPreviewCard = activePreviewPosition >= 0 && availablePreviewCards.length > 2
-    ? availablePreviewCards[(activePreviewPosition + 2) % availablePreviewCards.length]
+  const backPreviewCard = activePreviewPosition >= 0 && availableDeckCards.length > 2
+    ? availableDeckCards[(activePreviewPosition + 2) % availableDeckCards.length]
     : null;
 
   function returnToScanner() {
@@ -1228,6 +1266,8 @@ export default function App() {
     setPaperSubmission(null);
     setProcessing(false);
     setDecisionInFlight(null);
+    setRealRecommendations([]);
+    setRealDeckComplete(false);
     setProposal(SHADOW_LOADING);
   }
 
@@ -1299,7 +1339,7 @@ export default function App() {
           </View>
         )}
 
-        {proposal.shadowMode && showRecommendationSkeleton && (
+        {proposal.shadowMode && showRecommendationSkeleton && !realDeckComplete && (
           <View style={[styles.deckStage, { height: Math.max(420, viewportHeight - 150) }]}>
             <View pointerEvents="none" style={[styles.stackCard, styles.stackCardBack]} />
             <View pointerEvents="none" style={[styles.stackCard, styles.stackCardNext]} />
@@ -1335,7 +1375,7 @@ export default function App() {
           </View>
         )}
 
-        {proposal.shadowMode && !showRecommendationSkeleton && (
+        {proposal.shadowMode && !showRecommendationSkeleton && !realDeckComplete && (
           <View style={styles.homeDashboard}>
             <Text style={styles.homeEyebrow}>{paused ? "SCANNER PAUSED" : "SCANNER ACTIVE"}</Text>
             <Text style={styles.homeTitle}>
@@ -1379,7 +1419,7 @@ export default function App() {
           </View>
         )}
 
-        {!proposal.shadowMode && sampleDeckComplete && (
+        {((!proposal.shadowMode && sampleDeckComplete) || realDeckComplete) && (
           <View style={styles.deckComplete}>
             <View style={styles.deckCompleteIcon}>
               <CheckCircleIcon size={34} color={colors.actionApprove} weight="fill" />
@@ -1387,43 +1427,48 @@ export default function App() {
             <Text style={styles.deckCompleteEyebrow}>0 recommendations remaining</Text>
             <Text style={styles.deckCompleteTitle}>You’re all caught up</Text>
             <Text style={styles.deckCompleteBody}>
-              You reviewed all {UI_PROPOSALS.length} suggested trades. New recommendations will appear when the scanner finds them.
+              {uiPreview
+                ? `You reviewed all ${UI_PROPOSALS.length} sample trades.`
+                : "You reviewed every available trade. New recommendations will appear automatically when the scanner finds them."}
             </Text>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Review sample trades again"
-              onPress={previewActiveProposal}
+              accessibilityLabel={uiPreview ? "Review sample trades again" : "Check for new recommendations"}
+              onPress={uiPreview ? previewActiveProposal : () => {
+                returnToScanner();
+                void openPaperRecommendation();
+              }}
               style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}
             >
-              <Text style={styles.previewProposalButtonText}>Review sample trades again</Text>
+              <Text style={styles.previewProposalButtonText}>{uiPreview ? "Review sample trades again" : "Check for new recommendations"}</Text>
             </Pressable>
           </View>
         )}
 
-        {!proposal.shadowMode && !sampleDeckComplete && (
+        {!proposal.shadowMode && !sampleDeckComplete && !realDeckComplete && (
           <View style={[styles.deckStage, { height: Math.max(420, viewportHeight - 150) }]}>
-            {uiPreview && backPreviewCard && (
+            {backPreviewCard && (
               <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardBack]}>
                 <PreviewCardFace proposal={backPreviewCard} />
               </Animated.View>
             )}
-            {uiPreview && nextPreviewCard && (
+            {nextPreviewCard && (
               <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: nextCardOpacity }]}>
                 <PreviewCardFace proposal={nextPreviewCard} />
               </Animated.View>
             )}
-            {uiPreview && previousPreviewCard && previousPreviewCard.id !== nextPreviewCard?.id && (
+            {previousPreviewCard && previousPreviewCard.id !== nextPreviewCard?.id && (
               <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: previousCardOpacity }]}>
                 <PreviewCardFace proposal={previousPreviewCard} />
               </Animated.View>
             )}
-            {uiPreview && transitionCard && (
+            {transitionCard && (
               <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardTransition]}>
                 <PreviewCardFace proposal={transitionCard} />
               </Animated.View>
             )}
             <Animated.View
-            {...(uiPreview ? cardPanResponder.panHandlers : {})}
+            {...((uiPreview || realRecommendations.length > 1) ? cardPanResponder.panHandlers : {})}
             style={[
               styles.proposalCard,
               {
@@ -1440,7 +1485,7 @@ export default function App() {
             <Pressable
               onLayout={(event) => setCardWidth(event.nativeEvent.layout.width)}
               onPress={(event) => {
-                if (!uiPreview || cardWidth === 0 || Date.now() < suppressCardTapUntil.current) return;
+                if ((!uiPreview && realRecommendations.length < 2) || cardWidth === 0 || Date.now() < suppressCardTapUntil.current) return;
                 if (event.nativeEvent.locationX >= cardWidth / 2) navigateSampleCard(1, 1);
                 else navigateSampleCard(1, -1);
               }}

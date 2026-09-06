@@ -1,7 +1,7 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.0
-**Last updated:** 2026-08-31
+**Current architecture version:** 3.1
+**Last updated:** 2026-09-05
 **Status:** Living source of truth
 
 This document explains the major application components, their responsibilities, and how information moves from research to recommendations, approval, broker execution, reconciliation, and performance evaluation.
@@ -21,12 +21,14 @@ flowchart LR
         risk["Calculate risk and position size"]
         rules["Apply portfolio rules"]
         recommend["Create exact buy recommendation"]
+        queue["Build bounded recommendation queue"]
 
         sources ==> normalize
         normalize ==> scan
         scan ==> recommend
         risk --> recommend
         rules --> recommend
+        recommend ==> queue
     end
 
     subgraph review ["2. Present and decide"]
@@ -79,7 +81,7 @@ flowchart LR
         ledger -.-> notifications
     end
 
-    recommend ==> api
+    queue ==> api
     buyDecision ==>|"Yes"| validate
     rejected -.-> ledger
     blocked -.-> mobile
@@ -114,7 +116,7 @@ flowchart LR
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Select licensed providers and cache model |
-| Recommendation engine | Produce ranked, exact proposed trades with rationale | In progress | Separate recommendation-engine workstream |
+| Recommendation engine | Produce ranked, exact proposed trades with rationale | Prototype | Validate the strategy and persist the queue |
 | Risk and position sizing | Calculate quantity, loss, concentration, and limits | Partial | Complete trade- and portfolio-risk inputs |
 | Safety validation | Recheck price, account, approval, limits, and What-If | Prototype | Preserve exact validation results |
 | Order service | Submit approved buys, protective stops, and separately approved ordinary sales | Prototype | Confirm durable broker identifiers |
@@ -131,7 +133,7 @@ flowchart LR
 ```text
 Research and market data
         → normalize and scan
-        → recommendation, risk, and sizing
+        → ranked recommendations, risk, sizing, and bounded queue
         → human buy decision
         → safety validation
         → buy plus protective stop
@@ -153,6 +155,13 @@ Research and market data
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 3.1 — 2026-09-05
+
+- Added a bounded queue between recommendation generation and the application API.
+- The prototype preloads up to three complete, independently expiring proposals so card-to-card browsing does not wait on market or research requests.
+- Kept browsing separate from decisions: navigation preserves the queue, while a successfully recorded approval or denial removes that proposal from the active stack.
+- Added volatility-tiered proposal lifetimes and a final strategy-capital check before broker submission.
 
 ### Version 3.0 — 2026-08-31
 

@@ -13,8 +13,10 @@ const appToken = process.env.TRADE_APPROVAL_APP_TOKEN ?? "";
 const whatIfEnabled = process.env.IBKR_ENABLE_WHAT_IF === "true";
 const paperSubmitEnabled = process.env.IBKR_ENABLE_PAPER_SUBMIT === "true";
 const maximumBidAskSpreadPercent = 0.25;
+const recommendationQueueLimit = 3;
 const signingSecret = process.env.APPROVAL_SIGNING_SECRET ?? "paper-development-only";
 const proposals = new Map();
+const proposalSnapshots = new Map();
 const auditLog = [];
 const previewPassed = new Set();
 const whatIfPassed = new Set();
@@ -106,6 +108,13 @@ function roundPrice(value) {
   return Math.round(value * 100) / 100;
 }
 
+export function recommendationTtlMs(candidate = {}) {
+  const atrPercent = Number(candidate.atrPercent14 ?? 0);
+  if (atrPercent >= 5) return 2 * 60 * 1000;
+  if (atrPercent >= 3) return 5 * 60 * 1000;
+  return 10 * 60 * 1000;
+}
+
 function seedProposal(snapshot = null, secResearch = null, candidate = null) {
   const referencePrice = snapshot?.quote?.last ?? snapshot?.quote?.close ?? 183.1;
   const bid = snapshot?.quote?.bid ?? referencePrice;
@@ -156,69 +165,99 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
     researchContext: summarizeSecResearch(secResearch),
     rationale: candidate?.checks?.filter((check) => check.passed).map((check) => check.label) ?? [],
     createdAt: now(),
-    expiresAt: now() + 5 * 60 * 1000,
+    expiresAt: now() + recommendationTtlMs(candidate),
     status: "pending",
     decisionId: null
   };
   proposals.set(proposal.id, proposal);
+  if (snapshot) proposalSnapshots.set(proposal.id, snapshot);
   auditLog.push({ id: randomUUID(), at: now(), event: "proposal_created", proposalId: proposal.id });
   return proposal;
 }
 
-async function nextRecommendation() {
-  const existing = [...proposals.values()].find(
-    (proposal) => proposal.status === "pending" && proposal.expiresAt > now(),
-  );
-  if (existing) {
-    const snapshot = await ibkrSnapshot(existing.symbol);
-    return { proposal: existing, broker: snapshot, strategy: strategySummary() };
-  }
+async function recommendationQueue() {
   if (strategy.status !== "active") throw new Error("strategy_paused");
   if (strategy.currentExposure >= strategy.capitalLimit) throw new Error("strategy_capital_limit");
+
+  const existing = [...proposals.values()]
+    .filter((proposal) => proposal.status === "pending" && proposal.expiresAt > now())
+    .sort((left, right) => left.createdAt - right.createdAt)
+    .slice(0, recommendationQueueLimit);
+  if (existing.length >= recommendationQueueLimit) {
+    const recommendations = await Promise.all(existing.map(async (proposal) => {
+      const broker = proposalSnapshots.get(proposal.id) ?? await ibkrSnapshot(proposal.symbol);
+      proposalSnapshots.set(proposal.id, broker);
+      return { proposal, broker };
+    }));
+    return {
+      recommendations,
+      strategy: strategySummary(),
+    };
+  }
+
   const scan = await scanDailyShadowSignals();
   if (!scan.ok) throw new Error(scan.error ?? "scanner_unavailable");
+  const excludedSymbols = new Set([
+    ...existing.map((proposal) => proposal.symbol),
+    ...strategy.completed.filter((item) => item.outcome === "submitted").map((item) => item.symbol),
+  ]);
   const candidates = (scan.evaluations ?? [])
-    .filter((candidate) => candidate.eligible)
+    .filter((candidate) => candidate.eligible && !excludedSymbols.has(candidate.symbol))
     .sort((left, right) => right.recommendationScore - left.recommendationScore);
-  if (candidates.length === 0) throw new Error("no_eligible_recommendation");
 
-  let candidate = null;
-  let snapshot = null;
-  let spreadPercent = null;
+  const created = [...existing];
   for (const evaluated of candidates) {
-    const evaluatedSnapshot = await ibkrSnapshot(evaluated.symbol);
-    const bid = evaluatedSnapshot?.quote?.bid;
-    const ask = evaluatedSnapshot?.quote?.ask;
+    if (created.length >= recommendationQueueLimit) break;
+    const snapshot = await ibkrSnapshot(evaluated.symbol);
+    const bid = snapshot?.quote?.bid;
+    const ask = snapshot?.quote?.ask;
     if (!(typeof bid === "number" && typeof ask === "number" && bid > 0 && ask >= bid)) continue;
     const midpoint = (bid + ask) / 2;
-    const evaluatedSpreadPercent = ((ask - bid) / midpoint) * 100;
-    if (evaluatedSpreadPercent > maximumBidAskSpreadPercent) continue;
-    candidate = evaluated;
-    snapshot = evaluatedSnapshot;
-    spreadPercent = evaluatedSpreadPercent;
-    break;
+    const spreadPercent = ((ask - bid) / midpoint) * 100;
+    if (spreadPercent > maximumBidAskSpreadPercent) continue;
+    const candidate = {
+      ...evaluated,
+      checks: [
+        ...evaluated.checks,
+        {
+          id: "spread",
+          label: `Bid/ask spread is no more than ${maximumBidAskSpreadPercent.toFixed(2)}%`,
+          passed: true,
+          actual: spreadPercent,
+        },
+      ],
+    };
+    const secResearch = await getSecCompanyResearch(candidate.symbol).catch(() => null);
+    const proposal = seedProposal(snapshot, secResearch, candidate);
+    if (proposal.quantity < 1) {
+      proposals.delete(proposal.id);
+      proposalSnapshots.delete(proposal.id);
+      continue;
+    }
+    created.push(proposal);
   }
-  if (!candidate || !snapshot) throw new Error("no_candidate_with_acceptable_spread");
-
-  candidate = {
-    ...candidate,
-    checks: [
-      ...candidate.checks,
-      {
-        id: "spread",
-        label: `Bid/ask spread is no more than ${maximumBidAskSpreadPercent.toFixed(2)}%`,
-        passed: true,
-        actual: spreadPercent,
-      },
-    ],
+  if (created.length === 0) throw new Error("no_candidate_with_acceptable_spread");
+  const recommendations = await Promise.all(created.map(async (proposal) => {
+    const broker = proposalSnapshots.get(proposal.id) ?? await ibkrSnapshot(proposal.symbol);
+    proposalSnapshots.set(proposal.id, broker);
+    return { proposal, broker };
+  }));
+  auditLog.push({
+    id: randomUUID(),
+    at: now(),
+    event: "recommendation_queue_built",
+    proposalIds: recommendations.map(({ proposal }) => proposal.id),
+  });
+  return {
+    recommendations,
+    strategy: strategySummary(),
   };
-  const secResearch = await getSecCompanyResearch(candidate.symbol).catch(() => null);
-  const proposal = seedProposal(snapshot, secResearch, candidate);
-  if (proposal.quantity < 1) {
-    proposals.delete(proposal.id);
-    throw new Error("insufficient_strategy_capital");
-  }
-  return { proposal, broker: snapshot, strategy: strategySummary() };
+}
+
+async function nextRecommendation() {
+  const queue = await recommendationQueue();
+  const first = queue.recommendations[0];
+  return { proposal: first.proposal, broker: first.broker, strategy: queue.strategy };
 }
 
 function json(response, status, body) {
@@ -433,6 +472,14 @@ async function route(request, response) {
     }
   }
 
+  if (request.method === "POST" && url.pathname === "/recommendations/queue") {
+    try {
+      return json(response, 201, await recommendationQueue());
+    } catch (error) {
+      return json(response, 503, { error: error.message ?? "recommendation_queue_unavailable" });
+    }
+  }
+
   if (request.method === "POST" && url.pathname === "/pause") {
     const input = await body(request);
     paused = Boolean(input.paused);
@@ -563,6 +610,7 @@ async function route(request, response) {
         buyOnly: receipt.side === "buy",
         quantityAllowed: Number.isInteger(receipt.quantity) && receipt.quantity >= 1 && receipt.quantity <= 5,
         notionalAllowed: receipt.quantity * receipt.limitPrice <= 1500,
+        strategyCapitalAllowed: strategy.currentExposure + receipt.quantity * receipt.limitPrice <= strategy.capitalLimit,
         priceWithinLimit: typeof referencePrice === "number" && referencePrice <= receipt.limitPrice,
         bracketValid:
           receipt.exitPolicy?.mode === "broker_bracket" &&

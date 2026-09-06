@@ -13,6 +13,8 @@ This build contains no live-broker credentials and no live-order route. Shadow o
 
 When the user explicitly requests a paper recommendation, the executable pilot is buy-only. Approval binds the exact entry, quantity, protective stop, and profit target. A successful paper submission uses an IBKR bracket so the attached stop and profit-taking sells can execute automatically after the buy fills. Dynamic and time-based exits are not implemented yet.
 
+The executable prototype preloads a bounded queue of up to three complete recommendations. Swiping or tapping browses without resolving a proposal; Approve or Deny removes it only after the service records the decision successfully. Each proposal expires independently after 10, 5, or 2 minutes based on its ATR volatility tier, and all broker and capital checks run again before submission.
+
 The scanner uses Alpaca's active U.S.-equity asset master and completed adjusted SIP daily bars to maintain a local SQLite cache of the 500 highest-dollar-volume eligible common-stock candidates. Its parameters—240 completed daily bars, $50 million minimum 20-day average dollar volume, close above its 50- and 200-day averages, 2–20% 20-day momentum, RSI from 50–72, ATR from 1–6%, and a maximum 0.25% final IBKR bid/ask spread—are **proposed test variables**, not validated trading rules. Share price is not used as a quality proxy. Verified market capitalization and sector classification remain future data requirements.
 
 ## Modular risk model

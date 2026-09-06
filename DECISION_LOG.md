@@ -31,6 +31,8 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-015 | Use one authoritative broker-readiness state in the UI | Confirmed | 2026-08-31 |
 | D-016 | Keep a versioned architecture source of truth | Confirmed | 2026-08-31 |
 | D-017 | Recommend buys only; require approval for ordinary profit-taking | Confirmed | 2026-08-31 |
+| D-018 | Support an explicit in-app light/dark appearance control | Confirmed | 2026-08-31 |
+| D-019 | Preload a bounded recommendation queue | Confirmed | 2026-09-05 |
 
 ---
 
@@ -202,6 +204,14 @@ This is the living record of product, design, trading-safety, data, and technica
 **Decision:** Place a compact Phosphor sun/moon toggle beside the broker-status pill. The selected appearance changes the full interface through shared semantic color tokens, including cards, sheets, controls, and the system status bar.
 **Reason:** Appearance is a user preference and must not alter or obscure broker connectivity, risk, or order state. A separate icon control keeps that preference distinct from the execution-status pill.
 
+### D-019 — Preload a bounded recommendation queue
+
+**Status:** Confirmed
+**Decision:** The recommendation service returns up to three ranked, fully prepared proposals. Each proposal has its own exact order terms and expiration. Swiping or tapping only browses this queue; a proposal is removed only after its approval or denial is successfully recorded.
+**Reason:** The next card should be immediately readable without a blank or loading flash, while financial decisions must remain explicit and recoverable. A bounded queue also limits stale quotes and unused approvals.
+**Initial implementation:** Eligible cached Alpaca candidates are ranked, then checked one-by-one against a fresh IBKR quote and the 0.25% spread limit. Proposal lifetimes are 10 minutes below 3% ATR, 5 minutes from 3% to below 5% ATR, and 2 minutes at 5% ATR or above. Submission still rechecks price, account, receipt, bracket terms, notional, and remaining strategy capital.
+**Prototype limitation:** The queue and decision state are held in service memory. A restart discards unresolved queue state; durable persistence and broker reconciliation remain required before production use.
+
 ---
 
 ## Open decisions
@@ -247,6 +257,12 @@ This is the living record of product, design, trading-safety, data, and technica
 - Established `ARCHITECTURE.md` as the versioned architecture source of truth and added continuity instructions for future tasks.
 - Reorganized architecture version 3.0 as a time-ordered lifecycle and reconciled the latest approved exit policy.
 - Added a shared dark appearance and a Phosphor sun/moon toggle beside broker status.
+
+### 2026-09-05
+
+- Confirmed a bounded recommendation queue that preloads up to three complete cards.
+- Kept browsing non-destructive and tied removal to a successfully recorded decision.
+- Made proposal expiration volatility-tiered and documented the in-memory prototype limitation.
 # 2026-09-04 — Replace the minimum share-price filter
 
 **Decision:** Remove the arbitrary minimum share-price rule. Require at least 240 completed daily bars and $50 million in 20-day average dollar volume during scanning. Before creating a recommendation, require a current bid and ask with a spread no wider than 0.25%; try the next ranked eligible candidate when the highest-ranked candidate fails this execution check.
