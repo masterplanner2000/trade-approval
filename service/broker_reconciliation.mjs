@@ -26,7 +26,10 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
   const matches = new Map();
   for (const proposal of proposals) {
     const decision = ledger.getDecisionForProposal(proposal.id);
-    if (decision) matches.set(decision.id.slice(0, 12), { proposal, decision });
+    if (decision) {
+      const prefix = decision.id.slice(0, 12);
+      matches.set(prefix, matches.has(prefix) ? null : { proposal, decision });
+    }
   }
   const observations = [
     ...(snapshot.openOrders ?? []).map((payload) => ({ payload, status: payload.status ?? "Open" })),
@@ -61,6 +64,17 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
         response: { reconciled: true, brokerObservation: observation.payload },
       });
     }
+    ledger.appendEvent({
+      eventKey: observation.payload.executionId
+        ? `ibkr:execution:${observation.payload.executionId}`
+        : `ibkr:order:${snapshot.account}:${brokerOrderId}:${observation.status}`,
+      proposalId: match.proposal.id,
+      decisionId: match.decision.id,
+      submissionAttemptId: attempt?.id ?? null,
+      eventType: observation.payload.executionId ? "broker_execution_reconciled" : "broker_order_reconciled",
+      occurredAt: snapshot.capturedAt,
+      payload: observation.payload,
+    });
     linked.push({ proposalId: match.proposal.id, decisionId: match.decision.id, brokerOrderId: String(brokerOrderId), role, status: observation.status });
   }
   return linked;
@@ -70,13 +84,10 @@ export function authoritativePortfolio(snapshot, { maximumAgeMs = 30_000, now = 
   const requiredValues = {
     netLiquidation: summaryNumber(snapshot, "NetLiquidation"),
     totalCash: summaryNumber(snapshot, "TotalCashValue"),
-    settledCash: summaryNumber(snapshot, "SettledCash"),
     availableFunds: summaryNumber(snapshot, "AvailableFunds"),
     buyingPower: summaryNumber(snapshot, "BuyingPower"),
     grossPositionValue: summaryNumber(snapshot, "GrossPositionValue"),
     maintenanceMargin: summaryNumber(snapshot, "MaintMarginReq"),
-    unrealizedPnl: summaryNumber(snapshot, "UnrealizedPnL"),
-    realizedPnl: summaryNumber(snapshot, "RealizedPnL"),
   };
   const missing = Object.entries(requiredValues).filter(([, value]) => value === null).map(([key]) => key);
   if (!snapshot.complete) missing.push("completeBrokerSnapshot");
@@ -91,6 +102,9 @@ export function authoritativePortfolio(snapshot, { maximumAgeMs = 30_000, now = 
     accountId: snapshot.account ?? null,
     asOf: snapshot.capturedAt ?? null,
     ...requiredValues,
+    settledCash: summaryNumber(snapshot, "SettledCash"),
+    unrealizedPnl: summaryNumber(snapshot, "UnrealizedPnL"),
+    realizedPnl: summaryNumber(snapshot, "RealizedPnL"),
     positions: Array.isArray(snapshot.positions) ? snapshot.positions : [],
     openOrders: Array.isArray(snapshot.openOrders) ? snapshot.openOrders : [],
     executions: Array.isArray(snapshot.executions) ? snapshot.executions : [],

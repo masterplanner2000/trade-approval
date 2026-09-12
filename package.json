@@ -18,9 +18,14 @@
     "test:reconciliation": "node --test service/broker_reconciliation.test.mjs",
     "test:sizing": "node --test service/portfolio_sizing.test.mjs service/risk_policy.test.mjs",
     "test:risk": ".venv-ibkr-10.49/bin/python -m unittest discover -s service -p 'test_*.py' -v",
+    "test:node": "node --test service/*.test.mjs",
+    "test:python": "node scripts/run-python-tests.mjs",
+    "test": "npm run typecheck && npm run test:node && npm run test:python",
+    "qa": "npm test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@shopify/restyle": "^2.4.5",
     "expo": "^57.0.20",
     "expo-constants": "~57.0.17",

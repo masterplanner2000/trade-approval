@@ -460,6 +460,89 @@ export class TradingLedger {
     });
   }
 
+  listTrades() {
+    const executionPrice = (order) => Number(order?.order?.averagePrice ?? order?.order?.price ?? order?.order?.averageFillPrice ?? 0);
+    const executionQuantity = (order, fallback) => Number(order?.order?.cumulativeQuantity ?? order?.order?.quantity ?? order?.order?.filled ?? fallback ?? 0);
+    const commission = (order) => {
+      const value = order?.order?.commission;
+      return typeof value === "number" && Number.isFinite(value) ? value : null;
+    };
+    return this.listProposals().flatMap((proposal) => {
+      const orders = this.listBrokerOrders(proposal.id);
+      const entry = orders.find((order) => order.role === "entry" && order.status.toLowerCase() === "filled");
+      if (!entry) return [];
+      const exit = orders.find((order) =>
+        ["exit", "protective_stop", "profit_target"].includes(order.role)
+        && order.status.toLowerCase() === "filled"
+      );
+      const quantity = executionQuantity(entry, proposal.terms?.quantity);
+      const entryPrice = executionPrice(entry) || Number(proposal.terms?.limitPrice ?? 0);
+      const exitPrice = exit ? executionPrice(exit) : null;
+      const entryFee = commission(entry);
+      const exitFee = commission(exit);
+      const feesComplete = exit != null && entryFee != null && exitFee != null;
+      const grossProfit = exitPrice == null ? null : Math.round(((exitPrice - entryPrice) * quantity) * 100) / 100;
+      const netProfit = grossProfit == null || !feesComplete ? null : Math.round((grossProfit - entryFee - exitFee) * 100) / 100;
+      return [{
+        id: proposal.id,
+        symbol: proposal.symbol,
+        quantity,
+        status: exit ? "closed" : "open",
+        entryPrice,
+        exitPrice,
+        entryValue: Math.round(entryPrice * quantity * 100) / 100,
+        exitValue: exitPrice == null ? null : Math.round(exitPrice * quantity * 100) / 100,
+        entryFee,
+        exitFee,
+        feesComplete,
+        grossProfit,
+        netProfit,
+        exitReason: exit?.role ?? null,
+        openedAt: entry.lastSeenAt,
+        closedAt: exit?.lastSeenAt ?? null,
+        protectiveStopPrice: proposal.terms?.stopPrice ?? null,
+        profitTargetPrice: proposal.terms?.targetPrice ?? null,
+        dataState: "ledger",
+      }];
+    }).sort((left, right) => (right.closedAt ?? right.openedAt) - (left.closedAt ?? left.openedAt));
+  }
+
+  strategyBudget(capitalLimit) {
+    let invested = 0;
+    let reserved = 0;
+    for (const proposal of this.listProposals()) {
+      const orders = this.listBrokerOrders(proposal.id);
+      const exitFilled = orders.some((order) =>
+        ["exit", "protective_stop", "profit_target"].includes(order.role)
+        && order.status.toLowerCase() === "filled"
+      );
+      if (exitFilled) continue;
+      const entry = orders.find((order) => order.role === "entry" && order.status.toLowerCase() === "filled");
+      if (entry) {
+        const quantity = Number(entry.order?.cumulativeQuantity ?? entry.order?.quantity ?? entry.order?.filled ?? proposal.terms?.quantity ?? 0);
+        const price = Number(entry.order?.averagePrice ?? entry.order?.price ?? entry.order?.averageFillPrice ?? proposal.terms?.limitPrice ?? 0);
+        invested += quantity * price;
+        continue;
+      }
+      const decision = this.getDecisionForProposal(proposal.id);
+      const attempt = decision ? this.listSubmissionAttemptsForDecision(decision.id)[0] : null;
+      if (attempt && ["started", "submitted", "unknown"].includes(attempt.status)) {
+        reserved += Number(proposal.terms?.quantity ?? 0) * Number(proposal.terms?.limitPrice ?? 0);
+      }
+    }
+    invested = Math.round(invested * 100) / 100;
+    reserved = Math.round(reserved * 100) / 100;
+    const deployed = Math.round((invested + reserved) * 100) / 100;
+    return {
+      capitalLimit,
+      invested,
+      reserved,
+      deployed,
+      available: Math.max(0, Math.round((capitalLimit - deployed) * 100) / 100),
+      overAllocated: deployed > capitalLimit,
+    };
+  }
+
   close() {
     this.database.close();
   }

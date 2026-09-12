@@ -29,6 +29,17 @@ test("authoritative portfolio fails closed when stale or incomplete", () => {
   assert.ok(stale.missing.includes("freshSnapshot"));
 });
 
+test("optional PnL and settled-cash fields do not invalidate otherwise complete broker evidence", () => {
+  const input = snapshot();
+  delete input.summary.SettledCash;
+  delete input.summary.UnrealizedPnL;
+  delete input.summary.RealizedPnL;
+  const portfolio = authoritativePortfolio(input, { now: 20_000 });
+  assert.equal(portfolio.status, "COMPLETE");
+  assert.equal(portfolio.settledCash, null);
+  assert.equal(portfolio.realizedPnl, null);
+});
+
 test("reconciliation is durable, idempotent by broker identity, and detects external activity", () => {
   const store = new BrokerReconciliationStore(":memory:");
   const input = snapshot({
@@ -60,5 +71,19 @@ test("broker evidence links to the ledger and resolves an unknown submission", (
   assert.equal(linked.length, 1);
   assert.equal(ledger.getSubmissionAttempt("attempt-1").status, "submitted");
   assert.equal(ledger.listBrokerOrders("proposal-1")[0].brokerOrderId, "100");
+  assert.ok(ledger.listEvents("proposal-1").some((event) => event.eventType === "broker_order_reconciled"));
+  ledger.close();
+});
+
+test("a colliding truncated decision reference never guesses which proposal owns an order", () => {
+  const ledger = new TradingLedger(":memory:");
+  for (const suffix of ["one", "two"]) {
+    ledger.recordProposal({ id: `proposal-${suffix}`, createdAt: 1_000, environment: "paper", broker: "IBKR", accountId: "DUR…217", symbol: "NVDA", side: "buy", terms: { quantity: 1 } });
+    ledger.recordDecision({ id: `abcdef123456-${suffix}`, proposalId: `proposal-${suffix}`, decision: "approved", decidedAt: 2_000 });
+  }
+  const linked = reconcileSnapshotToLedger(snapshot({ openOrders: [{ orderId: 10, symbol: "NVDA", orderRef: "trade-approval-abcdef123456-entry" }] }), ledger);
+  assert.deepEqual(linked, []);
+  assert.deepEqual(ledger.listBrokerOrders("proposal-one"), []);
+  assert.deepEqual(ledger.listBrokerOrders("proposal-two"), []);
   ledger.close();
 });

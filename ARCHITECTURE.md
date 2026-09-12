@@ -1,7 +1,7 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.8
-**Last updated:** 2026-09-06
+**Current architecture version:** 3.18
+**Last updated:** 2026-09-12
 **Status:** Living source of truth
 
 This document explains the major application components, their responsibilities, and how information moves from research to recommendations, approval, broker execution, reconciliation, and performance evaluation.
@@ -94,6 +94,8 @@ flowchart LR
     reconcile -.-> ledger
     activity -.-> mobile
     notifications -.-> mobile
+    stockNews["Benzinga headlines via Alpaca"] --> newsContext["Bounded stock-news context cache"]
+    newsContext --> api
     performance -.->|"Validated feedback"| recommend
 
     style discover fill:#E8F1FF,stroke:#82AFFF
@@ -115,18 +117,77 @@ flowchart LR
 | Secure application API | Coordinate the mobile client and local services | Prototype | Ledger-backed lifecycle and read APIs integrated; add clearer service health |
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
-| Market and research layer | Normalize market, filing, news, and event data | Partial | Select licensed providers and cache model |
+| Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | Add intraday inputs and portfolio eligibility |
 | Risk and position sizing | Calculate quantity, loss, concentration, and limits | Partial | Pure sizing model implemented; connect reconciled IBKR inputs |
 | Safety validation | Recheck price, account, approval, limits, and What-If | Prototype | Preserve exact validation results |
 | Order service | Submit approved buys, protective stops, and separately approved ordinary sales | Prototype | Confirm durable broker identifiers |
-| Broker reconciliation | Match app state to IBKR orders, fills, and positions | Next | Build first |
-| Durable trading ledger | Persist proposals, decisions, submission attempts, broker orders, events, fills, and errors | Partial | Core proposal-to-submission routes integrated; add reconciliation and Activity reads |
-| Activity and Positions | Show pending, filled, protected, and closed trades | Partial | Ledger-backed views added; connect reconciled IBKR state |
-| Performance evaluation | Measure strategy and execution outcomes | Planned | Build after reconciled trade history exists |
+| Broker reconciliation | Match app state to IBKR orders, fills, positions, and commission reports | Partial | Complete partial-fill, cancellation, and missing-account-summary handling |
+| Durable trading ledger | Persist proposals, decisions, submission attempts, broker orders, executions, fees, and lifecycle events | Partial | Closed-trade and recycled-budget read models added; complete historical fee coverage |
+| Activity and Positions | Show pending orders as trades, open positions, and closed results | Partial | Consolidated trade views added; add current-price unrealized P/L |
+| Performance evaluation | Measure strategy and execution outcomes | Partial | Closed-trade net/gross records available; add benchmark and aggregate metrics |
 | Notifications | Deliver proposals, fills, exits, and safety alerts | Planned | Add after reliable event states exist |
 | Web app | Cross-platform account and review experience | Planned | Reuse API after mobile workflow is reliable |
 | Production operations | Authentication, secrets, hosting, monitoring, recovery | Planned | Required before external users or live trading |
+
+## Stock news context
+
+The stock research API now includes authenticated `GET /research/news?symbol=...`, implemented in `service/stock_news.mjs`. It requests up to 50 Alpaca/Benzinga headline records from the past seven days, validates exact ticker matches, source/time/link fields, deduplicates corrected articles and returns up to ten. A bounded 60-second memory cache coalesces requests; rate limits, access failures, empty and partial results remain distinct. No article bodies or secrets enter client responses or durable storage. Provider latency remains explicitly unverified.
+
+The existing news sheet supports symbol search, source links and publication/update times, with loading, retry, partial and unavailable states. Access it from the navigation menu or the trade-rationale sheet. It refreshes while open; Preview Mode performs no news requests. News is independently fetched context and cannot change proposal terms, ranking, risk or order behavior. A general multi-publisher feed, event classification and news-driven candidate discovery remain future work.
+
+## Proposed crypto workstream — design review required
+
+[CRYPTO_MVP_ASSESSMENT.md](./CRYPTO_MVP_ASSESSMENT.md) evaluates the next path: exchange-only paper MVP, separate software-correctness and market-economics tests, and deferred 0x observation/wallet work. Public production read-only data and unattended session behavior are proposed scope changes awaiting review; the sandbox-only diagram below remains the baseline. No signing component is proposed for the MVP.
+
+The stock diagram and runtime remain unchanged. [CRYPTO_DESIGN.md](./CRYPTO_DESIGN.md) specifies a separate paper-only inventory-arbitrage module. The diagram below is the authoritative proposed crypto data flow; none of these new runtime components is implemented. Design review is required before code changes or dependency installation. A later design approval is distinct from approval to start a bounded paper strategy session.
+
+```mermaid
+flowchart LR
+    catalog["Proposed token catalog or recorded reference data"] --> discovery["Token discovery and identity mapping"]
+    discovery --> ui
+    feeds["Coinbase Exchange and Gemini sandbox feeds"] --> adapters["Read-only normalized spot adapters"]
+    adapters --> collector["Depth collector and integrity gates"]
+    collector --> engine["Deterministic net opportunity engine"]
+    engine --> risk["Crypto inventory risk and atomic reservations"]
+    ui["Expo mobile and web Crypto context"] --> api["Private authenticated crypto API"]
+    api --> sessions["Immutable bounded session approval"]
+    sessions --> risk
+    api --> controls["Durable Pause and crypto Emergency Stop"]
+    controls --> coordinator["Fenced paired paper coordinator"]
+    risk --> coordinator
+    coordinator --> simulator["Two simulated spot exchanges"]
+    simulator --> journal[("Authoritative simulator account journal")]
+    journal --> reconcile["Crypto reconciliation worker"]
+    reconcile --> risk
+    collector -.-> ledger[("Separate durable crypto ledger")]
+    engine -.-> ledger
+    sessions -.-> ledger
+    controls -.-> ledger
+    coordinator -.-> ledger
+    reconcile --> ledger
+    ledger --> views["Crypto read models and notification outbox"]
+    views --> api
+    api --> ui
+```
+
+| Proposed component | Responsibility | Status |
+|---|---|---|
+| Token discovery catalog | Broad token browsing and identity mapping; indicative prices never authorize arbitrage | Proposed CoinGecko/reference source; recorded fixtures initially under existing scope |
+| Sandbox adapters and collector | Normalize spot rules, timestamps, depth and connection integrity | Design only; endpoints documented, connectivity untested |
+| Net opportunity engine | Depth execution costs, fees, latency/rebalance/buffer allowances and strict USD/bps gates | Specification and unit vectors proposed |
+| Crypto risk/session controller | Prefunded inventories, bounded approval, persistent limits and kill latch | Design only |
+| Paired simulator | IOC legs, partial/one-leg fills, uncertain outcomes and capped paper response | Design only |
+| Crypto ledger/reconciliation | Separate SQLite stores for app intent and simulator authority; exact accounting and differences | Schema/migration and fixture plans proposed |
+| Crypto frontend/API/outbox | Stocks/Crypto context, approval, monitoring, inventory, P&L, exceptions and health | Interface specification only |
+
+Share unchanged design tokens and UI primitives. Reuse SQLite transaction/idempotency and evidence-first reconciliation principles, not equity schemas or code paths. Do not import stock sizing, market-hours logic, receipt formats, bracket roles, IBKR/Alpaca adapters or numeric account assumptions into crypto. Crypto has a separate process, database, API/auth boundary, simulated capital and strategy state. Its global kill switch governs all crypto sessions and does not change stock controls.
+
+Crypto has no IBKR integration. Broad catalog coverage and executable sandbox coverage are separate: only fresh venue-specific books for mutually supported spot pairs enter the arbitrage engine. A current public catalog connection is still a proposal; the existing sandbox/recorded-data constraint is not expanded by this diagram.
+
+Market provenance and account authority are independent: sandbox streaming or explicitly labeled recordings feed simulated exchange accounts. Simulated order evidence is never represented as a remote exchange fill. Network adapters cannot submit orders in this MVP; no live endpoints, production credentials or transfer capability are included. Missing or stale market/account data fails closed.
+
+Repository review also identified existing documentation drift: D-017 describes separately approved ordinary profit taking, while current stock code/tests submit an automatic target bracket. Some stock status rows lag reconciliation implementation. These are existing findings, not stock behavior changes or claims that the crypto work repairs them.
 
 ## Core lifecycle
 
@@ -144,6 +205,12 @@ Research and market data
         → activity, notifications, and performance
 ```
 
+## Trade accounting and strategy budget
+
+IBKR reconciliation is the broker-evidence boundary. A submitted entry reserves its exact approved notional; a confirmed entry fill converts the reservation to invested capital; and a confirmed target, stop, or separately approved exit fill closes the trade and releases that capital. The recommendation engine reads the reconciled positions for symbols previously submitted by the strategy plus ledger reservations, rather than a permanently increasing process counter. When reconciliation is unavailable, it uses the more conservative of the prior exposure and ledger-derived exposure.
+
+Closed-trade accounting matches the application entry and exit through the immutable proposal and broker order references. Gross profit is exit proceeds minus entry cost. Net profit is displayed only when commission reports for both sides are present; otherwise the interface labels the result as gross with fees pending. Historical or external positions that cannot be matched uniquely remain visible through reconciliation but are not silently attributed to the strategy.
+
 ## Versioning rules
 
 1. Update this document when a component, boundary, data flow, or integration materially changes.
@@ -151,10 +218,70 @@ Research and market data
 3. Increment the major version when responsibilities or core data flow change.
 4. Update the component-status table whenever work begins, completes, or changes priority.
 5. Preserve a short change-history entry rather than silently replacing the architecture.
+
+### Version 3.17 — 2026-09-12
+
+- Added a broker-free CI boundary that runs static, Node and Python safety tests without credentials or network execution authority.
+- Added dependency and secret checks plus a versioned QA/release matrix.
+- Kept real IBKR Paper smoke testing outside the default quality gate; it remains a separately gated future layer.
+
+### Version 3.18 — 2026-09-12
+
+- Added a deterministic paper-broker test authority with no sockets, credentials or production runtime dependency.
+- Modeled scheduled evidence, partial and full fills, rejection, cancellation, disconnection, duplicate callbacks, commissions and external/manual orders.
+- Kept it inside the QA boundary; production service injection and lifecycle exception responses remain the next integration step.
 6. Record the corresponding product or technical decision in `DECISION_LOG.md` when appropriate.
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 3.16 — 2026-09-11
+
+- Added ledger-derived reserved, invested, available, and released strategy capital.
+- Added closed-trade matching with gross profit and fee-completeness-gated net profit.
+- Added IBKR commission-report capture and trade-oriented Activity reads.
+- Classified settled cash and account-level realized/unrealized P/L as optional reporting fields; missing core balances, positions, orders, executions, freshness, or paper-account evidence still fails closed.
+- Preserved incomplete reconciliation as a fail-closed state; unmatched historical/external activity is not guessed.
+
+### Version 3.15 — 2026-09-11
+
+- Integrated Benzinga stock headlines through existing server-side Alpaca access and the existing mobile news sheet.
+- Added bounded cache, provenance, symbol search, safe links and explicit incomplete/unavailable states; no scanner or order-rule changes.
+
+### Version 3.14 — 2026-09-10
+
+- Linked the MVP options, wallet UX/security assessment and staged evaluation recommendation.
+- Kept public market-data expansion, unattended control semantics and 0x observation explicitly pending; no runtime or stock architecture changes.
+
+### Version 3.13 — 2026-09-07
+
+- Clarified no IBKR dependency for crypto and separated broad token discovery from executable exchange pricing.
+- Added a proposed catalog/reference-data path, with current public data activation still subject to scope review.
+
+### Version 3.12 — 2026-09-07
+
+- Added the proposed isolated paper crypto component/data flow and review gate.
+- Distinguished sandbox market data from authoritative simulated account evidence.
+- Documented safe UI/infrastructure reuse and forbidden equity coupling.
+- Linked the contract, threat model, schema, deterministic calculation and staged acceptance design; no crypto runtime is implemented.
+
+### Version 3.11 — 2026-09-06
+
+- Added explicit no-card states for scanning, no qualifying setups, after-hours, weekends, paused operation, and broker disconnection.
+- Put recommendation generation on standby outside regular U.S. weekday market hours while preserving broker connection visibility.
+- Recorded an authoritative exchange calendar as a production requirement for holidays and exceptional sessions.
+
+### Version 3.10 — 2026-09-06
+
+- Added one app-wide Preview Mode that swaps realistic fixtures at the data boundary while reusing operational recommendation, Activity, Positions, and Settings components.
+- Made Preview Mode visibly inert with no broker-history requests or persistent policy writes.
+- Replaced native alert navigation with an animated left-side navigation panel.
+
+### Version 3.9 — 2026-09-06
+
+- Standardized submitted and reconciled records on IBKR permanent order identity when available.
+- Added idempotent ledger events for reconciled orders and executions.
+- Made truncated decision-reference collisions fail closed instead of guessing order ownership.
 
 ### Version 3.8 — 2026-09-06
 

@@ -1,0 +1,2 @@
+# Used only by broker-free unit tests and CI. Runtime installation remains local.
+ibapi==9.81.1.post1

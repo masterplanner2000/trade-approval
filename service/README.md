@@ -20,6 +20,12 @@ Set `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` in the ignored `.env.local` file
 
 `GET /shadow/signals` returns the durable shadow ledger. Shadow records always include `orderSubmissionAllowed: false`; they are not accepted by the approval or paper-order routes.
 
+## Stock news context
+
+`GET /research/news?symbol=AAPL` provides stock-specific Benzinga headlines through Alpaca using the existing server-side `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY`. Up to ten normalized headlines are displayed from one page of up to 50 records covering seven days. Publication/update times and original links are preserved; full article bodies are not requested. Pagination or rejected records produce an explicit partial result, not a claim of complete coverage. Feed latency is unverified.
+
+The route uses existing app authentication. A bounded 60-second in-memory cache, concurrent-request coalescing, an eight-request concurrency cap, time/size limits and Retry-After handling protect the service. API secrets and raw upstream errors never enter responses. Preview Mode makes no news requests. News cannot affect scan eligibility, proposal prices, approval or submission. Run `node --test service/stock_news.test.mjs` for fixture tests.
+
 ## SEC EDGAR research source
 
 The service uses Alpaca for bulk historical research, IBKR for current quote/account/execution data, and the official SEC EDGAR APIs for recent 10-K, 10-Q and 8-K filing metadata plus standardized XBRL revenue and net-income facts. Set `SEC_USER_AGENT` to a descriptive application name and contact email before enabling requests. SEC research is cached for 15 minutes, attached to proposals as context, and is explicitly marked `researchOnly`; it does not affect eligibility, sizing, prices, approvals, or order submission.
@@ -55,7 +61,7 @@ Endpoints:
 - `POST /proposals/:id/decision` with `{ "decision": "approved" }` or `denied`
 - `POST /orders/preview` with a signed approval token; validates and previews but cannot submit
 - `POST /orders/what-if` runs IBKR's broker-side pre-trade check only when explicitly enabled; it forces `whatIf=true`. IBKR requires `transmit=true` for What-If validation, but does not execute What-If orders.
-- `POST /orders/submit-paper` submits only after preview, What-If, a fresh quote/account check, and an unused approval. It accepts only an allowed strategy symbol in the IBKR paper account, a BUY of 1–5 whole shares, and at most $1,500 notional. The adapter submits a coordinated bracket: DAY limit buy, attached GTC profit-taking limit sell, and attached GTC protective stop sell. No standalone or short sell recommendation is accepted.
+- `POST /orders/submit-paper` submits only after a signed recommendation approval, preview, What-If, a fresh quote/account check, and an unused approval. The symbol must match the current server-approved Alpaca-universe proposal. It accepts only a BUY of 1–5 whole shares and at most $1,500 notional in the IBKR paper account. The adapter submits a coordinated bracket: DAY limit buy, attached GTC profit-taking limit sell, and attached GTC protective stop sell. No standalone, arbitrary-symbol, or short sell order is accepted.
 - `POST /pause` with `{ "paused": true }`
 
 The adapter accepts only verified receipts whose `environment` is `paper`, refreshes account and quote data, and rejects altered, expired, duplicate, over-limit, or invalid-bracket orders.

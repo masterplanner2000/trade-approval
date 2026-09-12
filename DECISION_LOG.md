@@ -1,5 +1,7 @@
 # Trade Approval — Decision Log
 
+**Log revision:** 2026-09-12.2 · **Corresponding architecture:** 3.18
+
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
 ## How to use this log
@@ -39,10 +41,31 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-023 | Position sizing must be deterministic, portfolio-aware, and explainable | Confirmed | 2026-09-06 |
 | D-024 | Denial triggers recommendation recalculation without changing cash | Confirmed | 2026-09-06 |
 | D-025 | Adaptive sizing operates only inside editable user limits | Confirmed | 2026-09-06 |
+| D-026 | Treat go-to-market validation as a separate product workstream | Confirmed direction | 2026-09-06 |
+| D-027 | Build portfolio state only from complete broker reconciliation snapshots | Confirmed | 2026-09-06 |
+| D-028 | Preview Mode mirrors the complete product structure | Confirmed | 2026-09-06 |
+| D-029 | A missing recommendation must have an explicit scanner state | Confirmed | 2026-09-06 |
+| D-030 | Separate paper-only crypto scope and design-before-code gate | Confirmed user constraint | 2026-09-07 |
+| D-031 | Crypto sandbox feeds, simulated authorities and isolated storage | Proposed for review | 2026-09-07 |
+| D-032 | Bounded crypto session approval and durable safety controls | Required model; detailed semantics proposed | 2026-09-07 |
+| D-033 | Crypto uses exchange APIs and separate broad token discovery, with no IBKR dependency | No IBKR confirmed; catalog provider proposed | 2026-09-07 |
+| D-034 | Exchange-first paper MVP; defer wallet signing and separately assess market economics | Recommendation for review | 2026-09-10 |
+| D-035 | Stock news context through Alpaca/Benzinga | Implemented MVP; provider chosen for requested integration | 2026-09-11 |
+| D-036 | Recycle strategy capital from broker-confirmed trade lifecycle and report profit conservatively | Confirmed and foundation implemented | 2026-09-11 |
+| D-037 | Separate broker-free CI from explicitly gated IBKR Paper verification | Confirmed; CI foundation implemented | 2026-09-12 |
 
 ---
 
 ## Detailed decisions
+
+### D-037 — Separate broker-free CI from IBKR Paper verification
+
+**Status:** Confirmed; CI foundation implemented.
+
+**Decision:** Every push and pull request runs a clean, deterministic, credential-free quality gate. Tests that connect to TWS or exercise real IBKR Paper behavior are separately named and gated and can never target a live account.
+
+**Reason:** Routine verification must be repeatable and safe, while broker integration still needs direct evidence under tightly controlled conditions. Combining the two would make CI unreliable and could accidentally grant order authority to ordinary code checks.
+**Evidence:** `npm test`, `.github/workflows/quality.yml`, and `QA.md`. Deterministic broker simulation, mobile automation, paper smoke testing and operational resilience remain subsequent milestones.
 
 ### D-001 — Human approval is required before every order
 
@@ -280,11 +303,38 @@ This is the living record of product, design, trading-safety, data, and technica
 **Decision:** Collect balances, positions, open orders, and executions together in a dedicated read-only IBKR Paper reconciliation request. Persist the source snapshot and broker activity before exposing the derived portfolio view.
 **Reason:** Independently timed balance, position, and order requests can describe different account states. Sizing and safety checks require a traceable snapshot with an explicit capture time and completeness state.
 **Manual activity:** Classify stable broker identities and order references as application-linked or external. External activity must be surfaced and incorporated rather than silently overwritten by the application ledger.
-**Safety boundary:** Missing required values, partial callbacks, a non-paper environment, or stale data produce `INCOMPLETE`. Broker evidence may resolve an unknown submission only when its application order reference matches an exact durable decision; reconciliation never retransmits an order.
+**Safety boundary:** Missing core balances, positions, orders, executions, partial callbacks, a non-paper environment, or stale data produce `INCOMPLETE`. Settled cash and account-level realized/unrealized P/L are optional reporting fields because IBKR Paper may omit them; their absence remains explicit and net trade P/L still requires execution-level fees. Broker evidence may resolve an unknown submission only when its application order reference matches a unique durable decision; reconciliation never retransmits an order. A colliding shortened reference is left unresolved rather than guessed, and permanent IBKR order identity is preferred when available.
+
+### D-028 — Preview Mode mirrors the complete product structure
+
+**Status:** Confirmed and implemented.
+**Decision:** Maintain one explicit app-wide Preview Mode that renders the same recommendation, Activity, Positions, Settings, navigation, appearance, and interaction components as the operational app while substituting realistic fixture data at the data boundary.
+**Reason:** Design review should cover complete and believable states without requiring TWS, market hours, accumulated trades, or one-off preview screens that can drift from production UI.
+**Interaction:** Replace the hamburger's native alert modal with an animated left-side navigation panel that provides navigation and an explicit enter/exit Preview Mode action.
+**Safety boundary:** Preview Mode replaces the broker-status pill label rather than adding a layout-shifting banner, performs no broker actions, does not fetch broker history, and saves setting changes only for the current preview session. Recommendation cards measure their remaining vertical space and show as many rationale lines as fit while keeping actions inside the viewport; tapping the adaptive truncation opens the complete text and key risks in the existing sheet.
+
+### D-029 — A missing recommendation must have an explicit scanner state
+
+**Status:** Confirmed and implemented for regular weekday hours and weekends.
+**Decision:** When no card is visible, distinguish broker checking/offline, scanner paused, actively scanning, no qualifying setup, after-hours, and weekend standby in both the status pill and empty-state copy.
+**Reason:** A connected broker does not imply that a recommendation is loading or that a qualifying opportunity exists. Users need to understand whether the system is working, intentionally waiting, or unavailable.
+**Session boundary:** Do not request new recommendations outside regular U.S. market hours. Explain when scanning resumes. Exchange holidays and exceptional market schedules require an authoritative calendar before production use.
+
+### D-036 — Recycle strategy capital and report closed-trade profit conservatively
+
+**Status:** Confirmed and foundation implemented.
+**Decision:** Replace the permanently increasing allocation counter with a ledger-derived strategy budget. Submitted entries reserve approved notional, confirmed fills become invested capital, and confirmed target, stop, or ordinary exit fills release capital for new recommendations.
+**Profit reporting:** Match buys and sells through immutable application proposals and broker order references. Show gross profit when an exit is confirmed. Label profit as net only when commissions for both entry and exit are present; missing fees must remain explicit rather than estimated or treated as zero.
+**Interface:** Present one understandable trade lifecycle instead of exposing each bracket leg as a primary row. Use plain-language order states and separate open trades, closed trades, and unresolved/pending activity.
+**Safety boundary:** Broker reconciliation remains authoritative. Ambiguous historical or external activity is never guessed into strategy performance. Incomplete broker snapshots continue to fail closed for portfolio-aware sizing, and paper results do not establish live profitability.
 
 ---
 
 ## Open decisions
+
+### Crypto design review — D-030 through D-032
+
+Review [CRYPTO_DESIGN.md](./CRYPTO_DESIGN.md): Coinbase Exchange/Gemini sandbox selection, USD spot scope, separate simulator authority and database, decimal-library choice, capped single-unwind response, cancel-only Emergency Stop, and client control lease. Actual sandbox capability and connectivity remain unverified. No session capital/time limits have been approved.
 
 ### O-001 — Recommendation strategy and evidence threshold
 
@@ -328,6 +378,22 @@ This is the living record of product, design, trading-safety, data, and technica
 
 ## Change history
 
+### 2026-09-11
+
+- Added D-035: stock-specific headline integration with existing Alpaca access; news remains independent research context rather than a trading signal.
+- Added D-036: ledger-derived capital recycling, conservative closed-trade profit accounting, and trade-oriented activity presentation.
+
+### 2026-09-10
+
+- Added D-034 and the MVP assessment. Public read-only production data, later 0x observation and unattended operation remain proposals; original implementation review gate remains in force.
+
+### 2026-09-07
+
+- Clarified crypto has no IBKR dependency; proposed broad token discovery separately from sandbox executable pricing in architecture 3.13.
+- Recorded the user's isolated paper crypto scope and explicit design review gate.
+- Proposed separate sandbox market adapters, simulated account authority, crypto ledger/reconciliation and session control semantics without marking them implemented or approved.
+- Added CRYPTO_DESIGN.md and architecture 3.12; preserved pre-existing stock code and documented exit-policy drift without changing it.
+
 ### 2026-08-31
 
 - Created the decision log.
@@ -356,6 +422,8 @@ This is the living record of product, design, trading-safety, data, and technica
 - Established GTM validation as a separate workstream focused on novice-to-intermediate investors paying for convenience, clarity, control, and reliable execution.
 - Recorded a separate educational opportunity for teaching customers to build their own compatible recommendation engines.
 - Added the read-only IBKR reconciliation collector, durable reconciliation records, manual-activity classification, and a freshness-gated authoritative portfolio foundation.
+- Consolidated recommendation, Activity, Positions, and Settings fixtures into a visibly labeled app-wide Preview Mode and replaced hamburger alert navigation with an animated side panel.
+- Added explicit scanning, no-setup, after-hours, weekend, paused, and disconnected empty states; recommendation scans now remain on standby outside regular market hours.
 # 2026-09-04 — Replace the minimum share-price filter
 
 **Decision:** Remove the arbitrary minimum share-price rule. Require at least 240 completed daily bars and $50 million in 20-day average dollar volume during scanning. Before creating a recommendation, require a current bid and ask with a spread no wider than 0.25%; try the next ranked eligible candidate when the highest-ranked candidate fails this execution check.
@@ -371,3 +439,44 @@ This is the living record of product, design, trading-safety, data, and technica
 **Reason:** Bulk historical research across hundreds of securities is a different workload from brokerage execution. A local cache makes repeated scans fast and reproducible while avoiding excessive TWS historical requests.
 
 **Safety boundary:** Alpaca credentials are local secrets and never enter the mobile bundle or SQLite database. A cached technical candidate must still pass a fresh IBKR bid/ask spread check and the existing paper-order controls. Missing or stale cache data does not fall back to fabricated recommendations.
+
+## D-030 — Separate paper-only crypto scope and design-before-code gate
+
+**Status:** Confirmed user constraint, 2026-09-07.
+**Decision:** Add inventory-based cross-exchange spot arbitrage as a separate module in the existing app. Preserve stock recommendations, approvals and IBKR architecture. No live orders, production credentials, leverage, borrowing, derivatives, on-chain activity or transfer-dependent execution. Missing/stale inputs fail closed and financial arithmetic is decimal-safe.
+**Review gate:** The user explicitly requested a design and safe-sharing assessment before implementation or dependency installation. CRYPTO_DESIGN.md is the review artifact. This gate comes from the user and does not imply a new approval requirement for ordinary stock work.
+
+## D-031 — Sandbox data with separate simulated account authority
+
+**Status:** Proposed for review; no runtime implemented.
+**Proposal:** Start with Coinbase Exchange Sandbox and Gemini Sandbox; discover supported common USD spot pairs. Normalize market observations using read-only network adapters. Execute paired IOC orders only in two durable simulated exchange accounts, keeping account evidence independent from strategy intent. Extend durable accounting in separate crypto SQLite stores and a separate crypto process/API so feed load and migrations do not affect stock operations.
+**Reason:** Sandbox market data and simulated account evidence have distinct authorities. Reconciling locally simulated fills against actual exchange balances would be false reconciliation. Equity proposal schemas, whole-share sizing, trading hours and protective-order roles are unsuitable for this engine.
+**Sharing:** Existing design tokens and visual primitives; SQLite durability/idempotency and reconciliation principles. No direct reuse of equity risk, receipts or broker logic.
+
+## D-032 — Bounded session approval and persistent crypto controls
+
+**Status:** Bounded approval is required by the user; detailed state machine and response policy are proposed for review.
+**Decision constraint:** Approval covers immutable exchange/pair, capital, size, profit, loss, time and risk-response limits for one bounded paper session, without prompting on every trade. Any limit change or renewal needs a new approved proposal. Pause and Emergency Stop must be available in the app; hard boundaries stop activity automatically.
+**Proposed semantics:** Durable crypto-only global kill latch, atomic reservations, persistent UTC-day counters, separate order certainty and exposure, immediate UNHEDGED on confirmed imbalance, and no uncertain submission retry until reconciliation proves its outcome. Normal exception handling permits at most one capped paper unwind after reconciliation; Emergency Stop permits cancellation/reconciliation only. No response may bypass stale-data, balance, time or hard-risk limits. Unresolved exposure remains visible after stop.
+**Stock scope:** This crypto session model does not supersede stock D-017 or authorize changes to existing IBKR order behavior.
+
+## D-033 — Crypto exchange APIs and broad token discovery
+
+**Status:** No IBKR for crypto confirmed by user; provider selection remains proposed.
+**Clarification:** Existing IBKR stock architecture is preserved. Crypto market/order capabilities come from separate exchange adapters. A broad catalog provider such as CoinGecko can serve token discovery and indicative market information, but its aggregate prices do not establish executable arbitrage.
+**Scope:** Only pairs supported by both selected sandbox venues can qualify for the paper engine. No provider is assumed to cover every token. Public current catalog data is a proposed extension; retain recorded/sandbox sources until the data-source scope is agreed. No dependencies, account connections or credentials were added.
+
+## D-034 — Exchange-first paper MVP and wallet assessment
+
+**Status:** Recommendation for review, not approved implementation or scope expansion.
+**Recommendation:** Keep Coinbase/Gemini simulated accounts and bounded paper sessions as the core. Defer wallet connections, signing, allowances, transfers and embedded/server wallets. Use sandbox/fixture data for correctness; propose public read-only production books or licensed historical depth for economics testing. Consider a separate small 0x observation study only after the core evaluation, with no signing authority and separate chain/token/cost semantics.
+**UX finding:** D-032's proposed 30-second phone lease implies supervised sessions. Recommend testing that mode first and considering unattended execution only after durable alerts, server supervision, recovery and remote controls are complete. Do not promise background execution under the existing lease.
+**Reason:** Manual wallet prompts conflict with frequent execution; delegated signing adds a distinct financial authority/security boundary. Aggregation alone proves neither profitable arbitrage nor that all gaps disappear. Sandbox profit is not evidence of production opportunity.
+**Reference:** [CRYPTO_MVP_ASSESSMENT.md](./CRYPTO_MVP_ASSESSMENT.md). No stock behavior, dependencies or runtime changed.
+
+## D-035 — Stock news context via Alpaca/Benzinga
+
+**Scope:** User requested a stock news aggregator and a provider recommendation. Selected the already accessible Alpaca news endpoint, supplied by Benzinga, for the MVP integration. No new account, dependency or subscription purchased.
+**Implementation:** Authenticated server endpoint, server-only Alpaca keys, bounded memory cache, exact symbol matching, deduplication/correction handling, publication and update timestamps, safe original-article links and explicit partial/unavailable states. Existing news sheet offers stock-symbol search and refresh; Preview Mode makes no news calls. Only headline metadata is displayed, not full articles or invented summaries.
+**Boundary:** One publisher feed is not comprehensive multi-source aggregation. No verified real-time latency claim. News does not affect eligibility, ranking, position sizes, approval receipts or execution. News-based discovery, intraday movers, earnings/ratings datasets and broader publisher coverage require further work. Review data display/redistribution rights before distribution beyond the personal prototype.
+**Evidence:** Fixture tests cover correction/deduplication, relevance, malformed/unsafe/stale records, credential redaction, cache behavior, rate limits and outages. Actual AAPL endpoint returned ten normalized Benzinga headlines with partial coverage.

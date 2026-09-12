@@ -203,3 +203,45 @@ test("positions include filled entries and disappear after a filled exit", () =>
   assert.deepEqual(ledger.listPositions(), []);
   ledger.close();
 });
+
+test("closed trades calculate net profit only when both commissions are known", () => {
+  const ledger = new TradingLedger(":memory:");
+  ledger.recordProposal(proposal({ terms: { quantity: 2, limitPrice: 200, stopPrice: 190, targetPrice: 220 } }));
+  ledger.recordBrokerOrder({ proposalId: "proposal-1", broker: "IBKR", accountId: "paper-account", brokerOrderId: "1", role: "entry", status: "Filled", order: { quantity: 2, averagePrice: 199.5, commission: 1 }, seenAt: 5_000 });
+  ledger.recordBrokerOrder({ proposalId: "proposal-1", broker: "IBKR", accountId: "paper-account", brokerOrderId: "2", role: "profit_target", status: "Filled", order: { quantity: 2, averagePrice: 220, commission: 1.25 }, seenAt: 6_000 });
+  const [trade] = ledger.listTrades();
+  assert.equal(trade.status, "closed");
+  assert.equal(trade.grossProfit, 41);
+  assert.equal(trade.netProfit, 38.75);
+  assert.equal(trade.feesComplete, true);
+  assert.equal(trade.exitReason, "profit_target");
+  ledger.close();
+});
+
+test("closed trades do not present gross profit as net when fees are missing", () => {
+  const ledger = new TradingLedger(":memory:");
+  ledger.recordProposal(proposal({ terms: { quantity: 1, limitPrice: 100, stopPrice: 95, targetPrice: 110 } }));
+  ledger.recordBrokerOrder({ proposalId: "proposal-1", broker: "IBKR", accountId: "paper-account", brokerOrderId: "1", role: "entry", status: "Filled", order: { quantity: 1, averagePrice: 100 }, seenAt: 5_000 });
+  ledger.recordBrokerOrder({ proposalId: "proposal-1", broker: "IBKR", accountId: "paper-account", brokerOrderId: "2", role: "protective_stop", status: "Filled", order: { quantity: 1, averagePrice: 94 }, seenAt: 6_000 });
+  const [trade] = ledger.listTrades();
+  assert.equal(trade.grossProfit, -6);
+  assert.equal(trade.netProfit, null);
+  assert.equal(trade.feesComplete, false);
+  ledger.close();
+});
+
+test("strategy budget reserves submitted entries and releases capital after an exit fill", () => {
+  const ledger = new TradingLedger(":memory:");
+  ledger.recordProposal(proposal({ terms: { quantity: 2, limitPrice: 200, stopPrice: 190, targetPrice: 220 } }));
+  ledger.recordDecision({ id: "decision-1", proposalId: "proposal-1", decision: "approved", decidedAt: 2_000 });
+  ledger.beginSubmission({ id: "attempt-1", decisionId: "decision-1", idempotencyKey: "paper:decision-1", startedAt: 3_000 });
+  ledger.completeSubmission({ id: "attempt-1", status: "submitted", completedAt: 4_000 });
+  assert.deepEqual(ledger.strategyBudget(1_000), { capitalLimit: 1_000, invested: 0, reserved: 400, deployed: 400, available: 600, overAllocated: false });
+  ledger.recordBrokerOrder({ proposalId: "proposal-1", broker: "IBKR", accountId: "paper-account", brokerOrderId: "1", role: "entry", status: "Filled", order: { quantity: 2, averagePrice: 199 }, seenAt: 5_000 });
+  assert.equal(ledger.strategyBudget(1_000).invested, 398);
+  assert.equal(ledger.strategyBudget(1_000).reserved, 0);
+  ledger.recordBrokerOrder({ proposalId: "proposal-1", broker: "IBKR", accountId: "paper-account", brokerOrderId: "2", role: "profit_target", status: "Filled", order: { quantity: 2, averagePrice: 220 }, seenAt: 6_000 });
+  assert.equal(ledger.strategyBudget(1_000).deployed, 0);
+  assert.equal(ledger.strategyBudget(1_000).available, 1_000);
+  ledger.close();
+});

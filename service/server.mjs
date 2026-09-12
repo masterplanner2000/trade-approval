@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { getSecCompanyResearch, summarizeSecResearch } from "./sec_edgar.mjs";
+import { getStockNews, stockNewsSymbol } from "./stock_news.mjs";
 import { authoritativePortfolio, BrokerReconciliationStore, reconcileSnapshotToLedger } from "./broker_reconciliation.mjs";
 import { TradingLedger } from "./trading_ledger.mjs";
 
@@ -153,7 +154,7 @@ function recordSubmittedBrokerOrders(proposal, receipt, submissionAttempt, submi
       submissionAttemptId: submissionAttempt.id,
       broker: receipt.broker,
       accountId: receipt.accountId,
-      brokerOrderId: value.orderId,
+      brokerOrderId: value.permanentId ?? value.orderId,
       parentBrokerOrderId: value.parentId ?? null,
       role,
       status: value.status ?? "Unknown",
@@ -247,16 +248,54 @@ function recordShadowScan(scan) {
 }
 
 function strategySummary() {
+  const budget = currentStrategyBudget();
   const pending = [...proposals.values()].filter((proposal) => proposal.status === "pending" && proposal.expiresAt > now()).length;
   return {
     ...strategy,
-    remainingCapital: Math.max(0, strategy.capitalLimit - strategy.currentExposure),
+    currentExposure: budget.deployed,
+    remainingCapital: budget.available,
+    budget,
     pendingRecommendations: pending,
     completedCount: strategy.completed.length,
   };
 }
 
 const now = () => Date.now();
+
+function currentStrategyBudget() {
+  const ledgerBudget = ledger().strategyBudget(strategy.capitalLimit);
+  const latest = reconciliations().latest();
+  if (latest) {
+    const portfolio = authoritativePortfolio(latest.snapshot);
+    if (portfolio.status === "COMPLETE") {
+      const strategySymbols = new Set(strategy.completed.filter((item) => item.outcome === "submitted").map((item) => item.symbol));
+      const invested = roundPrice(portfolio.positions
+        .filter((position) => strategySymbols.has(position.symbol))
+        .reduce((sum, position) => sum + Math.abs(Number(position.quantity ?? 0)) * Number(position.averageCost ?? 0), 0));
+      const reserved = ledgerBudget.reserved;
+      const deployed = roundPrice(invested + reserved);
+      return {
+        capitalLimit: strategy.capitalLimit,
+        invested,
+        reserved,
+        deployed,
+        available: Math.max(0, roundPrice(strategy.capitalLimit - deployed)),
+        overAllocated: deployed > strategy.capitalLimit,
+        status: "reconciled",
+        asOf: portfolio.asOf,
+      };
+    }
+  }
+  const deployed = Math.max(Number(strategy.currentExposure ?? 0), ledgerBudget.deployed);
+  return {
+    ...ledgerBudget,
+    deployed,
+    available: Math.max(0, roundPrice(strategy.capitalLimit - deployed)),
+    overAllocated: deployed > strategy.capitalLimit,
+    status: "conservative_fallback",
+    asOf: null,
+  };
+}
 
 function roundPrice(value) {
   return Math.round(value * 100) / 100;
@@ -289,7 +328,7 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
   const bid = snapshot?.quote?.bid ?? referencePrice;
   const ask = snapshot?.quote?.ask ?? referencePrice;
   const limitPrice = roundPrice(Math.max(ask, referencePrice * 1.002));
-  const availableCapital = Math.min(strategy.perTradeLimit, Math.max(0, strategy.capitalLimit - strategy.currentExposure));
+  const availableCapital = Math.min(strategy.perTradeLimit, currentStrategyBudget().available);
   const quantity = Math.min(5, Math.floor(availableCapital / limitPrice));
   const stopDistancePercent = Math.min(8, Math.max(2, (candidate?.atrPercent14 ?? 2) * 1.5));
   const stopPrice = roundPrice(referencePrice * (1 - stopDistancePercent / 100));
@@ -344,7 +383,8 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
 
 async function recommendationQueue({ additionalExcludedSymbols = [] } = {}) {
   if (strategy.status !== "active") throw new Error("strategy_paused");
-  if (strategy.currentExposure >= strategy.capitalLimit) throw new Error("strategy_capital_limit");
+  const strategyBudget = currentStrategyBudget();
+  if (strategyBudget.available <= 0) throw new Error("strategy_capital_limit");
 
   const existing = [...proposals.values()]
     .filter((proposal) => proposal.status === "pending" && proposal.expiresAt > now())
@@ -359,9 +399,16 @@ async function recommendationQueue({ additionalExcludedSymbols = [] } = {}) {
   ]);
   const candidates = eligibleQueueCandidates(scan, excludedSymbols)
     .filter((candidate) => !wasDeniedForSignal(candidate, strategy.completed));
+  const availableCapital = Math.min(strategy.perTradeLimit, strategyBudget.available);
+  const affordableCandidates = candidates.filter((candidate) =>
+    typeof candidate.referenceClose === "number"
+    && candidate.referenceClose > 0
+    && candidate.referenceClose * 1.005 <= availableCapital
+  );
+  if (affordableCandidates.length === 0 && existing.length === 0) throw new Error("strategy_capital_limit");
 
   const created = [...existing];
-  for (const evaluated of candidates) {
+  for (const evaluated of affordableCandidates) {
     const snapshot = await ibkrSnapshot(evaluated.symbol);
     const bid = snapshot?.quote?.bid;
     const ask = snapshot?.quote?.ask;
@@ -636,6 +683,14 @@ async function route(request, response) {
     } });
   }
 
+  if (request.method === "GET" && url.pathname === "/research/news") {
+    let symbol;
+    try { symbol = stockNewsSymbol(url.searchParams.get("symbol")); }
+    catch { return json(response, 400, { error: "invalid_symbol" }); }
+    const news = await getStockNews(symbol);
+    return json(response, news.status === "unavailable" ? 503 : 200, news);
+  }
+
   if (request.method === "GET" && url.pathname === "/proposals") {
     const items = [...proposals.values()].map((proposal) =>
       proposal.status === "pending" && proposal.expiresAt <= now()
@@ -679,6 +734,10 @@ async function route(request, response) {
       environment: "paper", brokerOrderId: item.brokerIdentity,
     }));
     return json(response, 200, { items: [...applicationItems, ...externalItems].sort((a, b) => b.occurredAt - a.occurredAt) });
+  }
+
+  if (request.method === "GET" && url.pathname === "/trades") {
+    return json(response, 200, { items: ledger().listTrades() });
   }
 
   if (request.method === "GET" && url.pathname === "/positions") {
@@ -955,7 +1014,7 @@ async function route(request, response) {
         buyOnly: receipt.side === "buy",
         quantityAllowed: Number.isInteger(receipt.quantity) && receipt.quantity >= 1 && receipt.quantity <= 5,
         notionalAllowed: receipt.quantity * receipt.limitPrice <= 1500,
-        strategyCapitalAllowed: strategy.currentExposure + receipt.quantity * receipt.limitPrice <= strategy.capitalLimit,
+        strategyCapitalAllowed: currentStrategyBudget().available >= receipt.quantity * receipt.limitPrice,
         priceWithinLimit: typeof referencePrice === "number" && referencePrice <= receipt.limitPrice,
         bracketValid:
           receipt.exitPolicy?.mode === "broker_bracket" &&
@@ -982,6 +1041,25 @@ async function route(request, response) {
           decisionId: receipt.decisionId,
           checks: safetyChecks,
         });
+        if (!safetyChecks.strategyCapitalAllowed) {
+          try {
+            const recalculated = await recalculateRecommendationQueue();
+            return json(response, 409, {
+              error: "strategy_capital_changed",
+              checks: safetyChecks,
+              ...recalculated,
+              recalculated: true,
+            });
+          } catch {
+            return json(response, 409, {
+              error: "strategy_capital_changed",
+              checks: safetyChecks,
+              recommendations: [],
+              strategy: strategySummary(),
+              recalculated: true,
+            });
+          }
+        }
         return json(response, 409, { error: "final_safety_check_blocked", checks: safetyChecks });
       }
 
@@ -1007,7 +1085,7 @@ async function route(request, response) {
       if (submission.ok) {
         proposal.status = "submitted";
         const notional = roundPrice(receipt.quantity * receipt.limitPrice);
-        strategy.currentExposure = roundPrice(Math.min(strategy.capitalLimit, strategy.currentExposure + notional));
+        strategy.currentExposure = currentStrategyBudget().deployed;
         strategy.completed.push({
           proposalId: proposal.id,
           symbol: receipt.symbol,
@@ -1031,7 +1109,15 @@ async function route(request, response) {
         brokerErrors: submission.errors ?? [],
         brokerWarnings: submission.warnings ?? [],
       });
-      return json(response, submission.ok ? 200 : 409, { submission });
+      let recalculated = null;
+      if (submission.ok) {
+        try {
+          recalculated = await recalculateRecommendationQueue({ excludedSymbols: [receipt.symbol] });
+        } catch {
+          recalculated = { recommendations: [], strategy: strategySummary() };
+        }
+      }
+      return json(response, submission.ok ? 200 : 409, { submission, ...recalculated });
     } catch (error) {
       if (submissionAttempt) {
         ledger().completeSubmission({

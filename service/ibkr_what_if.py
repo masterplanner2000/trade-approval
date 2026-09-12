@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import threading
 from decimal import Decimal
@@ -16,9 +17,14 @@ from ibapi.wrapper import EWrapper
 HOST = "127.0.0.1"
 PAPER_PORT = 7497
 CLIENT_ID = 73
-ALLOWED_SYMBOLS = {"NVDA", "AAPL", "MSFT"}
 MAX_QUANTITY = 5
 MAX_NOTIONAL = Decimal("1500")
+US_STOCK_SYMBOL = re.compile(r"^[A-Z][A-Z0-9.-]{0,9}$")
+
+
+def valid_authorized_buy(symbol: str, action: str) -> bool:
+    """Reject malformed instruments and every action except a server-approved buy."""
+    return action == "BUY" and US_STOCK_SYMBOL.fullmatch(symbol) is not None
 
 
 def safe_number(value):
@@ -109,7 +115,7 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": "invalid_request"}))
         return 2
 
-    if symbol not in ALLOWED_SYMBOLS or action not in {"BUY", "SELL"}:
+    if not valid_authorized_buy(symbol, action):
         print(json.dumps({"ok": False, "error": "instrument_or_action_blocked"}))
         return 2
     if quantity < 1 or quantity > MAX_QUANTITY or limit_price <= 0:

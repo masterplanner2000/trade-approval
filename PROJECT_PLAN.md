@@ -1,7 +1,21 @@
 # Trade Approval — Project Plan
 
-**Last updated:** 2026-09-06
+**Last updated:** 2026-09-11
 **Current objective:** Graduate the local paper prototype from recommendation submission to trustworthy portfolio-aware trade lifecycle management.
+
+### Quality engineering — Step 1 implemented 2026-09-12
+
+- Added a single broker-free `npm test` quality gate covering TypeScript, all Node tests and all Python tests.
+- Added GitHub pull-request/main-branch checks using clean dependency installation, dependency review and full-history secret scanning.
+- Added `QA.md` as the versioned test matrix and release-gate source of truth.
+- Next: deterministic broker simulation and service integration tests for partial fills, cancellations, protection gaps, reconnects and manual activity.
+- No CI job has broker credentials or permission to contact or submit to IBKR.
+
+### Deterministic broker QA — foundation implemented 2026-09-12
+
+- Added a credential-free, paper-only broker authority for tests with a controllable clock and scheduled evidence.
+- Added scenarios for partial fills and exact child quantity, rejection, cancellation, disconnect/reconnect, delayed evidence, duplicate execution callbacks, manual orders, commissions and completed exits.
+- Next: inject this authority through service routes and implement/test the production lifecycle responses for partial fills and protection gaps.
 
 ## Product direction
 
@@ -26,6 +40,20 @@ Before scaling development for a public launch:
 Evaluate a second, separately packaged offering for technically inclined customers: instructions, reference architecture, and tools for building a compatible recommendation engine. It must have its own positioning, support model, security boundaries, legal review, and a versioned integration contract. It should not delay validation of the core approval application.
 
 ## Delivery sequence
+
+### Stock news context — implemented 2026-09-11
+
+- Alpaca/Benzinga headlines are available in the existing Recent news sheet, with ticker search, original links, publication/update times, polling while open and explicit empty/partial/unavailable states.
+- Server-only credentials, 60-second bounded memory cache, deduplication and safe link validation; no article bodies, new dependencies or trading-rule changes.
+- News-driven discovery and ranking, intraday movers, multi-publisher aggregation and verified news latency remain pending. These additions do not repair the existing delayed IBKR quotes or incomplete account reconciliation.
+- Validate with `node --test service/stock_news.test.mjs` and `npm run typecheck`.
+
+### 0. Complete-interface Preview Mode — implemented
+
+- Use the production screen and component structure with a mock data source instead of separate preview screens.
+- Populate recommendations, Activity, Positions, broker state, and Settings with realistic content.
+- Identify Preview Mode in the existing broker-status pill, keep it incapable of broker requests or persistent policy changes, and preserve an in-viewport card footer by truncating secondary rationale when necessary.
+- Navigate through an animated left-side panel instead of a native alert menu.
 
 ### 1. Market-driven recommendation set — implemented in the local MVP
 
@@ -55,6 +83,7 @@ Evaluate a second, separately packaged offering for technically inclined custome
 - **Implemented foundation:** classify order and execution references as application-linked or external/manual.
 - **Implemented safety boundary:** the portfolio view is `INCOMPLETE` when any required balance is absent, collection is partial, the environment is not paper, or the snapshot is stale.
 - **Implemented:** link observed app orders to their exact ledger proposal, decision, and submission attempt through IBKR order references; resolve ambiguous submission outcomes when broker evidence proves the order exists.
+- **Implemented safety boundary:** use permanent IBKR order identity when available, record idempotent lifecycle evidence, and refuse to guess when a shortened decision reference is not unique.
 - **Implemented:** adaptive read-only reconciliation cadence—5 seconds with active orders, 15 seconds with positions, and 60 seconds while quiet—plus startup and manual refresh.
 - **Next:** reconcile cancellations, partial fills, completed fills, missing protective orders, and manual activity into the full ledger lifecycle.
 - Treat IBKR as authoritative for broker state and the ledger as authoritative for application intent and history.
@@ -127,3 +156,29 @@ The durable-ledger and reconciliation milestone is complete only when:
 3. Manual broker changes are detected and displayed.
 4. The app can distinguish submitted, pending, partially filled, filled, cancelled, rejected, protected, and closed states.
 5. Portfolio-aware sizing remains disabled until balances, positions, open orders, and fills are fresh and reconciled.
+
+## Separate crypto paper MVP — proposed delivery sequence
+
+The [MVP assessment](./CRYPTO_MVP_ASSESSMENT.md) recommends completing the exchange-only supervised paper loop first, then separately evaluating economics with approved public/recorded production depth. Wallet signing is deferred. Later 0x observation and unattended operation are optional proposed work, not additions to the authorized implementation scope. Sandbox economics must not be presented as evidence of live profitability.
+
+See [CRYPTO_DESIGN.md](./CRYPTO_DESIGN.md) for the repository findings, contract, threat model, ledger schema, cost formula, risk/session semantics, UI specification and full acceptance matrix. Existing stock milestones above remain in place. Crypto may share presentation primitives and infrastructure patterns; it must not change the working stock/IBKR workflow.
+
+1. **Design for review — prepared, awaiting review.** Proposed Coinbase Exchange and Gemini sandbox feeds with simulated account/execution authority; separate process/database/API. Do not implement or install dependencies before review.
+2. **Contract and calculation — pending.** Decimal-safe normalized spot contract, depth and timestamp gates, all-cost net calculation, deterministic unit and boundary tests.
+3. **Persistence and simulation — pending.** Additive independent ledger migration, exact inventory journals/reservations, immutable session approvals, paired simulator and partial/unknown/crash tests.
+4. **Reconciliation and risk — pending.** Fixture-based authority, identity, manual activity, balances, fees, limits and restart tests; no automatic paired execution until these pass.
+5. **Sandbox data integration — pending.** Verify both venues' current instrument intersection, channel integrity, fee-model provenance and rate limits; no production fallback.
+6. **Mobile and web — pending.** Stocks/Crypto context switch, bounded session approval, opportunities, paired status, balances, P&L, exceptions and reconciliation health; authenticated private controls, persistent alerts and accessible offline states.
+7. **Bounded paper evaluation — pending.** Explicit user approval of actual session limits, fault injection and soak testing. State assumptions and incomplete features before acceptance.
+
+Crypto acceptance requires no production credentials or network orders; fresh exact balances for allocation; immutable approved periods/limits; persistent daily loss/turnover and crypto kill state; proof before retrying uncertain outcomes; explicit unresolved exposure; and unchanged stock behavior when crypto is disabled or unavailable. Design approval does not approve a strategy session. Changes or renewal of session limits require a new proposal and approval. Live trading remains outside this workstream.
+
+### Plan change history — 2026-09-10
+
+- Added the wallet UX/security assessment and staged correctness/economics recommendation; no implementation or data-source expansion approved.
+
+### Plan change history — 2026-09-07
+
+- Clarified crypto has no IBKR dependency. Evaluate broad token catalog discovery separately from the subset executable on two sandbox exchanges; CoinGecko is proposed, with no connection or dependency added.
+- Added the gated crypto design workstream without changing the stock delivery sequence.
+- All crypto runtime, tests and frontend implementation remain pending design review.

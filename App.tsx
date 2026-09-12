@@ -1,8 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemeProvider } from "@shopify/restyle";
-import { CheckCircleIcon, CircleIcon, ClockIcon, ListIcon, MoonIcon, SunIcon } from "phosphor-react-native";
+import { CaretDownIcon, CheckCircleIcon, CircleIcon, ClockIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, XIcon } from "phosphor-react-native";
 import {
   Alert,
   Animated,
@@ -20,6 +21,7 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ActionButton, Toast } from "./src/components/ui";
+import { StockNews } from "./src/components/StockNews";
 import { AppText as Text, Box as View, darkPalette, darkTheme, palette, radius, spacing, theme, type AppPalette, typeRamp } from "./src/design-system";
 
 type VisualThemeContextValue = {
@@ -38,15 +40,24 @@ function useVisualTheme() {
 type Decision = "pending" | "approved" | "denied" | "expired";
 type BrokerConnectionStatus = "checking" | "connected" | "disconnected";
 type AppToast = { tone: "info" | "success" | "danger"; title: string; message?: string };
-type AppPage = "review" | "activity" | "positions" | "settings";
+type AppPage = "review" | "activity" | "positions" | "settings" | "preview";
 type ActivityItem = {
   id: string; symbol: string; side: string; status: string; occurredAt: number;
   quantity: number | null; limitPrice: number | null; environment: string; brokerOrderId: string | null;
 };
+type TradeItem = {
+  id: string; symbol: string; quantity: number; status: "open" | "closed";
+  entryPrice: number; exitPrice: number | null; entryValue: number; exitValue: number | null;
+  entryFee: number | null; exitFee: number | null; feesComplete: boolean;
+  grossProfit: number | null; netProfit: number | null; exitReason: "profit_target" | "protective_stop" | "exit" | null;
+  openedAt: number; closedAt: number | null; protectiveStopPrice: number | null; profitTargetPrice: number | null;
+};
 type PositionItem = {
   id: string; symbol: string; quantity: number; averageEntryPrice: number; currentPrice: number | null;
-  protectiveStopPrice: number | null; profitTargetPrice: number | null; updatedAt: number; dataState: "ledger_only" | "reconciled";
+  protectiveStopPrice: number | null; profitTargetPrice: number | null; updatedAt: number; dataState: "ledger_only" | "reconciled" | "preview";
 };
+
+const PREVIEW_MODE_STORAGE_KEY = "trade-approval.preview-mode";
 type RiskPolicy = {
   adaptive: boolean;
   sleeveValue: number;
@@ -472,6 +483,26 @@ const UI_PROPOSALS: Proposal[] = [
   },
 ];
 
+const PREVIEW_ACTIVITY: ActivityItem[] = [
+  { id: "activity-1", symbol: "NVDA", side: "buy", status: "Filled", occurredAt: Date.now() - 18 * 60 * 1000, quantity: 5, limitPrice: 183.2, environment: "paper", brokerOrderId: "10478231" },
+  { id: "activity-2", symbol: "AAPL", side: "buy", status: "PreSubmitted", occurredAt: Date.now() - 52 * 60 * 1000, quantity: 4, limitPrice: 229.55, environment: "paper", brokerOrderId: "10478212" },
+  { id: "activity-3", symbol: "MSFT", side: "buy", status: "denied", occurredAt: Date.now() - 3 * 60 * 60 * 1000, quantity: 2, limitPrice: 506.25, environment: "paper", brokerOrderId: null },
+  { id: "activity-4", symbol: "AMZN", side: "sell", status: "Filled", occurredAt: Date.now() - 26 * 60 * 60 * 1000, quantity: 5, limitPrice: 190, environment: "paper", brokerOrderId: "10477008" },
+];
+
+const PREVIEW_POSITIONS: PositionItem[] = [
+  { id: "position-1", symbol: "NVDA", quantity: 5, averageEntryPrice: 182.94, currentPrice: 185.36, protectiveStopPrice: 180.3, profitTargetPrice: 190.5, updatedAt: Date.now() - 12_000, dataState: "preview" },
+  { id: "position-2", symbol: "AAPL", quantity: 4, averageEntryPrice: 228.8, currentPrice: 231.14, protectiveStopPrice: 224.9, profitTargetPrice: 238, updatedAt: Date.now() - 18_000, dataState: "preview" },
+];
+const PREVIEW_TRADES: TradeItem[] = PREVIEW_POSITIONS.map((position) => ({
+  id: position.id, symbol: position.symbol, quantity: position.quantity, status: "open",
+  entryPrice: position.averageEntryPrice, exitPrice: null,
+  entryValue: position.quantity * position.averageEntryPrice, exitValue: null,
+  entryFee: null, exitFee: null, feesComplete: false, grossProfit: null, netProfit: null, exitReason: null,
+  openedAt: position.updatedAt, closedAt: null,
+  protectiveStopPrice: position.protectiveStopPrice, profitTargetPrice: position.profitTargetPrice,
+}));
+
 const SHADOW_LOADING: Proposal = {
   ...PAPER_PROPOSAL,
   id: "shadow-loading",
@@ -561,6 +592,25 @@ function countdown(expiresAt: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+type MarketWindow = { phase: "open" | "pre_market" | "after_hours" | "weekend"; resumes: string };
+
+function marketSessionWindow(timestamp = Date.now()): MarketWindow {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(timestamp));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  const weekday = value("weekday");
+  const minutes = Number(value("hour")) * 60 + Number(value("minute"));
+  if (weekday === "Sat" || weekday === "Sun") return { phase: "weekend", resumes: "Monday at 9:30 AM ET" };
+  if (minutes < 9 * 60 + 30) return { phase: "pre_market", resumes: "Today at 9:30 AM ET" };
+  if (minutes >= 16 * 60) return { phase: "after_hours", resumes: weekday === "Fri" ? "Monday at 9:30 AM ET" : "The next trading day at 9:30 AM ET" };
+  return { phase: "open", resumes: "Scanning continuously during market hours" };
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   const { styles } = useVisualTheme();
   return (
@@ -643,7 +693,7 @@ function PreviewCardFace({ proposal }: { proposal: Proposal }) {
         </View>
         <View style={styles.infoCard}>
           <Text style={styles.infoCardTitle}>Why this trade</Text>
-          <Text style={styles.infoCardBody}>{firstTwoSentences(proposal.companyCatalyst)}</Text>
+          <Text style={styles.infoCardBody} numberOfLines={2} ellipsizeMode="tail">{firstTwoSentences(proposal.companyCatalyst)}</Text>
         </View>
       </View>
       <View style={styles.cardFooter}>
@@ -756,18 +806,104 @@ function SettingsPage({ policy, operatingPercent, operatingReason, saving, onCha
   );
 }
 
-function HistoryPage({ page, activity, positions, loading, error, onRefresh }: {
-  page: "activity" | "positions"; activity: ActivityItem[]; positions: PositionItem[];
-  loading: boolean; error: string | null; onRefresh: () => void;
+function PreviewModePage({ enabled, onChange }: { enabled: boolean; onChange: (enabled: boolean) => void }) {
+  const { colors, styles } = useVisualTheme();
+  return (
+    <View style={styles.settingsPage}>
+      <Text style={styles.settingsEyebrow}>DEMO WORKSPACE</Text>
+      <Text accessibilityRole="header" style={styles.settingsTitle}>Preview mode</Text>
+      <Text style={styles.settingsIntro}>Explore the complete app with realistic sample recommendations, positions, and activity. Nothing is sent to a broker.</Text>
+
+      <View style={styles.policySection}>
+        <View style={styles.adaptiveRow}>
+          <View style={styles.adaptiveCopy}>
+            <Text style={styles.policySectionTitle}>Use preview data</Text>
+            <Text style={styles.policyHelp}>{enabled ? "Sample data is active throughout the app." : "Paper account data is active."}</Text>
+          </View>
+          <Switch
+            accessibilityLabel="Use preview data"
+            accessibilityHint="Replaces brokerage information throughout the app with simulated sample data"
+            value={enabled}
+            onValueChange={onChange}
+            trackColor={{ false: colors.border, true: colors.actionApprove }}
+            thumbColor="#FFFFFF"
+          />
+        </View>
+      </View>
+
+      <View style={styles.previewExplanation}>
+        <Text style={styles.policySectionTitle}>What changes</Text>
+        <Text style={styles.previewExplanationText}>Recommendations become sample cards. Approvals create simulated positions and activity; denials appear in activity. Broker submission is always disabled.</Text>
+      </View>
+    </View>
+  );
+}
+
+function HistoryPage({ page, activity, positions, trades, loading, error, onRefresh, previewMode }: {
+  page: "activity" | "positions"; activity: ActivityItem[]; positions: PositionItem[]; trades: TradeItem[];
+  loading: boolean; error: string | null; onRefresh: () => void; previewMode: boolean;
 }) {
-  const { styles } = useVisualTheme();
+  const { colors, styles } = useVisualTheme();
+  const [activitySearch, setActivitySearch] = useState("");
   const empty = page === "activity" ? activity.length === 0 : positions.length === 0;
+  const matchingActivity = activity.filter((item) => {
+    const query = activitySearch.trim().toLowerCase();
+    return !query || item.symbol.toLowerCase().includes(query) || item.status.toLowerCase().includes(query) || item.side.toLowerCase().includes(query);
+  });
+  const openStatuses = new Set(["presubmitted", "submitted", "pendingsubmit", "pendingcancel"]);
+  const pendingStatuses = new Set(["approved", "started", "unknown"]);
+  const decisionActivity = matchingActivity.filter((item) =>
+    item.side.toLowerCase() !== "sell"
+    || !openStatuses.has(item.status.replaceAll("_", "").toLowerCase())
+  );
+  const tradeIds = new Set(trades.map((trade) => trade.id));
+  const activitySections = [
+    { title: "Pending orders", items: decisionActivity.filter((item) => !tradeIds.has(item.id) && (openStatuses.has(item.status.replaceAll("_", "").toLowerCase()) || pendingStatuses.has(item.status.replaceAll("_", "").toLowerCase()))) },
+    { title: "Recent decisions", items: decisionActivity.filter((item) => !tradeIds.has(item.id) && !openStatuses.has(item.status.replaceAll("_", "").toLowerCase()) && !pendingStatuses.has(item.status.replaceAll("_", "").toLowerCase())) },
+  ].filter((section) => section.items.length > 0);
+  const friendlyStatus = (status: string) => ({
+    presubmitted: "Accepted · waiting",
+    submitted: "Working",
+    pendingsubmit: "Sending",
+    pendingcancel: "Cancelling",
+    filled: "Filled",
+    approved: "Approved",
+    denied: "Denied",
+    expired: "Expired",
+    replaced: "Updated",
+  }[status.replaceAll("_", "").toLowerCase()] ?? status.replaceAll("_", " "));
   return (
     <View style={styles.historyPage}>
       <Text accessibilityRole="header" style={styles.settingsTitle}>{page === "activity" ? "Activity" : "Positions"}</Text>
-      <Text style={styles.settingsIntro}>
-        {page === "activity" ? "A durable record of recommendation and order states." : "Filled paper positions recorded by the application."}
-      </Text>
+      {page === "positions" ? <Text style={styles.settingsIntro}>
+        {previewMode ? "Sample positions created while you explore the app." : "Filled paper positions recorded by the application."}
+      </Text> : null}
+      {page === "activity" ? (
+        <>
+          <View style={styles.activitySearch}>
+            <MagnifyingGlassIcon size={19} color={colors.muted} weight="regular" />
+            <TextInput
+              accessibilityLabel="Search activity"
+              placeholder="Search activity"
+              placeholderTextColor={colors.muted}
+              value={activitySearch}
+              onChangeText={setActivitySearch}
+              style={styles.activitySearchInput}
+            />
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activityFilters}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Open activity filters" style={styles.activityFilterIcon}>
+              <SlidersHorizontalIcon size={18} color={colors.ink} weight="regular" />
+            </Pressable>
+            {["Type", "Status", "Symbol"].map((label) => (
+              <Pressable key={label} accessibilityRole="button" accessibilityLabel={`Filter by ${label}`} style={styles.activityFilterChip}>
+                <Text style={styles.activityFilterText}>{label}</Text>
+                <CaretDownIcon size={14} color={colors.ink} weight="bold" />
+              </Pressable>
+            ))}
+          </ScrollView>
+        </>
+      ) : null}
       {loading ? <Text style={styles.historyMessage}>Loading…</Text> : error ? <Text style={styles.historyMessage}>Activity service is unavailable.</Text> : null}
       {!loading && !error && empty ? (
         <View style={styles.historyEmpty}>
@@ -775,18 +911,66 @@ function HistoryPage({ page, activity, positions, loading, error, onRefresh }: {
           <Text style={styles.historyMessage}>{page === "activity" ? "Decisions and order updates will appear here." : "A position appears after the ledger observes a filled entry."}</Text>
         </View>
       ) : null}
-      {!loading && !error && page === "activity" && activity.map((item) => (
-        <View key={item.id} style={styles.historyRow}>
-          <View style={styles.historyRowMain}>
-            <Text style={styles.historySymbol}>{item.symbol}</Text>
-            <Text style={styles.historyMeta}>{item.side.toUpperCase()} · {item.quantity ?? "—"} shares{item.limitPrice ? ` at ${money(item.limitPrice)}` : ""}</Text>
-          </View>
-          <View style={styles.historyRowEnd}>
-            <Text style={styles.historyStatus}>{item.status.replaceAll("_", " ")}</Text>
-            <Text style={styles.historyTime}>{new Date(item.occurredAt).toLocaleDateString()}</Text>
-          </View>
+      {!loading && !error && page === "activity" && activitySections.map((section) => (
+        <View key={section.title} style={styles.activitySection}>
+          <Text style={styles.activitySectionTitle}>{section.title} ({section.items.length})</Text>
+          {section.items.map((item) => (
+            <View key={item.id} style={styles.activityRow}>
+              <CompanyMark symbol={item.symbol} size={36} />
+              <View style={styles.historyRowMain}>
+                <Text style={styles.historySymbol}>{item.symbol} {item.side.toLowerCase()}</Text>
+                <Text style={styles.historyMeta}>{item.quantity ?? "—"} shares · {new Date(item.occurredAt).toLocaleDateString()}</Text>
+              </View>
+              <View style={styles.historyRowEnd}>
+                <Text style={styles.historyStatus}>{friendlyStatus(item.status)}</Text>
+                <Text style={styles.historyTime}>{item.limitPrice ? money(item.limitPrice) : previewMode ? "Preview" : "—"}</Text>
+              </View>
+            </View>
+          ))}
         </View>
       ))}
+      {!loading && !error && page === "activity" && trades.filter((trade) => trade.status === "open").length > 0 ? (
+        <View style={styles.activitySection}>
+          <Text style={styles.activitySectionTitle}>Open trades ({trades.filter((trade) => trade.status === "open").length})</Text>
+          {trades.filter((trade) => trade.status === "open").map((trade) => (
+            <View key={trade.id} style={styles.activityRow}>
+              <CompanyMark symbol={trade.symbol} size={36} />
+              <View style={styles.historyRowMain}>
+                <Text style={styles.historySymbol}>{trade.symbol}</Text>
+                <Text style={styles.historyMeta}>{trade.quantity} shares · entered at {money(trade.entryPrice)}</Text>
+              </View>
+              <View style={styles.historyRowEnd}>
+                <Text style={styles.historyStatus}>Position open</Text>
+                <Text style={styles.historyTime}>{money(trade.entryValue)} invested</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {!loading && !error && page === "activity" && trades.filter((trade) => trade.status === "closed").length > 0 ? (
+        <View style={styles.activitySection}>
+          <Text style={styles.activitySectionTitle}>Closed trades ({trades.filter((trade) => trade.status === "closed").length})</Text>
+          {trades.filter((trade) => trade.status === "closed").map((trade) => {
+            const profit = trade.feesComplete ? trade.netProfit : trade.grossProfit;
+            return (
+              <View key={trade.id} style={styles.activityRow}>
+                <CompanyMark symbol={trade.symbol} size={36} />
+                <View style={styles.historyRowMain}>
+                  <Text style={styles.historySymbol}>{trade.symbol}</Text>
+                  <Text style={styles.historyMeta}>{trade.quantity} shares · {trade.exitReason === "profit_target" ? "Target reached" : trade.exitReason === "protective_stop" ? "Protective stop" : "Sold"}</Text>
+                </View>
+                <View style={styles.historyRowEnd}>
+                  <Text style={[styles.historyStatus, { color: (profit ?? 0) >= 0 ? colors.actionApprove : colors.danger }]}>{profit == null ? "—" : `${profit >= 0 ? "+" : ""}${money(profit)}`}</Text>
+                  <Text style={styles.historyTime}>{trade.feesComplete ? "Net profit/loss" : "Gross · fees pending"}</Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+      {!loading && !error && page === "activity" && !empty && matchingActivity.length === 0 ? (
+        <Text style={styles.historyMessage}>No activity matches your search.</Text>
+      ) : null}
       {!loading && !error && page === "positions" && positions.map((item) => (
         <View key={item.id} style={styles.positionCard}>
           <View style={styles.historyRow}>
@@ -798,12 +982,12 @@ function HistoryPage({ page, activity, positions, loading, error, onRefresh }: {
             <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Protective stop</Text><Text style={styles.tradeTermValue}>{item.protectiveStopPrice ? money(item.protectiveStopPrice) : "—"}</Text></View>
             <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Profit target</Text><Text style={styles.tradeTermValue}>{item.profitTargetPrice ? money(item.profitTargetPrice) : "—"}</Text></View>
           </View>
-          <Text style={styles.positionNotice}>{item.dataState === "reconciled" ? "Confirmed from IBKR Paper" : "Awaiting live IBKR reconciliation"}</Text>
+          <Text style={styles.positionNotice}>{item.dataState === "preview" ? "Preview data · no broker order" : item.dataState === "reconciled" ? "Confirmed from IBKR Paper" : "Awaiting live IBKR reconciliation"}</Text>
         </View>
       ))}
-      <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
+      {!previewMode ? <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
         <Text style={styles.previewProposalButtonText}>Refresh</Text>
-      </Pressable>
+      </Pressable> : null}
     </View>
   );
 }
@@ -816,11 +1000,15 @@ export default function App() {
   const [policySaving, setPolicySaving] = useState(false);
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const [positionItems, setPositionItems] = useState<PositionItem[]>([]);
+  const [tradeItems, setTradeItems] = useState<TradeItem[]>([]);
+  const [previewActivityItems, setPreviewActivityItems] = useState<ActivityItem[]>(PREVIEW_ACTIVITY);
+  const [previewPositionItems, setPreviewPositionItems] = useState<PositionItem[]>(PREVIEW_POSITIONS);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const colors = darkMode ? darkPalette : palette;
   const activeTheme = darkMode ? darkTheme : theme;
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const marketWindow = marketSessionWindow();
   const [proposal, setProposal] = useState(SHADOW_LOADING);
   const [paused, setPaused] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -830,9 +1018,11 @@ export default function App() {
   const [brokerConnectionStatus, setBrokerConnectionStatus] = useState<BrokerConnectionStatus>("checking");
   const [brokerUnavailable, setBrokerUnavailable] = useState(false);
   const [noEligibleRecommendation, setNoEligibleRecommendation] = useState(false);
+  const [strategyCapitalReached, setStrategyCapitalReached] = useState(false);
   const [orderPreview, setOrderPreview] = useState<OrderPreview | null>(null);
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResult | null>(null);
   const [paperSubmission, setPaperSubmission] = useState<PaperSubmission | null>(null);
+  const [submittedProposalId, setSubmittedProposalId] = useState<string | null>(null);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [appToast, setAppToast] = useState<AppToast | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -843,13 +1033,17 @@ export default function App() {
   const [previewIndex, setPreviewIndex] = useState(0);
   const [reviewedExampleIds, setReviewedExampleIds] = useState<string[]>([]);
   const [sampleDeckComplete, setSampleDeckComplete] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [realRecommendations, setRealRecommendations] = useState<Proposal[]>([]);
   const [realDeckComplete, setRealDeckComplete] = useState(false);
   const [transitionCard, setTransitionCard] = useState<Proposal | null>(null);
   const [openSection, setOpenSection] = useState<"rationale" | "strategy" | "news" | null>(null);
   const [cardWidth, setCardWidth] = useState(0);
+  const [cardBodyHeight, setCardBodyHeight] = useState(0);
+  const [rationaleTop, setRationaleTop] = useState(0);
   const cardPosition = useRef(new Animated.ValueXY()).current;
   const cardEntryProgress = useRef(new Animated.Value(1)).current;
+  const menuProgress = useRef(new Animated.Value(0)).current;
   const skeletonPulse = useRef(new Animated.Value(0.52)).current;
   const cardAnimating = useRef(false);
   const cardWasDragged = useRef(false);
@@ -859,6 +1053,7 @@ export default function App() {
   const orderWorkflowInFlight = useRef(false);
   const recommendationScanInFlight = useRef(false);
   const recalculatedRecommendations = useRef<Proposal[] | null>(null);
+  const uiPreviewRef = useRef(false);
   const dismissToast = useCallback(() => setAppToast(null), []);
   const adaptiveOperatingPercent = !riskPolicy.adaptive
     ? 100
@@ -894,6 +1089,17 @@ export default function App() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(PREVIEW_MODE_STORAGE_KEY)
+      .then((value) => {
+        if (!active || value !== "true") return;
+        previewActiveProposal();
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
   async function savePaperRiskPolicy() {
     const invalid = riskPolicy.normalRiskPercent > riskPolicy.hardRiskPercent
       || riskPolicy.minimumCashReservePercent + riskPolicy.maximumDeployedPercent > 100
@@ -903,6 +1109,11 @@ export default function App() {
       || riskPolicy.maximumPositions < 1;
     if (invalid) {
       setAppToast({ tone: "danger", title: "Policy needs attention", message: "Check that normal risk is below the hard maximum and that allocation limits do not conflict." });
+      return;
+    }
+    if (uiPreview) {
+      setAppToast({ tone: "success", title: "Preview settings updated", message: "Saved for this preview session only." });
+      setActivePage("review");
       return;
     }
     setPolicySaving(true);
@@ -923,6 +1134,14 @@ export default function App() {
   }
 
   async function loadHistory() {
+    if (uiPreviewRef.current) {
+      setHistoryError(null);
+      setHistoryLoading(false);
+      setActivityItems(previewActivityItems);
+      setPositionItems(previewPositionItems);
+      setTradeItems(PREVIEW_TRADES);
+      return;
+    }
     setHistoryLoading(true);
     setHistoryError(null);
     try {
@@ -930,15 +1149,18 @@ export default function App() {
       if (brokerConnectionStatus === "connected") {
         await fetch(`${API_BASE_URL}/broker/reconcile`, { method: "POST", headers }).catch(() => undefined);
       }
-      const [activityResponse, positionsResponse] = await Promise.all([
+      const [activityResponse, positionsResponse, tradesResponse] = await Promise.all([
         fetch(`${API_BASE_URL}/activity`, { headers }),
         fetch(`${API_BASE_URL}/positions`, { headers }),
+        fetch(`${API_BASE_URL}/trades`, { headers }),
       ]);
-      if (!activityResponse.ok || !positionsResponse.ok) throw new Error("history_unavailable");
+      if (!activityResponse.ok || !positionsResponse.ok || !tradesResponse.ok) throw new Error("history_unavailable");
       const activityResult = await activityResponse.json();
       const positionsResult = await positionsResponse.json();
+      const tradesResult = await tradesResponse.json();
       setActivityItems(activityResult.items ?? []);
       setPositionItems(positionsResult.items ?? []);
+      setTradeItems(tradesResult.items ?? []);
     } catch {
       setHistoryError("history_unavailable");
     } finally {
@@ -948,7 +1170,15 @@ export default function App() {
 
   function openHistory(page: "activity" | "positions") {
     setActivePage(page);
-    void loadHistory();
+    if (uiPreview) {
+      setHistoryError(null);
+      setHistoryLoading(false);
+      setActivityItems(previewActivityItems);
+      setPositionItems(previewPositionItems);
+      setTradeItems(PREVIEW_TRADES);
+    } else {
+      void loadHistory();
+    }
   }
 
   function applyShadowScan(scan: ShadowScan) {
@@ -1050,6 +1280,7 @@ export default function App() {
   function applyServiceProposal(serviceProposal: ServiceProposal, snapshot: BrokerSnapshot, strategySummary: StrategySummary) {
     setBroker(snapshot);
     setBrokerUnavailable(false);
+    setStrategyCapitalReached(false);
     setOrderPreview(null);
     setWhatIfResult(null);
     setPaperSubmission(null);
@@ -1074,6 +1305,7 @@ export default function App() {
     if (!first?.broker?.ok) throw new Error("recommendation_queue_empty");
     setRealRecommendations(cards);
     setRealDeckComplete(false);
+    setStrategyCapitalReached(false);
     applyServiceProposal(first.proposal, first.broker, result.strategy);
     setNoEligibleRecommendation(false);
     setBrokerConnectionStatus("connected");
@@ -1081,6 +1313,10 @@ export default function App() {
   }
 
   async function checkBrokerConnection() {
+    if (uiPreviewRef.current) {
+      setBrokerConnectionStatus("connected");
+      return;
+    }
     if (brokerCheckInFlight.current || orderWorkflowInFlight.current) return;
     brokerCheckInFlight.current = true;
     try {
@@ -1106,6 +1342,10 @@ export default function App() {
 
   async function openPaperRecommendation() {
     if (recommendationScanInFlight.current) return;
+    if (marketWindow.phase !== "open") {
+      setAppToast({ tone: "info", title: marketWindow.phase === "weekend" ? "Markets are closed for the weekend" : "Market is currently closed", message: `Recommendation scanning resumes ${marketWindow.resumes.toLowerCase()}.` });
+      return;
+    }
     recommendationScanInFlight.current = true;
     setWorkflowError(null);
     setProcessing(true);
@@ -1126,6 +1366,19 @@ export default function App() {
     const timer = setInterval(() => tick((value) => value + 1), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    uiPreviewRef.current = uiPreview;
+  }, [uiPreview]);
+
+  useEffect(() => {
+    Animated.timing(menuProgress, {
+      toValue: menuOpen ? 1 : 0,
+      duration: menuOpen ? 230 : 180,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
+      useNativeDriver: true,
+    }).start();
+  }, [menuOpen, menuProgress]);
 
   useEffect(() => {
     if (!processing || !proposal.shadowMode) {
@@ -1155,7 +1408,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (brokerConnectionStatus !== "connected" || !proposal.shadowMode || paused) return;
+    if (brokerConnectionStatus !== "connected" || !proposal.shadowMode || paused || marketWindow.phase !== "open") {
+      if (marketWindow.phase !== "open") setProcessing(false);
+      return;
+    }
 
     let active = true;
     const scan = async () => {
@@ -1169,7 +1425,8 @@ export default function App() {
         if (!active) return;
         const code = error instanceof Error ? error.message : "proposal_unavailable";
         setNoEligibleRecommendation(code === "no_eligible_recommendation");
-        setBrokerUnavailable(code !== "no_eligible_recommendation");
+        setStrategyCapitalReached(code === "strategy_capital_limit");
+        setBrokerUnavailable(code !== "no_eligible_recommendation" && code !== "strategy_capital_limit");
       } finally {
         recommendationScanInFlight.current = false;
         if (active) setProcessing(false);
@@ -1182,7 +1439,7 @@ export default function App() {
       active = false;
       clearInterval(scanTimer);
     };
-  }, [brokerConnectionStatus, paused, proposal.shadowMode]);
+  }, [brokerConnectionStatus, paused, proposal.shadowMode, marketWindow.phase]);
 
   const expired = proposal.decision === "pending" && Date.now() >= proposal.expiresAt;
   const state: Decision = expired ? "expired" : proposal.decision;
@@ -1268,8 +1525,22 @@ export default function App() {
       const submitPayload = await submitResponse.json() as {
         error?: string;
         submission?: PaperSubmission & { error?: string; errors?: Array<{ code?: number; message?: string }> };
+        recommendations?: QueuedServiceRecommendation[];
+        strategy?: StrategySummary;
       };
       if (!submitResponse.ok || !submitPayload.submission?.ok) {
+        if (submitPayload.error === "strategy_capital_changed" && submitPayload.strategy) {
+          const refreshedCards = (submitPayload.recommendations ?? [])
+            .filter((item) => item.broker?.ok)
+            .map((item) => serviceProposalToCard(item.proposal, item.broker, submitPayload.strategy!));
+          setStrategy(submitPayload.strategy);
+          setRealRecommendations(refreshedCards);
+          if (refreshedCards[0]) setProposal(refreshedCards[0]);
+          else {
+            setRealDeckComplete(true);
+            setProposal(SHADOW_LOADING);
+          }
+        }
         const brokerError = submitPayload.submission?.errors?.[0];
         throw new Error(
           submitPayload.error
@@ -1279,14 +1550,23 @@ export default function App() {
         );
       }
       setPaperSubmission(submitPayload.submission);
+      if (submitPayload.strategy) {
+        const refreshedCards = (submitPayload.recommendations ?? [])
+          .filter((item) => item.broker?.ok)
+          .map((item) => serviceProposalToCard(item.proposal, item.broker, submitPayload.strategy!));
+        recalculatedRecommendations.current = refreshedCards;
+        setStrategy(submitPayload.strategy);
+      }
+      setSubmittedProposalId(proposal.id);
+      setProposal((current) => ({ ...current, decision: "approved" }));
       const queuedForOpen = submitPayload.submission.result?.status === "PreSubmitted"
         && submitPayload.submission.warnings?.some((warning) => warning.code === 399);
       setAppToast({
-        tone: "success",
-        title: queuedForOpen ? "Paper order queued" : "Paper bracket submitted",
+        tone: "info",
+        title: queuedForOpen ? "Paper order queued" : "Paper order working",
         message: queuedForOpen
-          ? `${proposal.quantity} ${proposal.symbol} · accepted by IBKR and scheduled for the next regular market open.`
-          : `${proposal.quantity} ${proposal.symbol} · buy plus protective stop and profit target acknowledged`,
+          ? `${proposal.quantity} ${proposal.symbol} · accepted by IBKR and scheduled for the next regular market open. The card will close after the entry fills.`
+          : `${proposal.quantity} ${proposal.symbol} · acknowledged by IBKR. The card will close after the entry fills.`,
       });
       setStrategy((current) => current ? {
         ...current,
@@ -1299,6 +1579,8 @@ export default function App() {
       const code = error instanceof Error ? error.message : "paper_submission_blocked";
       const message = code === "invalid_or_expired_approval"
         ? "The approval expired before submission. Request a new recommendation."
+        : code === "strategy_capital_changed"
+          ? "Available strategy cash changed after another order. This recommendation has been resized; review it again before approving."
         : code === "final_safety_check_blocked"
           ? "The price, account, or order no longer matched the approved safety limits."
           : code === "ibkr_unavailable_approval_consumed"
@@ -1347,9 +1629,45 @@ export default function App() {
   async function completeDecision(decision: "approved" | "denied") {
     const succeeded = await executeDecision(decision);
     const replacementCards = decision === "denied" ? recalculatedRecommendations.current : null;
-    recalculatedRecommendations.current = null;
-    if (succeeded) dismissResolvedLiveCard(decision, replacementCards);
+    if (decision === "denied") recalculatedRecommendations.current = null;
+    if (succeeded && decision === "denied") dismissResolvedLiveCard(decision, replacementCards);
   }
+
+  useEffect(() => {
+    if (!submittedProposalId || uiPreview) return;
+    let active = true;
+    let checking = false;
+    const checkFill = async () => {
+      if (!active || checking) return;
+      checking = true;
+      try {
+        const headers = { "x-app-token": APP_TOKEN };
+        await fetch(`${API_BASE_URL}/broker/reconcile`, { method: "POST", headers });
+        const response = await fetch(`${API_BASE_URL}/activity`, { headers });
+        if (!response.ok) return;
+        const result = await response.json() as { items?: ActivityItem[] };
+        const entry = (result.items ?? []).find((item) => item.id === submittedProposalId);
+        if (entry?.status.toLowerCase() !== "filled") return;
+        setSubmittedProposalId(null);
+        setAppToast({ tone: "success", title: "Paper buy filled", message: `${entry.quantity ?? proposal.quantity} ${entry.symbol} filled. The position is now tracked in the app.` });
+        if (proposal.id === submittedProposalId) {
+          const refreshedCards = recalculatedRecommendations.current;
+          recalculatedRecommendations.current = null;
+          dismissResolvedLiveCard("approved", refreshedCards);
+        }
+      } catch {
+        // Reconciliation will retry; a temporary connection failure must not dismiss the card.
+      } finally {
+        checking = false;
+      }
+    };
+    void checkFill();
+    const interval = setInterval(() => void checkFill(), 3_000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [submittedProposalId, uiPreview, proposal.id]);
 
   function decide(decision: "approved" | "denied") {
     if (!actionable) return;
@@ -1383,7 +1701,12 @@ export default function App() {
   }
 
   function previewActiveProposal() {
+    uiPreviewRef.current = true;
     setUiPreview(true);
+    setActivePage("review");
+    setBrokerConnectionStatus("connected");
+    setActivityItems(previewActivityItems);
+    setPositionItems(previewPositionItems);
     setBroker(null);
     setBrokerUnavailable(false);
     setPreviewIndex(0);
@@ -1397,7 +1720,49 @@ export default function App() {
     setProposal({ ...UI_PROPOSALS[0]!, expiresAt: Date.now() + 4 * 60 * 1000 });
   }
 
-  function finishSampleDecision(_decision: "approved" | "denied") {
+  function finishSampleDecision(decision: "approved" | "denied") {
+    const occurredAt = Date.now();
+    const activity: ActivityItem = {
+      id: `preview-${proposal.id}-${occurredAt}`,
+      symbol: proposal.symbol,
+      side: proposal.side.toLowerCase(),
+      status: decision === "approved" ? "Simulated fill" : "denied",
+      occurredAt,
+      quantity: proposal.quantity,
+      limitPrice: proposal.limitPrice,
+      environment: "preview",
+      brokerOrderId: null,
+    };
+    const nextActivity = [activity, ...previewActivityItems];
+    setPreviewActivityItems(nextActivity);
+    setActivityItems(nextActivity);
+    if (decision === "approved") {
+      const existing = previewPositionItems.find((item) => item.symbol === proposal.symbol);
+      const nextPositions = existing
+        ? previewPositionItems.map((item) => item.symbol === proposal.symbol ? {
+            ...item,
+            quantity: item.quantity + proposal.quantity,
+            averageEntryPrice: ((item.averageEntryPrice * item.quantity) + (proposal.limitPrice * proposal.quantity)) / (item.quantity + proposal.quantity),
+            currentPrice: proposal.currentPrice,
+            protectiveStopPrice: proposal.stopPrice,
+            profitTargetPrice: proposal.targetPrice,
+            updatedAt: occurredAt,
+            dataState: "preview" as const,
+          } : item)
+        : [{
+            id: `preview-position-${proposal.symbol}`,
+            symbol: proposal.symbol,
+            quantity: proposal.quantity,
+            averageEntryPrice: proposal.limitPrice,
+            currentPrice: proposal.currentPrice,
+            protectiveStopPrice: proposal.stopPrice,
+            profitTargetPrice: proposal.targetPrice,
+            updatedAt: occurredAt,
+            dataState: "preview" as const,
+          }, ...previewPositionItems];
+      setPreviewPositionItems(nextPositions);
+      setPositionItems(nextPositions);
+    }
     const reviewed = [...reviewedExampleIds, proposal.id];
     const nextIndex = UI_PROPOSALS.findIndex((item) => !reviewed.includes(item.id));
     setReviewedExampleIds(reviewed);
@@ -1565,6 +1930,9 @@ export default function App() {
   const backPreviewCard = activePreviewPosition >= 0 && availableDeckCards.length > 2
     ? availableDeckCards[(activePreviewPosition + 2) % availableDeckCards.length]
     : null;
+  const rationaleLines = cardBodyHeight > 0 && rationaleTop > 0
+    ? Math.max(1, Math.min(20, Math.floor((cardBodyHeight - rationaleTop - 51) / typeRamp.body.lineHeight)))
+    : 2;
 
   function returnToScanner() {
     setOpenSection(null);
@@ -1580,29 +1948,66 @@ export default function App() {
     setProposal(SHADOW_LOADING);
   }
 
-  function openMenu() {
-    const actions: Array<{ text: string; style?: "cancel"; onPress?: () => void }> = [];
-    if (activePage !== "review") {
-      actions.push({ text: "Back to recommendations", onPress: () => setActivePage("review") });
-    }
-    if (!proposal.shadowMode) {
-      actions.push({ text: "Back to scanner", onPress: returnToScanner });
-    }
-    if (activePage !== "activity") actions.push({ text: "Activity", onPress: () => openHistory("activity") });
-    if (activePage !== "positions") actions.push({ text: "Positions", onPress: () => openHistory("positions") });
-    if (activePage !== "settings") actions.push({ text: "Settings", onPress: () => setActivePage("settings") });
-    actions.push(
-      { text: "Refresh recommendations", onPress: () => void openPaperRecommendation() },
-      { text: "Preview examples", onPress: previewActiveProposal },
-      { text: paused ? "Resume scanner" : "Pause scanner", onPress: () => setPaused((value) => !value) },
-      { text: "Close", style: "cancel" },
-    );
-    Alert.alert(
-      "Menu",
-      `${paused ? "Scanner paused" : "Scanner running"}\nIBKR Paper: ${brokerConnectionStatus === "connected" ? "Connected" : brokerConnectionStatus === "checking" ? "Checking" : "Offline"}`,
-      actions,
-    );
+  function exitPreviewMode() {
+    uiPreviewRef.current = false;
+    setUiPreview(false);
+    setActivityItems([]);
+    setPositionItems([]);
+    setActivePage("review");
+    returnToScanner();
   }
+
+  function setPreviewMode(enabled: boolean) {
+    void AsyncStorage.setItem(PREVIEW_MODE_STORAGE_KEY, String(enabled));
+    if (enabled) {
+      previewActiveProposal();
+      setActivePage("preview");
+      setAppToast({ tone: "success", title: "Preview mode on", message: "Sample data is now active throughout the app." });
+    } else {
+      exitPreviewMode();
+      setActivePage("preview");
+      setAppToast({ tone: "info", title: "Preview mode off", message: "The app is using your paper workspace again." });
+    }
+  }
+
+  const menuActions: Array<{ label: string; onPress: () => void; emphasized?: boolean }> = [
+    { label: `News for ${proposal.symbol}`, onPress: () => setOpenSection("news") },
+    ...(activePage !== "review" ? [{ label: "Recommendations", onPress: () => setActivePage("review") }] : []),
+    ...(activePage !== "activity" ? [{ label: "Activity", onPress: () => openHistory("activity") }] : []),
+    ...(activePage !== "positions" ? [{ label: "Positions", onPress: () => openHistory("positions") }] : []),
+    ...(activePage !== "settings" ? [{ label: "Settings", onPress: () => setActivePage("settings") }] : []),
+    ...(activePage !== "preview" ? [{ label: "Preview mode", onPress: () => setActivePage("preview"), emphasized: uiPreview }] : []),
+    ...(!uiPreview ? [{ label: "Refresh recommendations", onPress: () => void openPaperRecommendation() }] : []),
+    { label: paused ? "Resume scanner" : "Pause scanner", onPress: () => setPaused((value) => !value) },
+  ];
+  const headerStatusLabel = uiPreview
+    ? "Preview mode"
+    : brokerConnectionStatus === "disconnected"
+      ? "Paper offline"
+      : brokerConnectionStatus === "checking"
+        ? "Checking paper"
+        : paused
+          ? "Paper · paused"
+          : proposal.shadowMode && marketWindow.phase === "weekend"
+            ? "Paper · weekend"
+            : proposal.shadowMode && marketWindow.phase !== "open"
+              ? "Paper · market closed"
+              : proposal.shadowMode && processing
+                ? "Paper · scanning"
+                : proposal.shadowMode && noEligibleRecommendation
+                  ? "Paper · no setups"
+                  : proposal.shadowMode
+                    ? "Paper · monitoring"
+                    : "Paper connected";
+  const headerStatusColor = uiPreview
+    ? colors.accent
+    : brokerConnectionStatus === "disconnected"
+      ? "#D64545"
+      : brokerConnectionStatus === "checking" || (proposal.shadowMode && processing)
+        ? "#D99000"
+        : paused || (proposal.shadowMode && marketWindow.phase !== "open")
+          ? colors.muted
+          : "#22A447";
 
   return (
     <VisualThemeContext.Provider value={{ colors, styles }}>
@@ -1612,7 +2017,7 @@ export default function App() {
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
       <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
         <View style={styles.appHeader}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Open menu" onPress={openMenu} style={styles.menuButton}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Open menu" accessibilityState={{ expanded: menuOpen }} onPress={() => setMenuOpen((value) => !value)} style={styles.menuButton}>
             <ListIcon size={23} color={colors.ink} weight="regular" />
           </Pressable>
           <View style={styles.headerActions}>
@@ -1620,11 +2025,9 @@ export default function App() {
               <CircleIcon
                 size={8}
                 weight="fill"
-                color={brokerConnectionStatus === "connected" ? "#22A447" : brokerConnectionStatus === "checking" ? "#D99000" : "#D64545"}
+                color={headerStatusColor}
               />
-              <Text style={styles.marketText}>
-                {brokerConnectionStatus === "connected" ? "Paper connected" : brokerConnectionStatus === "checking" ? "Checking paper" : "Paper offline"}
-              </Text>
+              <Text style={styles.marketText}>{headerStatusLabel}</Text>
             </View>
             <Pressable
               accessibilityRole="switch"
@@ -1643,11 +2046,13 @@ export default function App() {
 
         {appToast && (
           <View style={styles.toastLayer}>
-            <Toast {...appToast} loading={appToast.tone === "info" && processing} onDismiss={dismissToast} duration={appToast.tone === "info" && processing ? 0 : 5500} />
+            <Toast {...appToast} compact loading={appToast.tone === "info" && processing} onDismiss={dismissToast} duration={appToast.tone === "info" && processing ? 0 : 5500} />
           </View>
         )}
 
-        {activePage === "settings" ? (
+        {activePage === "preview" ? (
+          <PreviewModePage enabled={uiPreview} onChange={setPreviewMode} />
+        ) : activePage === "settings" ? (
           <SettingsPage
             policy={riskPolicy}
             operatingPercent={adaptiveOperatingPercent}
@@ -1657,7 +2062,7 @@ export default function App() {
             onSave={() => void savePaperRiskPolicy()}
           />
         ) : activePage === "activity" || activePage === "positions" ? (
-          <HistoryPage page={activePage} activity={activityItems} positions={positionItems} loading={historyLoading} error={historyError} onRefresh={() => void loadHistory()} />
+          <HistoryPage page={activePage} activity={activityItems} positions={positionItems} trades={tradeItems} loading={historyLoading} error={historyError} onRefresh={() => void loadHistory()} previewMode={uiPreview} />
         ) : (
         <>
 
@@ -1706,28 +2111,42 @@ export default function App() {
 
         {proposal.shadowMode && !showRecommendationSkeleton && !realDeckComplete && (
           <View style={styles.homeDashboard}>
-            <Text style={styles.homeEyebrow}>{paused ? "SCANNER PAUSED" : "SCANNER ACTIVE"}</Text>
+            <Text style={styles.homeEyebrow}>{paused ? "SCANNER PAUSED" : marketWindow.phase === "open" ? "SCANNER ACTIVE" : "SCANNER STANDBY"}</Text>
             <Text style={styles.homeTitle}>
-              {brokerConnectionStatus === "disconnected" ? "Paper is offline" : "Finding your next setup"}
+              {brokerConnectionStatus === "disconnected"
+                ? "Paper is offline"
+                : marketWindow.phase === "weekend"
+                  ? "Markets are closed for the weekend"
+                  : marketWindow.phase !== "open"
+                    ? "Market is currently closed"
+                    : strategyCapitalReached
+                      ? "Allocation fully deployed"
+                    : noEligibleRecommendation
+                      ? "No recommendations right now"
+                      : "Scanning the market"}
             </Text>
             <Text style={styles.homeSummary}>
-              {brokerUnavailable
+              {brokerConnectionStatus === "connected" && marketWindow.phase !== "open"
+                ? `No new recommendations will be created while the market is closed. Scanning resumes ${marketWindow.resumes}.`
+                : strategyCapitalReached
+                ? "The strategy has used its current allocation, so it is monitoring existing positions and their automatic exits instead of proposing another buy."
+                : brokerUnavailable
                 ? "The scanner could not load a recommendation. You can try again when the connection is ready."
                 : noEligibleRecommendation
-                  ? "The scanner is active. Nothing in the pilot watchlist currently passes every momentum and risk rule."
+                  ? "Paper is connected and the scanner is still monitoring. Nothing currently passes every momentum, liquidity, and risk rule."
                 : brokerConnectionStatus === "disconnected"
                   ? "Open TWS Paper and the local service. Recommendations will appear automatically after they reconnect."
-                  : "Reviewing your watchlist against the current buying and risk rules. A card will appear automatically when it is ready."}
+                  : "Paper is connected. The scanner is reviewing the market now; a card appears only when a setup passes every rule."}
             </Text>
 
             <View style={styles.homeScannerPanel}>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Scan</Text>
-                <Text style={styles.homeScannerValue}>Continuous · fresh quote checks</Text>
+                <Text style={styles.homeScannerValue}>{marketWindow.phase === "open" ? "Continuous · fresh quote checks" : `Resumes ${marketWindow.resumes}`}</Text>
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Recommendations</Text>
-                <Text style={styles.homeScannerValue}>All currently qualified buys</Text>
+                <Text style={styles.homeScannerValue}>{strategyCapitalReached ? "Paused while allocation is full" : "All currently qualified buys"}</Text>
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Protection</Text>
@@ -1735,7 +2154,15 @@ export default function App() {
               </View>
             </View>
 
-            {brokerUnavailable && brokerConnectionStatus === "connected" ? (
+            {strategyCapitalReached ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => openHistory("positions")}
+                style={({ pressed }) => [styles.homeAction, pressed && styles.homeActionPressed]}
+              >
+                <Text style={styles.homeActionText}>View positions</Text>
+              </Pressable>
+            ) : brokerUnavailable && brokerConnectionStatus === "connected" ? (
               <Pressable
                 accessibilityRole="button"
                 disabled={processing}
@@ -1812,7 +2239,10 @@ export default function App() {
             ]}
           >
             <Pressable
-              onLayout={(event) => setCardWidth(event.nativeEvent.layout.width)}
+              onLayout={(event) => {
+                setCardWidth(event.nativeEvent.layout.width);
+                setCardBodyHeight(event.nativeEvent.layout.height);
+              }}
               onPress={(event) => {
                 if ((!uiPreview && realRecommendations.length < 2) || cardWidth === 0 || Date.now() < suppressCardTapUntil.current) return;
                 if (event.nativeEvent.locationX >= cardWidth / 2) navigateSampleCard(1, 1);
@@ -1883,10 +2313,20 @@ export default function App() {
                 )}
               </View>
 
-              <View style={styles.infoCard}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Read the full trade rationale"
+                accessibilityHint="Opens a sheet with the complete rationale and key risks"
+                onLayout={(event) => setRationaleTop(event.nativeEvent.layout.y)}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  setOpenSection("rationale");
+                }}
+                style={({ pressed }) => [styles.infoCard, pressed && styles.infoCardPressed]}
+              >
                 <Text style={styles.infoCardTitle}>Why this trade</Text>
-                <Text style={styles.infoCardBody}>{firstTwoSentences(proposal.companyCatalyst)}</Text>
-              </View>
+                <Text style={styles.infoCardBody} numberOfLines={rationaleLines} ellipsizeMode="tail">{proposal.companyCatalyst}</Text>
+              </Pressable>
             </Pressable>
             <View style={styles.cardFooter}>
               {state === "pending" ? <View style={styles.actions}>
@@ -1913,7 +2353,9 @@ export default function App() {
                   />
                 </View>
               ) : (
-                uiPreview ? <View style={styles.actions}>
+                submittedProposalId === proposal.id ? <View style={styles.actions}>
+                  <ActionButton label="Order working…" tone="secondary" pending disabled onPress={() => undefined} />
+                </View> : uiPreview ? <View style={styles.actions}>
                   <ActionButton label="Deny" tone="secondary" onPress={() => animateSampleDecision("denied")} />
                   <ActionButton label="Approve" tone="primary" onPress={() => animateSampleDecision("approved")} />
                 </View> : <Pressable onPress={resetDemo} style={styles.reset}>
@@ -1929,6 +2371,44 @@ export default function App() {
         )}
 
       </ScrollView>
+
+      <View pointerEvents={menuOpen ? "auto" : "none"} style={styles.navigationDrawerLayer}>
+        <Animated.View style={[styles.navigationDrawerBackdrop, { opacity: menuProgress }]}>
+          <Pressable accessibilityLabel="Close navigation" onPress={() => setMenuOpen(false)} style={StyleSheet.absoluteFill} />
+        </Animated.View>
+        <Animated.View
+          accessibilityRole="menu"
+          style={[styles.navigationDrawer, { transform: [{ translateX: menuProgress.interpolate({ inputRange: [0, 1], outputRange: [-330, 0] }) }] }]}
+        >
+          <SafeAreaView style={styles.navigationDrawerSafe} edges={["top", "bottom", "left"]}>
+            <View style={styles.navigationDrawerHeader}>
+              <View>
+                <Text style={styles.navigationDrawerTitle}>Trade Approval</Text>
+                <Text style={styles.contextMenuStatusText}>{uiPreview ? "Preview workspace" : "Paper workspace"}</Text>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close navigation" onPress={() => setMenuOpen(false)} style={styles.drawerCloseButton}>
+                <XIcon size={19} color={colors.ink} weight="regular" />
+              </Pressable>
+            </View>
+            <View style={styles.contextMenuStatus}>
+              <Text style={styles.contextMenuEyebrow}>{uiPreview ? "PREVIEW MODE" : paused ? "SCANNER PAUSED" : "SCANNER RUNNING"}</Text>
+              <Text style={styles.contextMenuStatusText}>{uiPreview ? "Realistic sample data · broker actions disabled" : `IBKR Paper · ${brokerConnectionStatus}`}</Text>
+            </View>
+            <View style={styles.navigationDrawerItems}>
+            {menuActions.map((action) => (
+              <Pressable
+                key={action.label}
+                accessibilityRole="menuitem"
+                onPress={() => { setMenuOpen(false); action.onPress(); }}
+                style={({ pressed }) => [styles.contextMenuItem, pressed && styles.contextMenuItemPressed]}
+              >
+                <Text style={[styles.contextMenuItemText, action.emphasized && styles.contextMenuItemEmphasized]}>{action.label}</Text>
+              </Pressable>
+            ))}
+            </View>
+          </SafeAreaView>
+        </Animated.View>
+      </View>
 
       <Modal
         visible={openSection !== null}
@@ -1959,6 +2439,7 @@ export default function App() {
                   <Text style={styles.sheetSectionTitle}>Key risk</Text>
                   <Text style={styles.sheetBody}>{proposal.keyRisk}</Text>
                 </View>
+                <ActionButton label={`Read ${proposal.symbol} news`} tone="secondary" onPress={() => setOpenSection("news")} />
               </>
             )}
 
@@ -1980,7 +2461,9 @@ export default function App() {
 
             {openSection === "news" && (
               <View style={styles.sheetSection}>
-                <Text style={styles.infoCardMuted}>No verified news source is connected yet. Articles will appear here with their source and publication time.</Text>
+                <StockNews key={`${proposal.symbol}:${uiPreview}`} symbol={proposal.symbol} preview={uiPreview}
+                  apiUrl={API_BASE_URL} appToken={APP_TOKEN} colors={colors}
+                  onLinkError={() => setAppToast({ tone: "danger", title: "Could not open article", message: "Please try the article link again." })} />
               </View>
             )}
           </ScrollView>
@@ -2003,7 +2486,22 @@ return StyleSheet.create({
   page: { flexGrow: 1, width: "100%", maxWidth: 680, alignSelf: "center", paddingHorizontal: spacing.large, paddingTop: spacing.small, paddingBottom: spacing.large },
   appHeader: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  toastLayer: { position: "absolute", top: 66, left: spacing.large, right: spacing.large, zIndex: 20 },
+  navigationDrawerLayer: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 100, flexDirection: "row" },
+  navigationDrawerBackdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(0,0,0,0.34)" },
+  navigationDrawer: { width: "84%", maxWidth: 330, height: "100%", backgroundColor: colors.surface, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border, shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 22, shadowOffset: { width: 8, height: 0 }, elevation: 12 },
+  navigationDrawerSafe: { flex: 1 },
+  navigationDrawerHeader: { minHeight: 76, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, paddingHorizontal: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  navigationDrawerTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "700" },
+  navigationDrawerItems: { paddingVertical: 8 },
+  drawerCloseButton: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: colors.surfaceMuted },
+  contextMenuStatus: { paddingHorizontal: 15, paddingTop: 13, paddingBottom: 11, backgroundColor: colors.surfaceMuted, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  contextMenuEyebrow: { color: colors.muted, fontSize: 10, lineHeight: 14, fontWeight: "700", letterSpacing: 0.8 },
+  contextMenuStatusText: { color: colors.text, ...typeRamp.caption, marginTop: 2, textTransform: "capitalize" },
+  contextMenuItem: { minHeight: 46, justifyContent: "center", paddingHorizontal: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  contextMenuItemPressed: { backgroundColor: colors.surfaceMuted },
+  contextMenuItemText: { color: colors.text, ...typeRamp.body },
+  contextMenuItemEmphasized: { color: colors.accentDark, fontWeight: "600" },
+  toastLayer: { position: "absolute", top: 62, left: spacing.small, right: spacing.small, zIndex: 20 },
   settingsPage: { paddingTop: 30, paddingBottom: 44 },
   settingsEyebrow: { color: colors.muted, ...typeRamp.caption, fontWeight: "400", letterSpacing: 1.1 },
   settingsTitle: { color: colors.ink, ...typeRamp.display, marginTop: 2 },
@@ -2018,6 +2516,8 @@ return StyleSheet.create({
   operatingValue: { color: colors.ink, fontSize: 30, lineHeight: 36, fontWeight: "800", marginTop: 3 },
   operatingReason: { color: colors.text, ...typeRamp.body, marginTop: 5 },
   operatingFootnote: { color: colors.muted, ...typeRamp.caption, marginTop: 10 },
+  previewExplanation: { backgroundColor: colors.surfaceMuted, borderRadius: radius.large, padding: 18, marginTop: 18 },
+  previewExplanationText: { color: colors.text, ...typeRamp.body, marginTop: 7 },
   policyField: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   policyFieldLabel: { flex: 1, color: colors.muted, ...typeRamp.body },
   policyInputWrap: { minWidth: 112, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5 },
@@ -2026,6 +2526,15 @@ return StyleSheet.create({
   policySave: { minHeight: 56, alignItems: "center", justifyContent: "center", backgroundColor: colors.actionApprove, borderRadius: radius.pill, marginTop: 12, paddingHorizontal: 20 },
   policySaveText: { color: colors.actionApproveText, fontSize: 16, lineHeight: 22, fontWeight: "400" },
   historyPage: { flex: 1, paddingTop: 10, paddingBottom: 30 },
+  activitySearch: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 16, marginTop: 18 },
+  activitySearchInput: { flex: 1, minHeight: 48, color: colors.ink, ...typeRamp.body, paddingVertical: 0 },
+  activityFilters: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 14, paddingBottom: 8 },
+  activityFilterIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, borderRadius: radius.pill },
+  activityFilterChip: { height: 42, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 15 },
+  activityFilterText: { color: colors.ink, ...typeRamp.caption, fontWeight: "500" },
+  activitySection: { marginTop: 22, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  activitySectionTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600", marginBottom: 7 },
+  activityRow: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 12 },
   historyMessage: { color: colors.muted, ...typeRamp.body, marginTop: 8 },
   historyEmpty: { backgroundColor: colors.surfaceMuted, borderRadius: radius.medium, padding: 20, marginTop: 24 },
   historyEmptyTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600" },
@@ -2120,10 +2629,11 @@ return StyleSheet.create({
   deckCompleteEyebrow: { color: colors.muted, ...typeRamp.caption, textAlign: "center", marginBottom: 7 },
   deckCompleteTitle: { color: colors.ink, ...typeRamp.title, textAlign: "center" },
   deckCompleteBody: { color: colors.muted, ...typeRamp.body, textAlign: "center", marginTop: 9, maxWidth: 340 },
-  cardBody: { flexGrow: 1, paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 },
+  cardBody: { flex: 1, minHeight: 0, overflow: "hidden", paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 },
   cardPosition: { alignItems: "center", marginBottom: 10 },
   cardPositionText: { color: colors.muted, ...typeRamp.caption },
   infoCard: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingVertical: 11 },
+  infoCardPressed: { opacity: 0.62 },
   infoCardHeadingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 3 },
   infoCardTitle: { color: colors.ink, ...typeRamp.label, fontWeight: "600", marginBottom: 5 },
   infoCardBody: { color: colors.text, ...typeRamp.body },

@@ -72,9 +72,10 @@ type ToastProps = {
   loading?: boolean;
   onDismiss: () => void;
   duration?: number;
+  compact?: boolean;
 };
 
-export function Toast({ title, message, tone = "info", loading = false, onDismiss, duration = 5500 }: ToastProps) {
+export function Toast({ title, message, tone = "info", loading = false, onDismiss, duration = 5500, compact = false }: ToastProps) {
   const theme = useTheme<Theme>();
   useEffect(() => {
     if (duration <= 0) return;
@@ -89,24 +90,30 @@ export function Toast({ title, message, tone = "info", loading = false, onDismis
   return (
     <Box
       flexDirection="row"
-      alignItems="flex-start"
-      gap="s"
+      alignItems="center"
+      gap={compact ? "xs" : "s"}
       backgroundColor={background}
       borderColor="ink"
       borderWidth={1}
-      borderRadius="l"
-      padding="m"
-      style={styles.toast}
+      borderRadius={compact ? "pill" : "l"}
+      padding={compact ? "s" : "m"}
+      style={[styles.toast, compact && styles.compactToast]}
     >
       {loading
         ? <ActivityIndicator size="small" color={theme.colors.surface} />
-        : <Icon size={22} color={foreground} weight="fill" />}
-      <Box flex={1}>
-        <AppText color="surface" {...typeRamp.label} fontWeight="400">{title}</AppText>
-        {message ? <AppText color="surface" {...typeRamp.caption} marginTop="xs" style={styles.toastMessageDark}>{message}</AppText> : null}
-      </Box>
+        : <Icon size={compact ? 17 : 22} color={foreground} weight="fill" />}
+      {compact ? (
+        <AppText color="surface" {...typeRamp.caption} fontWeight="400" numberOfLines={1} style={styles.compactToastText}>
+          {title}{message ? ` · ${message}` : ""}
+        </AppText>
+      ) : (
+        <Box flex={1}>
+          <AppText color="surface" {...typeRamp.label} fontWeight="400">{title}</AppText>
+          {message ? <AppText color="surface" {...typeRamp.caption} marginTop="xs" style={styles.toastMessageDark}>{message}</AppText> : null}
+        </Box>
+      )}
       <Pressable accessibilityRole="button" accessibilityLabel="Dismiss notification" hitSlop={10} onPress={onDismiss}>
-        <XIcon size={18} color="#A3A3A3" weight="regular" />
+        <XIcon size={compact ? 15 : 18} color="#A3A3A3" weight="regular" />
       </Pressable>
     </Box>
   );
@@ -149,4 +156,6 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   toastMessageDark: { opacity: 0.78 },
+  compactToast: { minHeight: 40 },
+  compactToastText: { flex: 1 },
 });

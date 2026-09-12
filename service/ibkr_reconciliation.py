@@ -44,6 +44,7 @@ class ReconciliationSnapshot(EWrapper, EClient):
         self.positions: list[dict] = []
         self.orders: dict[str, dict] = {}
         self.executions: list[dict] = []
+        self.commissions: dict[str, dict] = {}
         self.errors: list[dict] = []
 
     def nextValidId(self, orderId: int) -> None:  # noqa: N802
@@ -120,6 +121,18 @@ class ReconciliationSnapshot(EWrapper, EClient):
     def execDetailsEnd(self, reqId: int) -> None:  # noqa: N802
         self.executions_done.set()
 
+    def commissionReport(self, report) -> None:  # noqa: N802
+        commission = {
+            "commission": number(report.commission),
+            "commissionCurrency": report.currency or None,
+            "realizedPnl": number(report.realizedPNL),
+        }
+        self.commissions[report.execId] = commission
+        for execution in self.executions:
+            if execution["executionId"] == report.execId:
+                execution.update(commission)
+                break
+
     def error(self, reqId: int, *args) -> None:
         if len(args) >= 4:
             _, code, message, *_ = args
@@ -155,6 +168,9 @@ def main() -> int:
             "openOrders": app.orders_done.wait(8),
             "executions": app.executions_done.wait(8),
         }
+        # Commission reports follow execution details and have no end callback.
+        # Allow a short bounded window for them to attach to the executions.
+        time.sleep(0.35)
         for _ in range(20):
             if app.accounts:
                 break
