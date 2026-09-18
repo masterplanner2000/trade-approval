@@ -99,7 +99,10 @@ def stock(symbol: str) -> Contract:
 
 
 def main() -> int:
-    symbol = (sys.argv[1] if len(sys.argv) > 1 else "NVDA").upper()
+    args = sys.argv[1:]
+    live_only = "--live-only" in args
+    args = [arg for arg in args if arg != "--live-only"]
+    symbol = (args[0] if args else "NVDA").upper()
     if not symbol.isascii() or not symbol.isalnum() or len(symbol) > 10:
         print(json.dumps({"ok": False, "error": "invalid_symbol"}))
         return 2
@@ -114,7 +117,8 @@ def main() -> int:
 
         app.reqManagedAccts()
         app.reqAccountSummary(9101, "All", "NetLiquidation,TotalCashValue,BuyingPower")
-        app.reqMarketDataType(3)  # Use delayed data when live data is unavailable.
+        # The diagnostic mode must not silently fall back to delayed quotes.
+        app.reqMarketDataType(1 if live_only else 3)
         app.reqMktData(9102, stock(symbol), "", True, False, [])
         app.summary_done.wait(6)
         app.quote_done.wait(6)
@@ -125,6 +129,7 @@ def main() -> int:
             "ok": True,
             "environment": "paper",
             "readOnly": True,
+            "requestedData": "live_only" if live_only else "delayed_fallback",
             "account": mask_account(app.accounts[0]) if app.accounts else None,
             "summary": app.summary,
             "quote": {

@@ -75,6 +75,8 @@ This is the living record of product, design, trading-safety, data, and technica
 
 **Entitlement clarification:** Live Client Portal inspection found Paper sharing already enabled, fee-waived non-consolidated US streaming quotes, API acknowledgement not certified, and unset market-data subscriber/non-commercial status. The Paper TWS chart also warned about a simultaneous live-username TWS session. Completing legal/API acknowledgements or subscriber classifications is the user's decision; no form was signed and no paid feed was added. These observations do not prove which single condition causes warning 2186 or guarantee live API access after a change. Retest the exact Paper API quote before considering any safety-gate release.
 
+**Retest after user action, 2026-09-18:** The user signed the API acknowledgement; Client Portal now reports API access enabled. Subscriber/non-commercial classifications remain unset. Separate live-only, read-only Paper TWS API requests for NVDA and MSFT still returned 2186 with no live quote at 12:43 p.m. ET. The acknowledgement was necessary account housekeeping but not sufficient to pass the quote gate. Preserve all safety holds; verify session refresh and the exact entitlement with IBKR before any paid subscription decision. The diagnostic made no broker order or account change.
+
 ### D-043 — Reconcile terminal Paper orders without guessing from absence
 
 **Status:** Confirmed; simulator-tested, with read-only IBKR callback verification.
