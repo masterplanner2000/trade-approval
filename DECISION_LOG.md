@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-18.5 · **Corresponding architecture:** 3.27
+**Log revision:** 2026-09-18.6 · **Corresponding architecture:** 3.27
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -59,10 +59,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-041 | Defer news-event and thematic signals until current paper strategy is measured | Confirmed priority; signal design provisional | 2026-09-17 |
 | D-042 | Prioritize position truth, execution reliability and measurement before expanding recommendations | Confirmed delivery sequence | 2026-09-17 |
 | D-043 | Require explicit broker terminal-order evidence before releasing an unfilled order reservation | Confirmed; simulator-tested | 2026-09-18 |
+| D-044 | Repair legacy Paper protection only from fresh broker evidence and a bounded stop policy | Confirmed safety gate; order placement pending | 2026-09-18 |
 
 ---
 
 ## Detailed decisions
+
+### D-044 — Repair legacy Paper protection without guessing
+
+**Status:** Confirmed safety gate; no repair order has been placed.
+
+**Decision:** The user authorized proactive Paper-only protection work without repeated step approvals. NVDA 25 and MSFT 2 are broker-attributed legacy-app holdings with no active sell orders. A repair must use a fresh complete Paper position/order snapshot, exact share attribution, no conflicting sell order, live and recent bid/ask, an explicit stop policy and a bounded dollar loss. It must be observed as accepted and active at IBKR before the app calls the holding protected. Never infer a stop from the old buy order or label a delayed quote as live. This authority does not extend to live accounts.
+
+**Current blocker:** On September 18 during market hours, IBKR's Paper API quoted NVDA and MSFT with market-data type 3 (delayed). One read-only Paper API connection also timed out before recovering. A pure, tested repair preflight now enforces the gates, but no stop price has been selected and no order was sent. A separate simulator evidence classifier handles replacement acknowledgement, rejection, partial sale, disconnect and stop/target race without treating intent as broker fact; it is not an execution adapter. New buying capacity and automatic Paper sells remain blocked until protection and the ordinary-exit lifecycle are independently verified.
 
 ### D-043 — Reconcile terminal Paper orders without guessing from absence
 
