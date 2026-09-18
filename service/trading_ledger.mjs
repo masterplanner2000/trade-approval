@@ -528,7 +528,9 @@ export class TradingLedger {
       }
       const decision = this.getDecisionForProposal(proposal.id);
       const attempt = decision ? this.listSubmissionAttemptsForDecision(decision.id)[0] : null;
-      if (attempt && ["started", "submitted", "unknown"].includes(attempt.status)) {
+      const terminalEntry = orders.some((order) => order.role === "entry"
+        && ["cancelled", "apicancelled", "rejected", "inactive"].includes(order.status.toLowerCase()));
+      if (!terminalEntry && attempt && ["started", "submitted", "unknown"].includes(attempt.status)) {
         reserved += Number(proposal.terms?.quantity ?? 0) * Number(proposal.terms?.limitPrice ?? 0);
       }
     }

@@ -286,7 +286,11 @@ const now = () => Date.now();
 function positionOwnership(snapshot) {
   return reconcilePositionOwnership(snapshot, ledger(), {
     historicalSymbols: strategy.completed.filter((item) => item.outcome === "submitted").map((item) => item.symbol),
-    externalSymbols: reconciliations().listActivity().filter((item) => item.ownership === "external").map((item) => item.symbol),
+    // Unfilled manual orders do not change share provenance. Only an observed
+    // external execution can veto an exact app-origin quantity match.
+    externalSymbols: reconciliations().listActivity()
+      .filter((item) => item.type === "execution" && item.ownership === "external")
+      .map((item) => item.symbol),
     historicalEvidence: loadHistoricalEvidence(historicalEvidencePath),
     flexEvidence: loadPaperFlexEvidence(paperFlexEvidencePath),
   });
@@ -936,11 +940,14 @@ async function route(request, response) {
 
   if (request.method === "GET" && url.pathname === "/health") {
     const latest = reconciliations().latest();
+    const reconciliationStatus = latest?.status === "COMPLETE"
+      ? authoritativePortfolio(latest.snapshot).status === "COMPLETE" ? "COMPLETE" : "STALE"
+      : latest?.status ?? "not_started";
     return json(response, 200, { ok: true, environment: "paper", brokerMode, paused,
       automaticPaperSellsEnabled, automaticPaperSellsRequested,
       automaticPaperSellsBlocker: automaticExitReleaseReady ? null : "protected_exit_lifecycle_not_ready",
       reconciliation: {
-      enabled: reconciliationEnabled, status: latest?.status ?? "not_started", capturedAt: latest?.capturedAt ?? null,
+      enabled: reconciliationEnabled, status: reconciliationStatus, capturedAt: latest?.capturedAt ?? null,
     } });
   }
 

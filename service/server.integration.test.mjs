@@ -154,6 +154,28 @@ test("HTTP Activity visibly includes manual broker activity", async () => {
   assert.equal(external.status, "Submitted");
 });
 
+test("broker-confirmed rejected and cancelled entries create no holding and release reserved capital", async () => {
+  for (const [symbol, event, expectedStatus] of [
+    ["QCOM", "reject", "Rejected"],
+    ["NOW", "cancel", "Cancelled"],
+  ]) {
+    const prepared = await prepareApprovedProposal(symbol);
+    const submitted = await request("/orders/submit-paper", { method: "POST", json: { token: prepared.token } });
+    assert.equal(submitted.status, 200);
+    const orderId = submitted.payload.submission.result.orderId;
+    const reservedBefore = (await request("/strategy")).payload.strategy.budget.reserved;
+    assert.ok(reservedBefore > 0);
+
+    assert.equal((await request("/__test/broker-events", { method: "POST", json: { type: event, orderId } })).status, 200);
+    assert.equal((await request("/broker/reconcile", { method: "POST" })).status, 200);
+    const activity = await request("/activity");
+    assert.equal(activity.payload.items.find((item) => item.id === prepared.proposal.id)?.status, expectedStatus);
+    assert.equal((await request("/positions")).payload.items.some((item) => item.symbol === symbol), false);
+    const reservedAfter = (await request("/strategy")).payload.strategy.budget.reserved;
+    assert.ok(reservedAfter < reservedBefore, `${symbol} should release its entry reservation`);
+  }
+});
+
 test("missing linked protection is visible and blocks new strategy capacity", async () => {
   const prepared = await prepareApprovedProposal("TSLA");
   const submitted = await request("/orders/submit-paper", { method: "POST", json: { token: prepared.token } });
@@ -175,6 +197,14 @@ test("missing linked protection is visible and blocks new strategy capacity", as
   assert.equal(partiallyExited.quantity, 3);
   assert.equal(partiallyExited.protection, "overcovered", "five-share stop must not verify a three-share position");
   assert.equal((await request("/strategy")).payload.strategy.budget.available, 0);
+
+  const manual = await request("/__test/broker-events", { method: "POST",
+    json: { type: "external_order", symbol: "TSLA", action: "BUY", quantity: 1 } });
+  const manualOrder = manual.payload.snapshot.openOrders.find((order) => order.role === "external" && order.symbol === "TSLA");
+  await request("/__test/broker-events", { method: "POST", json: { type: "cancel", orderId: manualOrder.orderId } });
+  await request("/broker/reconcile", { method: "POST" });
+  assert.equal((await request("/positions")).payload.items.find((item) => item.symbol === "TSLA").ownership,
+    "strategy_owned", "an unfilled cancelled manual order must not change share provenance");
 
   await request("/__test/broker-events", { method: "POST", json: { type: "remove_order", orderId: stopId } });
   await request("/broker/reconcile", { method: "POST" });

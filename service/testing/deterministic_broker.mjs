@@ -154,6 +154,7 @@ export class DeterministicBroker {
       summary,
       positions: [...this.positions].map(([symbol, value]) => ({ symbol, ...value })),
       openOrders: [...this.orders.values()].filter((order) => !["Filled", "Cancelled", "Rejected"].includes(order.status)).map((order) => ({ ...order })),
+      completedOrders: [...this.orders.values()].filter((order) => ["Filled", "Cancelled", "Rejected"].includes(order.status)).map((order) => ({ ...order })),
       executions: this.executions.map((execution) => ({ ...execution })),
       warnings: this.connected ? [] : [{ code: "simulated_disconnect" }],
     };

@@ -16,7 +16,7 @@ function snapshot(overrides = {}) {
       ["MaintMarginReq", 0], ["UnrealizedPnL", 500], ["RealizedPnL", -50],
     ].map(([key, value]) => [key, { value, currency: "USD" }])),
     positions: [{ symbol: "NVDA", quantity: 5, averageCost: 180 }],
-    openOrders: [], executions: [], warnings: [], ...overrides,
+    openOrders: [], completedOrders: [], executions: [], warnings: [], ...overrides,
   };
 }
 
@@ -100,6 +100,39 @@ test("broker evidence links to the ledger and resolves an unknown submission", (
   assert.equal(ledger.getSubmissionAttempt("attempt-1").status, "submitted");
   assert.equal(ledger.listBrokerOrders("proposal-1")[0].brokerOrderId, "100");
   assert.ok(ledger.listEvents("proposal-1").some((event) => event.eventType === "broker_order_reconciled"));
+  ledger.close();
+});
+
+test("completed cancellation resolves an uncertain submission without fabricating a fill", () => {
+  const ledger = new TradingLedger(":memory:");
+  ledger.recordProposal({ id: "cancel-proposal", createdAt: 1_000, environment: "paper", broker: "IBKR",
+    accountId: "DUR…217", symbol: "QCOM", side: "buy", terms: { quantity: 2, limitPrice: 100 } });
+  ledger.recordDecision({ id: "123456789abc-full", proposalId: "cancel-proposal", decision: "approved", decidedAt: 2_000 });
+  ledger.beginSubmission({ id: "cancel-attempt", decisionId: "123456789abc-full", idempotencyKey: "paper:cancel-attempt", startedAt: 3_000 });
+  ledger.completeSubmission({ id: "cancel-attempt", status: "unknown", completedAt: 4_000 });
+  reconcileSnapshotToLedger(snapshot({ completedOrders: [{ orderId: 99, permanentId: 199, symbol: "QCOM",
+    orderRef: "trade-approval-123456789abc-entry", status: "Cancelled" }] }), ledger);
+  assert.equal(ledger.getSubmissionAttempt("cancel-attempt").status, "failed");
+  assert.equal(ledger.listActivity()[0].status, "Cancelled");
+  assert.deepEqual(ledger.listPositions(), []);
+  assert.equal(ledger.strategyBudget(5_000).reserved, 0);
+  ledger.close();
+});
+
+test("a cancelled remainder cannot erase an observed partial entry fill", () => {
+  const ledger = new TradingLedger(":memory:");
+  ledger.recordProposal({ id: "partial-proposal", createdAt: 1_000, environment: "paper", broker: "IBKR",
+    accountId: "DUR…217", symbol: "AAPL", side: "buy", terms: { quantity: 5, limitPrice: 100 } });
+  ledger.recordDecision({ id: "abcdef123456-full", proposalId: "partial-proposal", decision: "approved", decidedAt: 2_000 });
+  reconcileSnapshotToLedger(snapshot({
+    completedOrders: [{ orderId: 80, permanentId: 180, symbol: "AAPL",
+      orderRef: "trade-approval-abcdef123456-entry", status: "Cancelled" }],
+    executions: [{ executionId: "exec-partial", orderId: 80, permanentId: 180, symbol: "AAPL",
+      side: "BOT", quantity: 2, cumulativeQuantity: 2, price: 100,
+      orderRef: "trade-approval-abcdef123456-entry" }],
+  }), ledger);
+  assert.equal(ledger.listBrokerOrders("partial-proposal")[0].status, "PartiallyFilled");
+  assert.equal(ledger.listPositions()[0].quantity, 2);
   ledger.close();
 });
 

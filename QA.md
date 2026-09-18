@@ -1,7 +1,7 @@
 # Trade Approval — Quality and Release Plan
 
-**Version:** 1.1
-**Last updated:** 2026-09-17
+**Version:** 1.2
+**Last updated:** 2026-09-18
 
 This is the source of truth for verification of the stock paper-trading application. A passing test suite reduces implementation risk; it does not establish that a strategy is profitable or that paper fills predict live execution.
 
@@ -10,6 +10,8 @@ This is the source of truth for verification of the stock paper-trading applicat
 **Priority-1 progress:** A pure ownership/protection reconciliation now checks same-account filled entries, exact broker quantity, observed external activity and linked active stops. A simulated HTTP scenario removes a stop and verifies Positions reports the gap and new-buy capacity is blocked. Historical completeness, manual-position provenance and full automatic-exit fault injection remain open; do not classify this milestone as complete.
 
 **Automatic-exit release gate:** Cover acceptance-before-protection-cancellation, rejection, partial fill, broker stop/target race, reconnect and idempotent retry in a paper-only simulator before any feature-flag activation. Verify a current type-1 IBKR quote or fail closed. Two failed observations count only when they correspond to adjacent completed market bars. The current adapter does not meet the cancel/replace gate; keep automatic ordinary selling disabled.
+
+**September 18 follow-through:** A fresh read-only IBKR Paper snapshot confirms 25 NVDA and 2 MSFT shares with no open orders for either symbol; their protection gap is real. The private broker trade report and original app code show the remaining net shares match the early single-order version that did not submit bracket stops. Completed-order callbacks now let reconciliation distinguish a broker-confirmed rejection/cancellation from an order that merely vanished from the open-order list. Simulator HTTP tests verify no phantom holding and release of reserved capital; an uncertain transmission can be resolved by a terminal broker order without inventing a fill. A separate read-only Paper connection confirmed the completed-order request and end callback, but returned no completed orders in that snapshot. Automatic sells remain disabled, and no Paper order was submitted or changed.
 
 ## Safety rules for tests
 
@@ -53,7 +55,7 @@ These scenarios must be automated before live-trading consideration:
 - [x] Strategy capital is reserved on submission and released after a confirmed exit.
 - [x] Net profit is shown only when both entry and exit fees are known.
 - [x] A partial entry fill protects exactly the filled quantity in the deterministic broker and is represented as partial through HTTP reconciliation.
-- [ ] Rejected and cancelled entries never create positions.
+- [x] Broker-confirmed rejected and cancelled entries never create positions and release reserved capital in the simulator.
 - [ ] A missing, cancelled, or undersized protective stop creates a blocking exception.
 - [ ] A partial exit preserves the correct remaining position, protection and cost basis.
 - [x] Manual broker orders are reconciled visibly in the HTTP integration foundation.

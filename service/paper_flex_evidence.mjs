@@ -78,9 +78,15 @@ export function summarizePaperFlexEvidence(record) {
       || !((order.side === "BUY" && order.quantity > 0) || (order.side === "SELL" && order.quantity < 0))
       || !Number.isSafeInteger(order.executions) || order.executions < 1 || identities.has(key)) throw new Error("invalid_flex_order");
     identities.add(key);
-    const prior = result.get(order.symbol) ?? { netQuantity: 0, orderCount: 0, executionCount: 0 };
+    const prior = result.get(order.symbol) ?? { netQuantity: 0, orderCount: 0, executionCount: 0,
+      legacySingleOrderCount: 0, legacySingleOrderNetQuantity: 0, bracketOrderCount: 0, bracketNetQuantity: 0 };
+    const legacySingleOrder = !/-(?:entry|target|stop)$/i.test(order.orderReference);
     result.set(order.symbol, { ...prior, netQuantity: prior.netQuantity + order.quantity,
       orderCount: prior.orderCount + 1, executionCount: prior.executionCount + order.executions,
+      legacySingleOrderCount: prior.legacySingleOrderCount + Number(legacySingleOrder),
+      legacySingleOrderNetQuantity: prior.legacySingleOrderNetQuantity + (legacySingleOrder ? order.quantity : 0),
+      bracketOrderCount: prior.bracketOrderCount + Number(!legacySingleOrder),
+      bracketNetQuantity: prior.bracketNetQuantity + (legacySingleOrder ? 0 : order.quantity),
       account: record.account, environment: "paper", observedOn: record.observedOn,
       orderAttribution: "verified_application_reference" });
   }

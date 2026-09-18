@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -15,7 +16,7 @@ from ibapi.wrapper import EWrapper
 
 HOST = "127.0.0.1"
 PAPER_PORT = 7497
-CLIENT_ID = 75
+CLIENT_ID = int(os.environ.get("IBKR_RECON_CLIENT_ID", "75"))
 IGNORED_ERROR_CODES = {2104, 2106, 2107, 2108, 2158, 2176}
 
 
@@ -38,11 +39,13 @@ class ReconciliationSnapshot(EWrapper, EClient):
         self.summary_done = threading.Event()
         self.positions_done = threading.Event()
         self.orders_done = threading.Event()
+        self.completed_orders_done = threading.Event()
         self.executions_done = threading.Event()
         self.accounts: list[str] = []
         self.summary: dict[str, dict] = {}
         self.positions: list[dict] = []
         self.orders: dict[str, dict] = {}
+        self.completed_orders: dict[str, dict] = {}
         self.executions: list[dict] = []
         self.commissions: dict[str, dict] = {}
         self.errors: list[dict] = []
@@ -99,6 +102,27 @@ class ReconciliationSnapshot(EWrapper, EClient):
 
     def openOrderEnd(self) -> None:  # noqa: N802
         self.orders_done.set()
+
+    def completedOrder(self, contract, order, orderState) -> None:  # noqa: N802
+        permanent_id = int(order.permId or 0)
+        identity = str(permanent_id if permanent_id > 0 else order.orderId)
+        self.completed_orders[identity] = {
+            "orderId": int(order.orderId or 0),
+            "permanentId": permanent_id or None,
+            "parentId": int(order.parentId or 0) or None,
+            "clientId": int(order.clientId or 0),
+            "account": mask_account(order.account),
+            "symbol": contract.symbol,
+            "securityType": contract.secType,
+            "action": order.action,
+            "orderType": order.orderType,
+            "quantity": number(order.totalQuantity),
+            "orderRef": order.orderRef or None,
+            "status": orderState.status or "Unknown",
+        }
+
+    def completedOrdersEnd(self) -> None:  # noqa: N802
+        self.completed_orders_done.set()
 
     def execDetails(self, reqId, contract, execution) -> None:  # noqa: N802
         self.executions.append({
@@ -160,12 +184,14 @@ def main() -> int:
         )
         app.reqPositions()
         app.reqAllOpenOrders()
+        app.reqCompletedOrders(False)
         app.reqExecutions(9202, ExecutionFilter())
 
         completed = {
             "accountSummary": app.summary_done.wait(8),
             "positions": app.positions_done.wait(8),
             "openOrders": app.orders_done.wait(8),
+            "completedOrders": app.completed_orders_done.wait(8),
             "executions": app.executions_done.wait(8),
         }
         # Commission reports follow execution details and have no end callback.
@@ -189,6 +215,7 @@ def main() -> int:
             "summary": app.summary,
             "positions": app.positions,
             "openOrders": list(app.orders.values()),
+            "completedOrders": list(app.completed_orders.values()),
             "executions": app.executions,
             "warnings": app.errors,
         }

@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-18.4 · **Corresponding architecture:** 3.27
+**Log revision:** 2026-09-18.5 · **Corresponding architecture:** 3.27
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -58,10 +58,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-040 | Test a separate broader, higher-volatility equity research lane | Provisional; shadow implementation | 2026-09-17 |
 | D-041 | Defer news-event and thematic signals until current paper strategy is measured | Confirmed priority; signal design provisional | 2026-09-17 |
 | D-042 | Prioritize position truth, execution reliability and measurement before expanding recommendations | Confirmed delivery sequence | 2026-09-17 |
+| D-043 | Require explicit broker terminal-order evidence before releasing an unfilled order reservation | Confirmed; simulator-tested | 2026-09-18 |
 
 ---
 
 ## Detailed decisions
+
+### D-043 — Reconcile terminal Paper orders without guessing from absence
+
+**Status:** Confirmed; simulator-tested, with read-only IBKR callback verification.
+
+**Decision:** A missing open order is not proof that an entry was rejected or cancelled. Request IBKR's completed-order feed and accept an explicit terminal status as evidence. Never infer an entry fill from a completed-order callback without execution evidence; preserve a previously observed partial fill if the remaining shares are later cancelled. Release reserved strategy capital only after the unfilled entry's terminal state is broker-confirmed. Show an aged reconciliation as stale rather than connected/current. An unfilled manual order remains visible in Activity but does not change share provenance; an observed external execution does.
+
+**Safety boundary:** This improves observation, not order authority. It does not create protective stops for existing holdings or enable automatic selling. The September 18 read-only Paper snapshot confirmed NVDA 25/MSFT 2 and no open orders for either. The private trade report and historical app code show that the net shares match buys made by an early single-order version that had no bracket exits. A stop price must not be invented or placed silently; no broker order was placed or changed.
 
 ### D-042 — Sequence the paper product around trustworthy evidence
 

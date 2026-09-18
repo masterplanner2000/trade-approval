@@ -34,6 +34,12 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
     }
   }
   const observations = [
+    // A vanished open order is not proof of cancellation. Use the broker's
+    // completed-order feed for explicit terminal states, but never infer a fill
+    // from that feed without an execution record.
+    ...(snapshot.completedOrders ?? [])
+      .filter((payload) => ["Cancelled", "ApiCancelled", "Rejected", "Inactive"].includes(payload.status))
+      .map((payload) => ({ payload, status: payload.status, execution: false, completed: true })),
     ...(snapshot.openOrders ?? []).map((payload) => ({ payload, status: payload.status ?? "Open", execution: false })),
     ...(snapshot.executions ?? []).map((payload) => ({ payload, status: null, execution: true })),
   ];
@@ -67,6 +73,11 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
       : observation.status ?? "Filled";
     const brokerOrderId = payload.permanentId ?? payload.orderId;
     if (brokerOrderId == null) continue;
+    const previous = observation.completed
+      ? ledger.listBrokerOrders(match.proposal.id).find((order) => String(order.brokerOrderId) === String(brokerOrderId))
+      : null;
+    // A cancelled remainder does not erase a previously observed partial fill.
+    if (previous && ["filled", "partiallyfilled"].includes(previous.status.toLowerCase())) continue;
     const attempt = ledger.listSubmissionAttemptsForDecision(match.decision.id)[0] ?? null;
     ledger.recordBrokerOrder({
       proposalId: match.proposal.id,
@@ -81,11 +92,13 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
       seenAt: snapshot.capturedAt,
     });
     if (attempt?.status === "unknown") {
+      const terminalWithoutFill = observation.completed && ["Cancelled", "ApiCancelled", "Rejected", "Inactive"].includes(status);
       ledger.completeSubmission({
         id: attempt.id,
-        status: "submitted",
+        status: terminalWithoutFill ? "failed" : "submitted",
         completedAt: snapshot.capturedAt,
         brokerOrderId: String(brokerOrderId),
+        errorCode: terminalWithoutFill ? `broker_${status.toLowerCase()}` : null,
         response: { reconciled: true, brokerObservation: payload },
       });
     }
@@ -181,6 +194,7 @@ export class BrokerReconciliationStore {
 
       const known = new Set(knownDecisionPrefixes);
       const activity = [
+        ...(snapshot.completedOrders ?? []).map((payload) => ({ type: "order", identity: String(payload.permanentId ?? payload.orderId), payload })),
         ...(snapshot.openOrders ?? []).map((payload) => ({ type: "order", identity: String(payload.permanentId ?? payload.orderId), payload })),
         ...(snapshot.executions ?? []).map((payload) => ({ type: "execution", identity: String(payload.executionId), payload })),
       ];

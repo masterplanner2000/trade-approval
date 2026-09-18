@@ -69,7 +69,8 @@ test("historical strategy symbol without an open ledger fill blocks ownership co
 
 test("complete app-referenced legacy trades establish ownership but not protection", () => {
   const flexEvidence = new Map([["XYZ", { account, environment: "paper", netQuantity: 3,
-    observedOn: "2026-09-18", orderAttribution: "verified_application_reference", orderCount: 2 }]]);
+    observedOn: "2026-09-18", orderAttribution: "verified_application_reference", orderCount: 2,
+    legacySingleOrderCount: 1, legacySingleOrderNetQuantity: 3, bracketNetQuantity: 0 }]]);
   const result = reconcilePositionOwnership(snapshot([["XYZ", 3]]), ledger([]),
     { historicalSymbols: ["XYZ"], flexEvidence });
   assert.equal(result.items[0].ownership, "strategy_owned");
@@ -79,6 +80,7 @@ test("complete app-referenced legacy trades establish ownership but not protecti
   assert.equal(result.items[0].strategyCost, 315);
   assert.equal(result.ownershipComplete, true);
   assert.equal(result.protectionComplete, false);
+  assert.ok(result.items[0].reasons.some((reason) => reason.includes("earlier single-order buys")));
 });
 
 test("legacy attribution fails closed on a changed holding or external trade", () => {

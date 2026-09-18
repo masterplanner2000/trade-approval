@@ -85,6 +85,12 @@ export function reconcilePositionOwnership(snapshot, ledger, { historicalSymbols
           ? `IBKR's one-year trade report links ${flexHistory.netQuantity} net shares to app-referenced API orders`
           : `IBKR's app-referenced trade report nets to ${flexHistory.netQuantity} shares, different from the current holding`] : []),
         ...(legacy ? ["Legacy app trades are broker-attributed, but their original decisions are not in the current ledger"] : []),
+        ...(legacy && flexHistory.legacySingleOrderCount > 0
+          && Math.abs(flexHistory.legacySingleOrderNetQuantity - brokerQuantity) < 1e-8
+          && Math.abs(flexHistory.bracketNetQuantity) < 1e-8
+          ? [flexHistory.bracketOrderCount > 0
+            ? "The remaining net shares match the app's earlier single-order buys; later bracket trades net to zero"
+            : "The remaining net shares match the app's earlier single-order buys, which had no bracket exits"] : []),
         ...(exact ? ["Current broker quantity matches recorded strategy fills; no external activity is observed"]
           : legacy ? []
           : external.has(symbol) ? ["External broker activity exists for this symbol; share ownership cannot be proven"]

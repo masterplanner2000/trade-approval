@@ -13,6 +13,10 @@ test("a 365-day Paper Flex report proves net app-referenced shares", () => {
   const summary = summarizePaperFlexEvidence(record).get("NVDA");
   assert.equal(summary.netQuantity, 3);
   assert.equal(summary.orderCount, 2);
+  assert.equal(summary.legacySingleOrderCount, 1);
+  assert.equal(summary.legacySingleOrderNetQuantity, 5);
+  assert.equal(summary.bracketOrderCount, 1);
+  assert.equal(summary.bracketNetQuantity, -2);
   assert.equal(summary.orderAttribution, "verified_application_reference");
   assert.equal(summary.account, "DUR…217");
 });
