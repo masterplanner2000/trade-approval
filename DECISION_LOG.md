@@ -81,6 +81,8 @@ This is the living record of product, design, trading-safety, data, and technica
 
 **Post-restart result:** Paper TWS restarted and accepted fresh read-only connections, but live-only NVDA and MSFT API requests still returned 2186 with no quote. A stale TWS session is not sufficient to explain the problem. Ask IBKR for the precise API entitlement/provisioning requirement rather than selecting a paid package by guesswork. The live quote, repair and automatic-exit holds remain in place.
 
+**Simulator exit lifecycle:** A Paper-only pure state machine issues at most one target-replacement intent for a request ID and waits for a changed broker order before calling the exit working. It never cancels the stop to make way for a new sale and never resubmits an uncertain intent merely because a process restarted. The simulator verifies rejection, disconnect, restart, partial fill with oversized sibling stop, extra sell order, stop/target race, duplicate callback and same-account full-quantity closure evidence. This is not a production outbox, IBKR modification adapter, or proof that IBKR will rebalance siblings on partial fills. Automatic selling remains disabled until those separate gates pass.
+
 ### D-043 — Reconcile terminal Paper orders without guessing from absence
 
 **Status:** Confirmed; simulator-tested, with read-only IBKR callback verification.

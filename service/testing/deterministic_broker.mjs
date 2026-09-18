@@ -12,6 +12,8 @@ export class DeterministicBroker {
     this.nextExecutionId = 1;
     this.orders = new Map();
     this.executions = [];
+    this.replacementRequests = new Map();
+    this.replacementResults = [];
     this.positions = new Map();
     this.scheduled = [];
   }
@@ -67,6 +69,37 @@ export class DeterministicBroker {
     if (order.role === "entry") this.#cancelChildren(orderId, "ParentCancelled");
   }
 
+  requestTargetReplacement({ orderId, limitPrice, requestId }) {
+    if (!this.connected) throw new Error("simulated_broker_disconnected");
+    const order = this.#order(orderId);
+    if (order.role !== "target" || !["Submitted", "PreSubmitted", "PartiallyFilled"].includes(order.status)
+      || !(limitPrice > 0) || !requestId) throw new Error("simulated_invalid_replacement");
+    const prior = this.replacementRequests.get(requestId);
+    if (prior) {
+      if (prior.orderId !== orderId || prior.limitPrice !== limitPrice) throw new Error("simulated_idempotency_conflict");
+      return;
+    }
+    if ([...this.replacementRequests.values()].some((item) => item.orderId === orderId && item.status === "Pending")) {
+      throw new Error("simulated_replacement_pending");
+    }
+    this.replacementRequests.set(requestId, { requestId, orderId, limitPrice, status: "Pending" });
+  }
+
+  resolveTargetReplacement(requestId, status) {
+    if (!this.connected) throw new Error("simulated_broker_disconnected");
+    const request = this.replacementRequests.get(requestId);
+    if (!request || request.status !== "Pending" || !["Accepted", "Rejected"].includes(status)) {
+      throw new Error("simulated_invalid_replacement_resolution");
+    }
+    const order = this.#order(request.orderId);
+    if (status === "Accepted" && !["Submitted", "PreSubmitted", "PartiallyFilled"].includes(order.status)) {
+      throw new Error("simulated_target_no_longer_active");
+    }
+    request.status = status;
+    if (status === "Accepted") order.limitPrice = request.limitPrice;
+    this.replacementResults.push({ requestId, targetId: order.permanentId, status, limitPrice: request.limitPrice });
+  }
+
   fill(orderId, quantity, price, { commission = 0, executionId } = {}) {
     if (!this.connected) throw new Error("simulated_broker_disconnected");
     const order = this.#order(orderId);
@@ -87,6 +120,7 @@ export class DeterministicBroker {
     this.cash += order.action === "BUY" ? -(quantity * price + commission) : (quantity * price - commission);
     const execution = {
       executionId: executionId ?? `sim-exec-${this.nextExecutionId++}`,
+      account: this.account,
       orderId: order.orderId,
       permanentId: order.permanentId,
       parentId: order.parentId,
@@ -128,7 +162,7 @@ export class DeterministicBroker {
   addExternalOrder({ symbol, action = "BUY", quantity = 1, status = "Submitted" }) {
     const orderId = this.nextOrderId++;
     this.orders.set(orderId, {
-      orderId, permanentId: orderId + 50_000, symbol, action, quantity, filled: 0,
+      account: this.account, orderId, permanentId: orderId + 50_000, symbol, action, quantity, filled: 0,
       remaining: quantity, status, role: "external", orderRef: null, parentId: null,
     });
     return orderId;
@@ -152,10 +186,11 @@ export class DeterministicBroker {
       account: this.account,
       capturedAt: this.now,
       summary,
-      positions: [...this.positions].map(([symbol, value]) => ({ symbol, ...value })),
+      positions: [...this.positions].map(([symbol, value]) => ({ account: this.account, symbol, ...value })),
       openOrders: [...this.orders.values()].filter((order) => !["Filled", "Cancelled", "Rejected"].includes(order.status)).map((order) => ({ ...order })),
       completedOrders: [...this.orders.values()].filter((order) => ["Filled", "Cancelled", "Rejected"].includes(order.status)).map((order) => ({ ...order })),
       executions: this.executions.map((execution) => ({ ...execution })),
+      replacementResults: this.replacementResults.map((item) => ({ ...item })),
       warnings: this.connected ? [] : [{ code: "simulated_disconnect" }],
     };
   }

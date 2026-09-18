@@ -7,7 +7,8 @@ const identity = (order) => String(order.permanentId ?? order.orderId ?? "");
 // that the broker accepted it or that the remaining shares are protected.
 export function assessProtectedExitEvidence(snapshot, { account, symbol, targetId, stopId, requestedLimitPrice, now = Date.now() } = {}) {
   const result = (state, reason = null) => ({ state, reason, symbol });
-  if (!snapshot?.ok || !snapshot.complete || snapshot.environment !== "paper" || snapshot.account !== account) {
+  if (!snapshot?.ok || !snapshot.complete || snapshot.readOnly !== true
+    || snapshot.environment !== "paper" || snapshot.account !== account) {
     return result("unknown", "broker_evidence_unavailable");
   }
   if (!Number.isFinite(snapshot.capturedAt) || snapshot.capturedAt > now + 1_000 || now - snapshot.capturedAt > 5_000) {
@@ -28,7 +29,8 @@ export function assessProtectedExitEvidence(snapshot, { account, symbol, targetI
     const winner = target.status === "Filled" && terminal.has(stop.status) && stop.status !== "Filled" ? target
       : stop.status === "Filled" && terminal.has(target.status) && target.status !== "Filled" ? stop : null;
     const executed = winner && (snapshot.executions ?? []).some((execution) => identity(execution) === identity(winner)
-      && execution.symbol === symbol && execution.side === "SLD" && Number(execution.cumulativeQuantity ?? execution.quantity) > 0);
+      && execution.account === account && execution.symbol === symbol && execution.side === "SLD"
+      && Number(execution.cumulativeQuantity) === Number(winner.quantity));
     return executed ? result("closed") : result("unknown", "closure_not_confirmed");
   }
   if (!active.has(stop.status)) return result("blocked", "protective_stop_not_active");

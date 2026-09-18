@@ -3,7 +3,7 @@ import test from "node:test";
 import { assessProtectedExitEvidence } from "./protected_exit_evidence.mjs";
 
 const parameters = { account: "SIM-PAPER", symbol: "CVX", targetId: 101, stopId: 102, requestedLimitPrice: 99, now: 10_000 };
-const fixture = () => ({ ok: true, complete: true, environment: "paper", account: "SIM-PAPER", capturedAt: 10_000,
+const fixture = () => ({ ok: true, complete: true, readOnly: true, environment: "paper", account: "SIM-PAPER", capturedAt: 10_000,
   positions: [{ account: "SIM-PAPER", symbol: "CVX", quantity: 5 }],
   openOrders: [
     { permanentId: 101, account: "SIM-PAPER", symbol: "CVX", action: "SELL", orderType: "LMT", status: "Submitted", quantity: 5, limitPrice: 110 },
@@ -48,8 +48,22 @@ test("stop/target race cannot call a flat holding closed with an orphan sell", (
   assert.equal(state(input).reason, "orphan_sell_order");
   input.openOrders[0].status = "Cancelled";
   assert.equal(state(input).reason, "closure_not_confirmed");
-  input.executions.push({ permanentId: 102, symbol: "CVX", side: "SLD", cumulativeQuantity: 5 });
+  input.executions.push({ permanentId: 102, account: "SIM-PAPER", symbol: "CVX", side: "SLD", cumulativeQuantity: 5 });
   assert.equal(state(input).state, "closed");
   input.openOrders[0].status = "Filled";
   assert.equal(state(input).reason, "closure_not_confirmed", "two filled sells could mean an oversell");
+});
+
+test("closure requires same-account execution evidence for the full order quantity", () => {
+  const input = fixture();
+  input.positions = [];
+  input.openOrders[0].status = "Filled";
+  input.openOrders[1].status = "Cancelled";
+  input.executions = [{ permanentId: 101, account: "OTHER", symbol: "CVX", side: "SLD", cumulativeQuantity: 5 }];
+  assert.equal(state(input).reason, "closure_not_confirmed");
+  input.executions[0].account = "SIM-PAPER";
+  input.executions[0].cumulativeQuantity = 2;
+  assert.equal(state(input).reason, "closure_not_confirmed");
+  input.executions[0].cumulativeQuantity = 5;
+  assert.equal(state(input).state, "closed");
 });
