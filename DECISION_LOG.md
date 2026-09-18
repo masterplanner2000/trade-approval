@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-12.2 · **Corresponding architecture:** 3.18
+**Log revision:** 2026-09-18.4 · **Corresponding architecture:** 3.27
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -32,7 +32,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-014 | Record approved, denied, expired, and unselected recommendations | Confirmed | 2026-08-31 |
 | D-015 | Use one authoritative broker-readiness state in the UI | Confirmed | 2026-08-31 |
 | D-016 | Keep a versioned architecture source of truth | Confirmed | 2026-08-31 |
-| D-017 | Recommend buys only; require approval for ordinary profit-taking | Confirmed | 2026-08-31 |
+| D-017 | Recommend buys only; require approval for ordinary profit-taking | Superseded by D-039 | 2026-09-15 |
 | D-018 | Support an explicit in-app light/dark appearance control | Confirmed | 2026-08-31 |
 | D-019 | Preload a bounded recommendation queue | Superseded by D-020 | 2026-09-06 |
 | D-020 | Recommendation count is market- and portfolio-driven | Confirmed | 2026-09-06 |
@@ -53,10 +53,81 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-035 | Stock news context through Alpaca/Benzinga | Implemented MVP; provider chosen for requested integration | 2026-09-11 |
 | D-036 | Recycle strategy capital from broker-confirmed trade lifecycle and report profit conservatively | Confirmed and foundation implemented | 2026-09-11 |
 | D-037 | Separate broker-free CI from explicitly gated IBKR Paper verification | Confirmed; CI foundation implemented | 2026-09-12 |
+| D-038 | Full allocation triggers a portfolio review instead of an empty recommendation state | Confirmed; review layer implemented | 2026-09-14 |
+| D-039 | Permit deterministic automatic ordinary exits in IBKR Paper only | Confirmed direction; operationally disabled pending safety verification | 2026-09-17 |
+| D-040 | Test a separate broader, higher-volatility equity research lane | Provisional; shadow implementation | 2026-09-17 |
+| D-041 | Defer news-event and thematic signals until current paper strategy is measured | Confirmed priority; signal design provisional | 2026-09-17 |
+| D-042 | Prioritize position truth, execution reliability and measurement before expanding recommendations | Confirmed delivery sequence | 2026-09-17 |
 
 ---
 
 ## Detailed decisions
+
+### D-042 — Sequence the paper product around trustworthy evidence
+
+**Status:** Confirmed delivery sequence; individual strategy changes remain subject to their own review.
+
+**Decision:** First establish strategy-owned share quantities, broker-visible protection and an explainable sleeve budget. Next prove the complete paper order lifecycle, then produce fee-aware, broker-grounded performance reports. Only then compare the current recommendation strategy with the broader shadow scanner and planned news/theme lane for promotion to actionable cards. Mobile notifications and daily-use polish follow reliable states; external-user and live trading require separate production, legal and data-rights gates. See the prioritized roadmap in `PROJECT_PLAN.md` for acceptance criteria.
+
+**Safety boundary:** Automatic paper exits remain disabled during ownership and protection work. The roadmap does not authorize paper orders, order cancellation, or live trading. A small or incomplete paper sample cannot establish that the strategy makes money.
+
+**Implementation progress:** Read-only broker/ledger ownership and linked-stop comparison is visible in Positions and strategy budget. Conflicts or missing protection block new strategy capacity. CVX, MRK and DE match current recorded fills and linked stops. On September 18, the IBKR Paper Transaction History netted to 25 NVDA and 2 MSFT shares. The source lacks stable order references; matching broker quantities do not prove application ownership. A private local historical-evidence record now surfaces this distinction and vetoes a mismatched quantity, while the two positions remain unverified for automatic sale. No paper sale was authorized by this work.
+
+**September 18 safety check:** Automatic paper sells remain disabled. The cancel-before-submit adapter was changed to reject any request that would cancel protective orders, before connecting to IBKR. The worker also refuses that path and records the reason. This is a fail-closed hold, not a completed replacement-sale workflow. A read-only CVX API quote returned delayed type 3 before the opening bell; live-quote availability and the partial-fill/rejection/reconnect lifecycle remain release blockers.
+
+### D-041 — Measure the current paper strategy before news-driven recommendations
+
+**Status:** Current work priority confirmed; news-event and theme design is a plan, not an implemented strategy.
+
+**Decision:** First inspect today's recommendations, broker-reconciled positions, open orders, protection, fills, and remaining strategy capital without submitting trades. Record a future event/theme lane that distinguishes a macro narrative, a company's evidenced direct or indirect exposure, and an actual trade-timing catalyst. It must be source-linked, timestamped, correction-aware, and evaluated in shadow mode before it can affect ranking or proposals.
+
+**Safety boundary:** Current news and filings remain research context. AI explanations cannot alone create orders. Unverified, stale or ambiguous events produce `WATCH`/`NO TRADE`, not forced activity. Existing paper approval and broker validation remain in force; no live authority is implied.
+
+**Reason:** A thesis such as AI-related water demand can be meaningful without proving that a particular company's revenue benefits or that today is an appropriate entry. The existing strategy must be measured before introducing a second signal that would confound its performance.
+
+### D-040 — Broader, higher-volatility equity research is shadow-only
+
+**Status:** Provisional; initial scanner implemented, investment merit unvalidated.
+
+**Decision:** Explore active, tradable U.S.-listed common equities beyond the existing top-500 universe, including eligible names from the user's thematic watchlist, in a separate read-only shadow lane. Do not treat watchlist symbols as holdings. Keep OTC and obvious non-common-stock instruments out. Completed daily momentum, volatility, and relative-volume thresholds are test variables; zero candidates is valid.
+
+**Boundary:** The lane cannot create app proposals, approval receipts, paper or live orders. IEX volume is venue-specific, not consolidated liquidity. Every shadow result explicitly lacks verified catalyst, current bid/ask spread, portfolio sizing and fresh broker validation. Do not promote candidates to the actionable queue until those data, out-of-sample testing and a separately reviewed risk policy exist.
+
+**Reason:** The current top-500 liquid-momentum strategy often favors familiar large-cap stocks and cannot answer whether a carefully constrained, less conservative universe offers useful opportunities. Increased volatility is not evidence of higher expected return.
+
+### D-039 — Deterministic automatic ordinary exits in IBKR Paper
+
+**Status:** Confirmed direction; initial worker implemented but operationally disabled in the local paper service pending safety verification. Supersedes D-017 for paper ordinary exits only once the safety gate is met.
+
+**Decision:** With an explicit local feature flag, a paper holding may be sold automatically only after it explicitly fails the same strategy scan on two distinct consecutive completed trading dates. Missing, stale, or absent scanner data cannot count as a failure. Replacement buys still require approval.
+
+**Execution boundary:** The worker must verify the IBKR Paper account, reconciled held quantity, live bid/ask with bounded local callback age, acceptable spread, and ownership and state of protective sell orders. The previous cancel-then-submit implementation is explicitly blocked; no automatic replacement sale may be transmitted until a protection-preserving lifecycle is designed and fault-tested. Live accounts remain ineligible.
+
+**2026-09-17 safety hold:** A read-only audit found that broker holdings can include shares not proven to belong to this strategy, while some held positions have no broker-visible stop. Although the scanner now reports explicit held-symbol pass/fail results, automatic paper selling stays off until ownership, protection and the end-to-end exit behavior are proven. Scanner repair alone is not permission to transmit an order.
+
+**User preference and additional finding:** The user explicitly wants automatic ordinary selling in IBKR Paper. The present adapter cancels existing exit protection before a replacement sale is confirmed, which can leave shares unprotected on a failed submission. IBKR quotes currently fall back to delayed type 3. Do not enable this implementation merely by flipping the feature flag. Consecutive-session and live-quote checks have been tightened; redesign and fault-test the cancel/replace lifecycle, resolve share provenance and confirm data access before activation.
+
+**2026-09-18 follow-through:** The adapter now rejects a request to cancel protection before connecting, and the worker records that path as blocked. A post-open read-only CVX quote still reported delayed type 3. Automatic exits additionally require bid and ask callbacks received within five seconds, but local callback arrival does not establish the exchange quote timestamp. Unit tests cover those failures; automatic selling remains off. The unresolved release gates are market-data access, historical ownership, and a protection-preserving exit workflow through rejection, partial fill, reconnect and restart.
+
+**2026-09-18 release hardening:** A successful scan is insufficient if its held-symbol result is stale, errored or missing any required rule result. The exit policy now requires an exact prior-session signal date and a complete evaluation; a holiday without an authoritative calendar fails closed. The latest cached signal was September 17. Both the service worker and directly invoked paper-exit adapter have an explicit code-level release hold; setting the environment flag cannot bypass it. No automatic sale is permitted until the protection-preserving broker lifecycle and live quote access are verified. These holds do not affect existing broker-side stop/target orders.
+
+**Runtime evidence:** The restarted service reports complete Paper reconciliation but incomplete ownership (NVDA/MSFT), and the 9:52 a.m. ET read-only CVX API quote remains delayed type 3. TWS's non-consolidated-data banner is insufficient to clear the API live-data gate. No order was placed, cancelled or modified.
+
+**Later September 18 correction:** The initial Transaction History view could not show submitting-app identity. A separate 365-day Paper Activity Flex Query with audit-trail fields did: all 24 NVDA executions (15 broker orders, net 25 shares) and the one 2-share MSFT execution carry `trade-approval-…` references and `IsAPIOrder=Y`. A validated private import now establishes legacy application origin, repairs past `external` misclassification of such references, and distinguishes this evidence from current-ledger fills. Both holdings are now strategy-owned in the read-only Positions view. They still lack broker-visible protective stops, original decision records in the current ledger, and a safe automatic-exit lifecycle; available strategy capital is $0 and automatic sells stay disabled. The broker report was generated and imported without placing or changing any order. If future broker quantity or unrelated activity contradicts this dated report, attribution fails closed pending fresh evidence.
+
+**Protection invariant:** A stop larger than the remaining strategy-owned position is not `verified`. This became visible in an adversarial simulated partial-target-fill scenario, which now labels `overcovered` and blocks capacity and unattended exits. It is a test of app behavior, not a claim about IBKR's normal bracket rebalancing. A protected-exit design may investigate modifying the existing linked target rather than canceling its stop, but adoption requires verified IBKR Paper order-state evidence and tests for partial fills, rejection, disconnect, restart and duplicate submission.
+
+**Reason:** This allows the agreed unattended downside/thesis management to be tested without granting automatic buy authority or treating a single noisy daily signal as sufficient evidence.
+
+### D-038 — Full allocation triggers a portfolio review
+
+**Status:** Confirmed; review layer implemented.
+
+**Decision:** When the configured trading sleeve has no capacity, the engine must evaluate reconciled holdings against the same current scan and visible broker protection. It labels supported, protected positions as holds; flags unsupported or unprotected positions for exit review; and identifies possible replacements without treating sale proceeds as available.
+
+**Safety boundary:** Exit review is information, not execution authority. Each ordinary paper sale still requires a separate approval and confirmed broker fill. Only after reconciliation confirms that fill may the engine refresh prices, recalculate cash and create a replacement buy proposal.
+
+**Reason:** “Allocation fully deployed” describes capacity but does not answer whether the existing allocation still fits the strategy. The portfolio review closes that product gap without pretending a two-leg rotation is atomic.
 
 ### D-037 — Separate broker-free CI from IBKR Paper verification
 
@@ -377,6 +448,14 @@ Review [CRYPTO_DESIGN.md](./CRYPTO_DESIGN.md): Coinbase Exchange/Gemini sandbox 
 ---
 
 ## Change history
+
+### 2026-09-17 (priority update)
+
+- Added D-041: evaluate today's existing paper strategy and allocation first; defer source-linked news/theme event detection as an isolated, shadow-tested future lane.
+
+### 2026-09-17
+
+- Added D-040 and architecture 3.22 for the isolated higher-volatility shadow research lane; no order authority or strategy promotion.
 
 ### 2026-09-11
 

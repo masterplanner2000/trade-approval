@@ -38,10 +38,10 @@ export class DeterministicBroker {
     const targetId = this.nextOrderId++;
     const stopId = this.nextOrderId++;
     const prefix = String(decisionId).slice(0, 12);
-    const common = { symbol, quantity, filled: 0, remaining: quantity, status: "PendingSubmit" };
-    this.orders.set(entryId, { ...common, orderId: entryId, permanentId: entryId + 50_000, role: "entry", action: "BUY", limitPrice, orderRef: `trade-approval-${prefix}-entry`, parentId: null });
-    this.orders.set(targetId, { ...common, orderId: targetId, permanentId: targetId + 50_000, role: "target", action: "SELL", limitPrice: targetPrice, orderRef: `trade-approval-${prefix}-target`, parentId: entryId, held: true });
-    this.orders.set(stopId, { ...common, orderId: stopId, permanentId: stopId + 50_000, role: "stop", action: "SELL", stopPrice, orderRef: `trade-approval-${prefix}-stop`, parentId: entryId, held: true });
+    const common = { account: this.account, symbol, quantity, filled: 0, remaining: quantity, status: "PendingSubmit" };
+    this.orders.set(entryId, { ...common, orderId: entryId, permanentId: entryId + 50_000, role: "entry", action: "BUY", orderType: "LMT", limitPrice, orderRef: `trade-approval-${prefix}-entry`, parentId: null });
+    this.orders.set(targetId, { ...common, orderId: targetId, permanentId: targetId + 50_000, role: "target", action: "SELL", orderType: "LMT", limitPrice: targetPrice, orderRef: `trade-approval-${prefix}-target`, parentId: entryId, held: true });
+    this.orders.set(stopId, { ...common, orderId: stopId, permanentId: stopId + 50_000, role: "stop", action: "SELL", orderType: "STP", stopPrice, orderRef: `trade-approval-${prefix}-stop`, parentId: entryId, held: true });
     return { entryId, targetId, stopId };
   }
 

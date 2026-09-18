@@ -55,6 +55,12 @@ type TradeItem = {
 type PositionItem = {
   id: string; symbol: string; quantity: number; averageEntryPrice: number; currentPrice: number | null;
   protectiveStopPrice: number | null; profitTargetPrice: number | null; updatedAt: number; dataState: "ledger_only" | "reconciled" | "preview";
+  ownership?: "strategy_owned" | "conflict" | "unknown";
+  ownershipSource?: "ledger_fills" | "broker_flex_legacy" | null;
+  protection?: "verified" | "partial" | "missing" | "overcovered" | "unverified";
+  strategyOwnedQuantity?: number; recordedQuantity?: number; reasons?: string[];
+  brokerHistory?: { netQuantity: number; rowCount: number; observedOn: string; status: "matched" | "mismatch"; orderAttribution: "unverified" } | null;
+  flexHistory?: { netQuantity: number; orderCount: number; observedOn: string; status: "matched" | "mismatch"; orderAttribution: "verified_application_reference" } | null;
 };
 
 const PREVIEW_MODE_STORAGE_KEY = "trade-approval.preview-mode";
@@ -217,6 +223,24 @@ type QueuedServiceRecommendation = {
   broker: BrokerSnapshot;
 };
 
+type PortfolioReview = {
+  asOf: number | null;
+  signalDate: string | null;
+  reductionRequired: number;
+  estimatedPlannedRelease: number;
+  holdings: Array<{
+    symbol: string; quantity: number; estimatedValue: number; qualified: boolean;
+    protected: boolean; ownership?: "strategy_owned" | "conflict" | "unknown";
+    status: "HOLD" | "EXIT_REVIEW" | "DATA_UNAVAILABLE" | "OWNERSHIP_REVIEW"; recommendedForExit: boolean;
+    recommendationScore: number | null; marketRisk: string | null; reasons: string[];
+  }>;
+  replacements: Array<{
+    symbol: string; company: string; recommendationScore: number;
+    referenceClose: number; marketRisk: string | null; status: "AWAITING_EXIT_FILL_AND_FRESH_QUOTE";
+  }>;
+  nextStep: "APPROVE_EXIT_SEQUENTIALLY" | "MANUAL_REVIEW_REQUIRED" | "MONITOR_HOLDINGS";
+};
+
 type StrategySummary = {
   id: string;
   name: string;
@@ -230,6 +254,7 @@ type StrategySummary = {
   completedCount: number;
   universeSource: "alpaca-cache";
   universeLimit: number;
+  budget?: { status: string; available: number; ownershipConflicts?: string[]; protectionGaps?: string[] };
 };
 
 type OrderPreview = {
@@ -876,7 +901,7 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
     <View style={styles.historyPage}>
       <Text accessibilityRole="header" style={styles.settingsTitle}>{page === "activity" ? "Activity" : "Positions"}</Text>
       {page === "positions" ? <Text style={styles.settingsIntro}>
-        {previewMode ? "Sample positions created while you explore the app." : "Filled paper positions recorded by the application."}
+        {previewMode ? "Sample positions created while you explore the app." : "Current IBKR Paper positions and ownership checks."}
       </Text> : null}
       {page === "activity" ? (
         <>
@@ -979,10 +1004,13 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
           </View>
           <View style={styles.positionTerms}>
             <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Average entry</Text><Text style={styles.tradeTermValue}>{money(item.averageEntryPrice)}</Text></View>
+            {item.dataState === "reconciled" ? <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Strategy ownership</Text><Text style={styles.tradeTermValue}>{item.ownership === "strategy_owned" ? item.ownershipSource === "broker_flex_legacy" ? `${item.strategyOwnedQuantity} legacy app shares` : `${item.strategyOwnedQuantity} shares matched` : item.ownership === "conflict" ? "Needs review" : "Unattributed"}</Text></View> : null}
+            {item.dataState === "reconciled" && item.brokerHistory ? <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Broker trade history</Text><Text style={styles.tradeTermValue}>{item.brokerHistory.status === "matched" ? `${item.brokerHistory.netQuantity} shares match` : "Quantity differs"}</Text></View> : null}
+            {item.dataState === "reconciled" ? <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Broker protection</Text><Text style={styles.tradeTermValue}>{item.protection === "verified" ? "Verified" : item.protection === "missing" ? "Missing" : item.protection === "partial" ? "Partial" : item.protection === "overcovered" ? "Overcovered" : "Unverified"}</Text></View> : null}
             <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Protective stop</Text><Text style={styles.tradeTermValue}>{item.protectiveStopPrice ? money(item.protectiveStopPrice) : "—"}</Text></View>
             <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Profit target</Text><Text style={styles.tradeTermValue}>{item.profitTargetPrice ? money(item.profitTargetPrice) : "—"}</Text></View>
           </View>
-          <Text style={styles.positionNotice}>{item.dataState === "preview" ? "Preview data · no broker order" : item.dataState === "reconciled" ? "Confirmed from IBKR Paper" : "Awaiting live IBKR reconciliation"}</Text>
+          <Text style={styles.positionNotice}>{item.dataState === "preview" ? "Preview data · no broker order" : item.dataState === "reconciled" ? item.reasons?.join(" · ") ?? "Broker quantity confirmed; ownership unverified" : "Awaiting IBKR Paper reconciliation"}</Text>
         </View>
       ))}
       {!previewMode ? <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
@@ -1019,6 +1047,7 @@ export default function App() {
   const [brokerUnavailable, setBrokerUnavailable] = useState(false);
   const [noEligibleRecommendation, setNoEligibleRecommendation] = useState(false);
   const [strategyCapitalReached, setStrategyCapitalReached] = useState(false);
+  const [portfolioReview, setPortfolioReview] = useState<PortfolioReview | null>(null);
   const [orderPreview, setOrderPreview] = useState<OrderPreview | null>(null);
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResult | null>(null);
   const [paperSubmission, setPaperSubmission] = useState<PaperSubmission | null>(null);
@@ -1295,8 +1324,17 @@ export default function App() {
       method: "POST",
       headers: { "x-app-token": APP_TOKEN },
     });
-    const result = await response.json() as { recommendations: QueuedServiceRecommendation[]; strategy: StrategySummary; error?: string };
+    const result = await response.json() as { recommendations: QueuedServiceRecommendation[]; strategy: StrategySummary; portfolioReview?: PortfolioReview; error?: string };
     if (!response.ok) throw new Error(result.error ?? "proposal_unavailable");
+    setStrategy(result.strategy);
+    if (result.portfolioReview) {
+      setPortfolioReview(result.portfolioReview);
+      setStrategyCapitalReached(true);
+      setNoEligibleRecommendation(false);
+      setBrokerUnavailable(false);
+      setBrokerConnectionStatus("connected");
+      return;
+    }
     const cards = result.recommendations
       .filter((item) => item.broker?.ok)
       .map((item) => serviceProposalToCard(item.proposal, item.broker, result.strategy));
@@ -1306,6 +1344,7 @@ export default function App() {
     setRealRecommendations(cards);
     setRealDeckComplete(false);
     setStrategyCapitalReached(false);
+    setPortfolioReview(null);
     applyServiceProposal(first.proposal, first.broker, result.strategy);
     setNoEligibleRecommendation(false);
     setBrokerConnectionStatus("connected");
@@ -1998,7 +2037,7 @@ export default function App() {
                   ? "Paper · no setups"
                   : proposal.shadowMode
                     ? "Paper · monitoring"
-                    : "Paper connected";
+                    : "Paper link online";
   const headerStatusColor = uiPreview
     ? colors.accent
     : brokerConnectionStatus === "disconnected"
@@ -2120,7 +2159,9 @@ export default function App() {
                   : marketWindow.phase !== "open"
                     ? "Market is currently closed"
                     : strategyCapitalReached
-                      ? "Allocation fully deployed"
+                      ? strategy?.budget?.status === "ownership_incomplete" ? "Position ownership needs review"
+                        : strategy?.budget?.status === "protection_incomplete" ? "Position protection needs review"
+                          : "Allocation fully deployed"
                     : noEligibleRecommendation
                       ? "No recommendations right now"
                       : "Scanning the market"}
@@ -2129,7 +2170,11 @@ export default function App() {
               {brokerConnectionStatus === "connected" && marketWindow.phase !== "open"
                 ? `No new recommendations will be created while the market is closed. Scanning resumes ${marketWindow.resumes}.`
                 : strategyCapitalReached
-                ? "The strategy has used its current allocation, so it is monitoring existing positions and their automatic exits instead of proposing another buy."
+                ? strategy?.budget?.status === "ownership_incomplete"
+                  ? "Some broker shares cannot be attributed to this strategy. New buys and automatic sells are blocked until the records are reconciled."
+                  : strategy?.budget?.status === "protection_incomplete"
+                    ? "A strategy position has no verified broker stop. New buys and automatic sells are blocked until protection is reviewed."
+                    : "The strategy has used its current allocation. Review existing positions before considering another buy."
                 : brokerUnavailable
                 ? "The scanner could not load a recommendation. You can try again when the connection is ready."
                 : noEligibleRecommendation
@@ -2146,13 +2191,48 @@ export default function App() {
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Recommendations</Text>
-                <Text style={styles.homeScannerValue}>{strategyCapitalReached ? "Paused while allocation is full" : "All currently qualified buys"}</Text>
+                <Text style={styles.homeScannerValue}>{strategyCapitalReached ? strategy?.budget?.status === "reconciled" ? "Paused while allocation is full" : "Paused for safety review" : "All currently qualified buys"}</Text>
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Protection</Text>
-                <Text style={styles.homeScannerValue}>Automatic exits</Text>
+                <Text style={styles.homeScannerValue}>Check broker stops in Positions</Text>
               </View>
             </View>
+
+            {strategyCapitalReached && portfolioReview && (
+              <View style={styles.rotationPanel}>
+                <Text style={styles.rotationTitle}>Portfolio review</Text>
+                <Text style={styles.rotationSummary}>
+                  {strategy?.budget?.status === "ownership_incomplete"
+                    ? `Resolve ownership for ${strategy.budget.ownershipConflicts?.join(", ") || "unmatched holdings"} before considering an exit or new buy.`
+                    : strategy?.budget?.status === "protection_incomplete"
+                      ? `Review broker protection for ${strategy.budget.protectionGaps?.join(", ") || "held positions"} before considering another trade.`
+                      : `Review enough positions to release at least ${money(portfolioReview.reductionRequired)} before considering another buy.`}
+                </Text>
+                {portfolioReview.holdings.map((holding) => (
+                  <View key={holding.symbol} style={styles.rotationRow}>
+                    <View style={styles.rotationRowCopy}>
+                      <Text style={styles.rotationSymbol}>{holding.symbol} · {holding.quantity} shares</Text>
+                      <Text style={styles.rotationReason}>{holding.reasons.join(" · ")}</Text>
+                    </View>
+                    <View style={[styles.rotationChip, holding.recommendedForExit ? styles.rotationExitChip : styles.rotationHoldChip]}>
+                      <Text style={[styles.rotationChipText, holding.recommendedForExit ? styles.rotationExitText : styles.rotationHoldText]}>
+                        {holding.recommendedForExit ? "Exit review" : holding.status === "HOLD" ? "Hold" : "Review"}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+                {portfolioReview.replacements.length > 0 && (
+                  <>
+                    <Text style={styles.rotationSubhead}>Possible replacements after a confirmed sale</Text>
+                    <Text style={styles.rotationCandidates}>
+                      {portfolioReview.replacements.slice(0, 5).map((item) => item.symbol).join(" · ")}
+                    </Text>
+                    <Text style={styles.rotationReason}>Replacement prices and sizes will be regenerated after the sale fills.</Text>
+                  </>
+                )}
+              </View>
+            )}
 
             {strategyCapitalReached ? (
               <Pressable
@@ -2160,7 +2240,7 @@ export default function App() {
                 onPress={() => openHistory("positions")}
                 style={({ pressed }) => [styles.homeAction, pressed && styles.homeActionPressed]}
               >
-                <Text style={styles.homeActionText}>View positions</Text>
+                <Text style={styles.homeActionText}>Review current positions</Text>
               </Pressable>
             ) : brokerUnavailable && brokerConnectionStatus === "connected" ? (
               <Pressable
@@ -2582,6 +2662,21 @@ return StyleSheet.create({
   homeTitle: { color: colors.ink, fontSize: 30, lineHeight: 36, fontWeight: "800", letterSpacing: -0.8 },
   homeSummary: { color: colors.muted, ...typeRamp.body, marginTop: 8, maxWidth: 520 },
   homeScannerPanel: { backgroundColor: colors.surfaceMuted, borderRadius: 20, marginTop: 26, paddingHorizontal: 18, paddingVertical: 5 },
+  rotationPanel: { borderColor: colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: 20, marginTop: 18, padding: 18, gap: 12 },
+  rotationTitle: { color: colors.ink, fontSize: 20, lineHeight: 26, fontWeight: "700" },
+  rotationSummary: { color: colors.muted, fontSize: 15, lineHeight: 21, fontWeight: "400" },
+  rotationRow: { flexDirection: "row", alignItems: "center", gap: 12, borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12 },
+  rotationRowCopy: { flex: 1, gap: 2 },
+  rotationSymbol: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: "600" },
+  rotationReason: { color: colors.muted, fontSize: 13, lineHeight: 18, fontWeight: "400" },
+  rotationChip: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6 },
+  rotationExitChip: { backgroundColor: colors.dangerSoft },
+  rotationHoldChip: { backgroundColor: colors.successSoft },
+  rotationChipText: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  rotationExitText: { color: colors.danger },
+  rotationHoldText: { color: colors.success },
+  rotationSubhead: { color: colors.ink, fontSize: 15, lineHeight: 21, fontWeight: "600", marginTop: 2 },
+  rotationCandidates: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: "600" },
   homeScannerRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   homeScannerLabel: { color: colors.muted, ...typeRamp.body },
   homeScannerValue: { color: colors.ink, ...typeRamp.body, fontWeight: "400", textAlign: "right" },

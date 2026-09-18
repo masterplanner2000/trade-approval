@@ -40,6 +40,7 @@ class Snapshot(EWrapper, EClient):
         self.accounts: list[str] = []
         self.summary: dict[str, dict[str, str | float | None]] = {}
         self.quote: dict[str, float] = {}
+        self.quote_received_at: dict[str, int] = {}
         self.market_data_type: int | None = None
         self.errors: list[dict[str, str | int]] = []
 
@@ -74,6 +75,7 @@ class Snapshot(EWrapper, EClient):
         name = names.get(tickType)
         if name and price > 0:
             self.quote[name] = price
+            self.quote_received_at[name] = int(time.time() * 1000)
 
     def tickSnapshotEnd(self, reqId: int) -> None:  # noqa: N802
         self.quote_done.set()
@@ -129,7 +131,9 @@ def main() -> int:
                 "symbol": symbol,
                 **app.quote,
                 "dataType": app.market_data_type,
-                "receivedAt": int(time.time() * 1000),
+                "receivedAt": max(app.quote_received_at.values(), default=None),
+                "bidReceivedAt": app.quote_received_at.get("bid"),
+                "askReceivedAt": app.quote_received_at.get("ask"),
             },
             "warnings": app.errors,
         }

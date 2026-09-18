@@ -435,13 +435,13 @@ export class TradingLedger {
     return this.listProposals().flatMap((proposal) => {
       const orders = this.listBrokerOrders(proposal.id);
       const entry = orders.find((order) => order.role === "entry");
-      if (!entry || entry.status.toLowerCase() !== "filled") return [];
-      const closed = orders.some((order) =>
-        ["exit", "protective_stop", "profit_target"].includes(order.role)
-        && order.status.toLowerCase() === "filled"
-      );
-      if (closed) return [];
-      const quantity = Number(entry.order?.filled ?? proposal.terms?.quantity ?? 0);
+      if (!entry || !["filled", "partiallyfilled"].includes(entry.status.toLowerCase())) return [];
+      const entryQuantity = Number(entry.order?.cumulativeQuantity ?? entry.order?.filled ?? proposal.terms?.quantity ?? 0);
+      const exitedQuantity = orders
+        .filter((order) => ["exit", "protective_stop", "profit_target"].includes(order.role)
+          && ["filled", "partiallyfilled"].includes(order.status.toLowerCase()))
+        .reduce((total, order) => total + Number(order.order?.cumulativeQuantity ?? order.order?.filled ?? order.order?.quantity ?? 0), 0);
+      const quantity = Math.max(0, entryQuantity - exitedQuantity);
       if (!(quantity > 0)) return [];
       return [{
         id: proposal.id,
@@ -469,13 +469,15 @@ export class TradingLedger {
     };
     return this.listProposals().flatMap((proposal) => {
       const orders = this.listBrokerOrders(proposal.id);
-      const entry = orders.find((order) => order.role === "entry" && order.status.toLowerCase() === "filled");
+      const entry = orders.find((order) => order.role === "entry" && ["filled", "partiallyfilled"].includes(order.status.toLowerCase()));
       if (!entry) return [];
-      const exit = orders.find((order) =>
+      const exits = orders.filter((order) =>
         ["exit", "protective_stop", "profit_target"].includes(order.role)
-        && order.status.toLowerCase() === "filled"
+        && ["filled", "partiallyfilled"].includes(order.status.toLowerCase())
       );
       const quantity = executionQuantity(entry, proposal.terms?.quantity);
+      const exitedQuantity = exits.reduce((total, order) => total + executionQuantity(order, 0), 0);
+      const exit = exitedQuantity >= quantity ? exits.at(-1) : null;
       const entryPrice = executionPrice(entry) || Number(proposal.terms?.limitPrice ?? 0);
       const exitPrice = exit ? executionPrice(exit) : null;
       const entryFee = commission(entry);
@@ -512,14 +514,14 @@ export class TradingLedger {
     let reserved = 0;
     for (const proposal of this.listProposals()) {
       const orders = this.listBrokerOrders(proposal.id);
-      const exitFilled = orders.some((order) =>
-        ["exit", "protective_stop", "profit_target"].includes(order.role)
-        && order.status.toLowerCase() === "filled"
-      );
-      if (exitFilled) continue;
-      const entry = orders.find((order) => order.role === "entry" && order.status.toLowerCase() === "filled");
+      const entry = orders.find((order) => order.role === "entry" && ["filled", "partiallyfilled"].includes(order.status.toLowerCase()));
       if (entry) {
-        const quantity = Number(entry.order?.cumulativeQuantity ?? entry.order?.quantity ?? entry.order?.filled ?? proposal.terms?.quantity ?? 0);
+        const enteredQuantity = Number(entry.order?.cumulativeQuantity ?? entry.order?.filled ?? entry.order?.quantity ?? proposal.terms?.quantity ?? 0);
+        const exitedQuantity = orders
+          .filter((order) => ["exit", "protective_stop", "profit_target"].includes(order.role)
+            && ["filled", "partiallyfilled"].includes(order.status.toLowerCase()))
+          .reduce((total, order) => total + Number(order.order?.cumulativeQuantity ?? order.order?.filled ?? order.order?.quantity ?? 0), 0);
+        const quantity = Math.max(0, enteredQuantity - exitedQuantity);
         const price = Number(entry.order?.averagePrice ?? entry.order?.price ?? entry.order?.averageFillPrice ?? proposal.terms?.limitPrice ?? 0);
         invested += quantity * price;
         continue;

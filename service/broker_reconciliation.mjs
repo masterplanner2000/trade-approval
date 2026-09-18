@@ -20,6 +20,8 @@ export function proposalReference(orderRef) {
   return match ? { decisionPrefix: match[1], role: match[2] } : null;
 }
 
+const appStyleOrderReference = (orderRef) => /^trade-approval-[0-9a-f-]{8,36}(?:-(?:entry|target|stop))?$/i.test(orderRef ?? "");
+
 export function reconcileSnapshotToLedger(snapshot, ledger) {
   const linked = [];
   const proposals = ledger.listProposals();
@@ -32,15 +34,38 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
     }
   }
   const observations = [
-    ...(snapshot.openOrders ?? []).map((payload) => ({ payload, status: payload.status ?? "Open" })),
-    ...(snapshot.executions ?? []).map((payload) => ({ payload, status: "Filled" })),
+    ...(snapshot.openOrders ?? []).map((payload) => ({ payload, status: payload.status ?? "Open", execution: false })),
+    ...(snapshot.executions ?? []).map((payload) => ({ payload, status: null, execution: true })),
   ];
+  const aggregateExecution = (payload) => {
+    const identity = String(payload.permanentId ?? payload.orderId);
+    const executions = (snapshot.executions ?? []).filter((item) => String(item.permanentId ?? item.orderId) === identity);
+    if (executions.length <= 1) return payload;
+    const cumulativeQuantity = Math.max(...executions.map((item) => Number(item.cumulativeQuantity ?? item.quantity ?? 0)));
+    const commissionValues = executions.map((item) => item.commission).filter((value) => typeof value === "number" && Number.isFinite(value));
+    const latest = executions.at(-1);
+    return {
+      ...latest,
+      quantity: cumulativeQuantity,
+      cumulativeQuantity,
+      commission: commissionValues.length === executions.length
+        ? Math.round(commissionValues.reduce((sum, value) => sum + value, 0) * 1e8) / 1e8
+        : undefined,
+      executionIds: executions.map((item) => item.executionId),
+    };
+  };
   for (const observation of observations) {
-    const reference = proposalReference(observation.payload.orderRef);
+    const payload = observation.execution ? aggregateExecution(observation.payload) : observation.payload;
+    const reference = proposalReference(payload.orderRef);
     const match = reference ? matches.get(reference.decisionPrefix) : null;
     if (!match) continue;
     const role = reference.role === "target" ? "profit_target" : reference.role === "stop" ? "protective_stop" : "entry";
-    const brokerOrderId = observation.payload.permanentId ?? observation.payload.orderId;
+    const expectedQuantity = Number(match.proposal.terms?.quantity ?? 0);
+    const cumulativeQuantity = Number(payload.cumulativeQuantity ?? payload.quantity ?? 0);
+    const status = observation.execution && expectedQuantity > 0 && cumulativeQuantity < expectedQuantity
+      ? "PartiallyFilled"
+      : observation.status ?? "Filled";
+    const brokerOrderId = payload.permanentId ?? payload.orderId;
     if (brokerOrderId == null) continue;
     const attempt = ledger.listSubmissionAttemptsForDecision(match.decision.id)[0] ?? null;
     ledger.recordBrokerOrder({
@@ -49,10 +74,10 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
       broker: "IBKR",
       accountId: snapshot.account,
       brokerOrderId,
-      parentBrokerOrderId: observation.payload.parentId ?? null,
+      parentBrokerOrderId: payload.parentId ?? null,
       role,
-      status: observation.status,
-      order: observation.payload,
+      status,
+      order: payload,
       seenAt: snapshot.capturedAt,
     });
     if (attempt?.status === "unknown") {
@@ -61,7 +86,7 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
         status: "submitted",
         completedAt: snapshot.capturedAt,
         brokerOrderId: String(brokerOrderId),
-        response: { reconciled: true, brokerObservation: observation.payload },
+        response: { reconciled: true, brokerObservation: payload },
       });
     }
     ledger.appendEvent({
@@ -73,9 +98,9 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
       submissionAttemptId: attempt?.id ?? null,
       eventType: observation.payload.executionId ? "broker_execution_reconciled" : "broker_order_reconciled",
       occurredAt: snapshot.capturedAt,
-      payload: observation.payload,
+      payload,
     });
-    linked.push({ proposalId: match.proposal.id, decisionId: match.decision.id, brokerOrderId: String(brokerOrderId), role, status: observation.status });
+    linked.push({ proposalId: match.proposal.id, decisionId: match.decision.id, brokerOrderId: String(brokerOrderId), role, status });
   }
   return linked;
 }
@@ -132,6 +157,14 @@ export class BrokerReconciliationStore {
         PRIMARY KEY (broker, environment, account_id, activity_type, broker_identity)
       ) STRICT;
     `);
+    // Older builds labelled an app-referenced order "external" whenever its
+    // decision was absent from the new ledger. Preserve the missing link, but
+    // do not misclassify a recognizable pre-ledger app order as a manual trade.
+    const legacy = this.database.prepare("SELECT broker, environment, account_id, activity_type, broker_identity, order_ref FROM reconciled_broker_activity WHERE ownership = 'external'").all();
+    const revise = this.database.prepare("UPDATE reconciled_broker_activity SET ownership = 'legacy_application_unlinked' WHERE broker = ? AND environment = ? AND account_id = ? AND activity_type = ? AND broker_identity = ?");
+    for (const row of legacy) {
+      if (appStyleOrderReference(row.order_ref)) revise.run(row.broker, row.environment, row.account_id, row.activity_type, row.broker_identity);
+    }
   }
 
   record(snapshot, { knownDecisionPrefixes = [] } = {}) {
@@ -153,7 +186,8 @@ export class BrokerReconciliationStore {
       ];
       for (const item of activity) {
         const reference = proposalReference(item.payload.orderRef);
-        const ownership = reference && known.has(reference.decisionPrefix) ? "application" : "external";
+        const ownership = reference && known.has(reference.decisionPrefix) ? "application"
+          : appStyleOrderReference(item.payload.orderRef) ? "legacy_application_unlinked" : "external";
         this.database.prepare(`
           INSERT INTO reconciled_broker_activity
             (broker, environment, account_id, activity_type, broker_identity, symbol, order_ref,

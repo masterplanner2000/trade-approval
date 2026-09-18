@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { authoritativePortfolio, BrokerReconciliationStore, proposalReference, reconcileSnapshotToLedger } from "./broker_reconciliation.mjs";
 import { TradingLedger } from "./trading_ledger.mjs";
 
@@ -59,6 +62,31 @@ test("reconciliation is durable, idempotent by broker identity, and detects exte
   assert.equal(activity.find((item) => item.brokerIdentity === "100").lastSeenAt, 11_000);
   assert.equal(store.latest().capturedAt, 11_000);
   store.close();
+});
+
+test("pre-ledger app references are unlinked, not falsely labelled external", () => {
+  const store = new BrokerReconciliationStore(":memory:");
+  store.record(snapshot({ openOrders: [{ orderId: 71, permanentId: 171, symbol: "NVDA",
+    orderRef: "trade-approval-229c9369-49a", status: "Submitted" }] }), { knownDecisionPrefixes: [] });
+  assert.equal(store.listActivity()[0].ownership, "legacy_application_unlinked");
+  store.close();
+});
+
+test("reopening a store repairs the older external label for app orders", () => {
+  const directory = mkdtempSync(join(tmpdir(), "paper-attribution-"));
+  try {
+    const path = join(directory, "reconciliation.sqlite3");
+    const oldStore = new BrokerReconciliationStore(path);
+    oldStore.record(snapshot({ openOrders: [{ orderId: 72, permanentId: 172, symbol: "NVDA",
+      orderRef: "trade-approval-77159ad2-8d4-stop", status: "Submitted" }] }));
+    oldStore.database.prepare("UPDATE reconciled_broker_activity SET ownership = 'external'").run();
+    oldStore.close();
+    const reopened = new BrokerReconciliationStore(path);
+    assert.equal(reopened.listActivity()[0].ownership, "legacy_application_unlinked");
+    reopened.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("broker evidence links to the ledger and resolves an unknown submission", () => {

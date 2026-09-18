@@ -176,6 +176,7 @@ def evaluate(symbol: str, bars: list[DailyBar], errors: list[dict[str, object]])
         "recommendationScore": round(score, 1) if eligible else None,
         "category": "MOMENTUM_CONTINUATION",
         "signalDate": latest.date,
+        "previousSignalDate": completed[-2].date,
         "referenceClose": round(latest.close, 4),
         "rsi": round(rsi, 4) if rsi is not None else None,
         "sma50": round(sma50, 4),

@@ -1,7 +1,7 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.18
-**Last updated:** 2026-09-12
+**Current architecture version:** 3.27
+**Last updated:** 2026-09-18
 **Status:** Living source of truth
 
 This document explains the major application components, their responsibilities, and how information moves from research to recommendations, approval, broker execution, reconciliation, and performance evaluation.
@@ -25,6 +25,7 @@ flowchart LR
 
         sources ==> normalize
         normalize ==> scan
+        normalize -.-> experimental["Higher-volatility shadow scanner<br/>Broader listed-stock universe"]
         scan ==> recommend
         risk --> recommend
         rules --> recommend
@@ -55,6 +56,7 @@ flowchart LR
 
     subgraph manage ["4. Monitor and learn"]
         reconcile["Reconcile orders, fills and positions"]
+        history["Historical broker transactions<br/>Quantity evidence, not app attribution"]
         monitor["Monitor the open position"]
         positionEvent{"Position event"}
         stopped["Protective stop closes position"]
@@ -68,6 +70,7 @@ flowchart LR
         notifications["Notifications"]
 
         reconcile ==> monitor
+        history -.-> reconcile
         monitor ==> positionEvent
         positionEvent -->|"Protective stop"| stopped
         stopped ==> closed
@@ -96,7 +99,10 @@ flowchart LR
     notifications -.-> mobile
     stockNews["Benzinga headlines via Alpaca"] --> newsContext["Bounded stock-news context cache"]
     newsContext --> api
+    newsContext -.-> plannedEvent["Planned: sourced event and theme evidence<br/>Shadow evaluation only"]
+    plannedEvent -.-> researchCandidates
     performance -.->|"Validated feedback"| recommend
+    experimental -.-> researchCandidates["Research candidates only<br/>No proposal or order authority"]
 
     style discover fill:#E8F1FF,stroke:#82AFFF
     style review fill:#E7F8F0,stroke:#6EC6A0
@@ -117,8 +123,10 @@ flowchart LR
 | Secure application API | Coordinate the mobile client and local services | Prototype | Ledger-backed lifecycle and read APIs integrated; add clearer service health |
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
+| Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
-| Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | Add intraday inputs and portfolio eligibility |
+| News-event and thematic evidence | Relate sourced events and filings to companies, themes and market response | Planned | Defer until current paper strategy and allocation are evaluated; then shadow-test before any proposal integration |
+| Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | Full-allocation portfolio review implemented; add approved sell execution and post-fill replacement regeneration |
 | Risk and position sizing | Calculate quantity, loss, concentration, and limits | Partial | Pure sizing model implemented; connect reconciled IBKR inputs |
 | Safety validation | Recheck price, account, approval, limits, and What-If | Prototype | Preserve exact validation results |
 | Order service | Submit approved buys, protective stops, and separately approved ordinary sales | Prototype | Confirm durable broker identifiers |
@@ -131,6 +139,8 @@ flowchart LR
 | Production operations | Authentication, secrets, hosting, monitoring, recovery | Planned | Required before external users or live trading |
 
 ## Stock news context
+
+The experimental higher-volatility lane lives in `service/aggressive_shadow_scanner.py`, with its own SQLite cache. It ranks active, tradable listed U.S. equities by recent venue dollar volume, retains the top 1,500 and adds eligible watchlist names. Its completed-daily-bar gates are proposed test variables, not a profitability model. The authenticated `GET /shadow/aggressive` route returns research candidates only; it does not feed the recommendation queue, approval flow, portfolio sizing, or broker submission. The current IEX feed is a single-venue observation, not consolidated market liquidity. Verified catalysts, live spread, account and sizing checks are explicitly missing. The existing 500-stock strategy is unchanged.
 
 The stock research API now includes authenticated `GET /research/news?symbol=...`, implemented in `service/stock_news.mjs`. It requests up to 50 Alpaca/Benzinga headline records from the past seven days, validates exact ticker matches, source/time/link fields, deduplicates corrected articles and returns up to ten. A bounded 60-second memory cache coalesces requests; rate limits, access failures, empty and partial results remain distinct. No article bodies or secrets enter client responses or durable storage. Provider latency remains explicitly unverified.
 
@@ -230,10 +240,58 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a deterministic paper-broker test authority with no sockets, credentials or production runtime dependency.
 - Modeled scheduled evidence, partial and full fills, rejection, cancellation, disconnection, duplicate callbacks, commissions and external/manual orders.
 - Kept it inside the QA boundary; production service injection and lifecycle exception responses remain the next integration step.
+
+### Version 3.19 — 2026-09-13
+
+- Injected the deterministic broker at the service adapter boundary under an explicit test-only mode; ordinary IBKR mode has no test-control routes.
+- Added isolated HTTP integration coverage through approval, validation, submission, reconciliation, Activity, Positions and closed Trades.
+- Preserved partial-fill state and aggregated cumulative quantity and commissions across multiple executions for one broker order.
+
+### Version 3.20 — 2026-09-14
+
+- Replaced the full-allocation dead end with a reconciled portfolio review.
+- Classifies holdings as hold or exit review using the same completed-daily scan plus visible protective-stop evidence.
+- Selects only enough exit-review positions to restore the configured sleeve limit and lists replacement candidates as contingent on a confirmed sale fill and fresh quote.
+- Does not authorize or transmit a sale; approved sell execution and post-fill replacement generation remain separate milestones.
+
+### Version 3.21 — 2026-09-15
+
+- Added an explicitly enabled IBKR Paper-only automatic ordinary-exit policy.
+- An exit requires an explicit failed evaluation on two distinct consecutive completed signal dates; missing scanner data never counts as failure.
+- Before submission, the worker verifies the paper account, exact held quantity, current spread, and every protective order selected for cancellation.
+- Replacement buys remain separately generated after reconciliation and still require user approval.
 6. Record the corresponding product or technical decision in `DECISION_LOG.md` when appropriate.
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 3.26 — 2026-09-17
+
+- The paper automatic-exit policy now requires the prior failed observation to match the immediately previous completed market bar; distinct dates alone are insufficient.
+- An unattended exit also requires IBKR type-1 live quote data. Delayed or frozen bid/ask cannot price it.
+- The feature remains disabled: the present adapter cancels protective orders before replacement-sale acceptance, and its cancellation, partial-fill and reconnect lifecycle has not passed the release gate.
+
+### Version 3.25 — 2026-09-17
+
+- Added read-only per-position ownership and linked-stop reconciliation between the ledger and IBKR Paper snapshots. Historical ticker matches alone do not establish share ownership.
+- Strategy budget now reports evidenced matched investment separately and blocks new capacity when ownership or protection is incomplete; Positions displays those states.
+- Automatic paper exits remain disabled, with an additional runtime ownership/protection and linked-order gate if the flag is later enabled. Simulated HTTP coverage verifies a missing stop blocks new capacity.
+
+### Version 3.24 — 2026-09-17
+
+- The completed-daily scanner now returns explicit pass/fail evaluations for every reviewed symbol, allowing held positions to be assessed without changing qualified buy selection.
+- The local IBKR Paper service has automatic ordinary exits disabled pending verification of strategy-owned quantity, broker-visible protection and the complete exit workflow. Its health response exposes that operational flag.
+- No paper order was submitted while making or testing this change.
+
+### Version 3.23 — 2026-09-17
+
+- Recorded the planned source-linked news/theme evidence lane as shadow-only and deferred its implementation until current paper strategy performance and broker allocation are assessed.
+- Current headlines and filings remain research context; no new proposal or order authority was added.
+
+### Version 3.22 — 2026-09-17
+
+- Added an isolated higher-volatility, broader-universe shadow research lane and read-only API.
+- Preserved the existing recommendation and order boundaries; no aggressive candidate can become an order through this lane.
 
 ### Version 3.16 — 2026-09-11
 

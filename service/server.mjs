@@ -9,13 +9,26 @@ import { getSecCompanyResearch, summarizeSecResearch } from "./sec_edgar.mjs";
 import { getStockNews, stockNewsSymbol } from "./stock_news.mjs";
 import { authoritativePortfolio, BrokerReconciliationStore, reconcileSnapshotToLedger } from "./broker_reconciliation.mjs";
 import { TradingLedger } from "./trading_ledger.mjs";
+import { reconcilePositionOwnership } from "./position_ownership.mjs";
+import { loadHistoricalEvidence } from "./historical_position_evidence.mjs";
+import { loadPaperFlexEvidence } from "./paper_flex_evidence.mjs";
+import { DeterministicBroker } from "./testing/deterministic_broker.mjs";
+import { evaluateAutomaticExits } from "./automatic_exit_policy.mjs";
+import { assessAutomaticExitQuote } from "./automatic_exit_quote.mjs";
 
 const port = Number(process.env.TRADE_APPROVAL_PORT ?? 8787);
 const host = process.env.TRADE_APPROVAL_HOST ?? "127.0.0.1";
 const appToken = process.env.TRADE_APPROVAL_APP_TOKEN ?? "";
 const whatIfEnabled = process.env.IBKR_ENABLE_WHAT_IF === "true";
 const paperSubmitEnabled = process.env.IBKR_ENABLE_PAPER_SUBMIT === "true";
+const automaticPaperSellsRequested = process.env.IBKR_ENABLE_AUTOMATIC_SELLS === "true";
+// This code release has no broker-verified protection-preserving exit path.
+// An environment toggle alone must never unlock the incomplete adapter.
+const automaticExitReleaseReady = false;
+const automaticPaperSellsEnabled = automaticPaperSellsRequested && automaticExitReleaseReady;
 const reconciliationEnabled = process.env.IBKR_ENABLE_RECONCILIATION !== "false";
+const brokerMode = process.env.TRADE_APPROVAL_BROKER_MODE ?? "ibkr";
+if (!new Set(["ibkr", "simulated"]).has(brokerMode)) throw new Error("invalid_broker_mode");
 const maximumBidAskSpreadPercent = 0.25;
 const signingSecret = process.env.APPROVAL_SIGNING_SECRET ?? "paper-development-only";
 const proposals = new Map();
@@ -31,15 +44,23 @@ const ibkrPython = join(projectDirectory, ".venv-ibkr-10.49", "bin", "python");
 const ibkrSnapshotScript = join(serviceDirectory, "ibkr_snapshot.py");
 const ibkrWhatIfScript = join(serviceDirectory, "ibkr_what_if.py");
 const ibkrPaperSubmitScript = join(serviceDirectory, "ibkr_submit_paper.py");
+const ibkrPaperExitScript = join(serviceDirectory, "ibkr_submit_paper_exit.py");
 const ibkrReconciliationScript = join(serviceDirectory, "ibkr_reconciliation.py");
 const alpacaMarketCacheScript = join(serviceDirectory, "alpaca_market_cache.py");
-const strategyStatePath = join(serviceDirectory, "data", "strategy-state.json");
-const shadowLedgerPath = join(serviceDirectory, "data", "shadow-signals.json");
+const aggressiveShadowScannerScript = join(serviceDirectory, "aggressive_shadow_scanner.py");
+const strategyStatePath = process.env.STRATEGY_STATE_PATH ?? join(serviceDirectory, "data", "strategy-state.json");
+const shadowLedgerPath = process.env.SHADOW_LEDGER_PATH ?? join(serviceDirectory, "data", "shadow-signals.json");
 const tradingLedgerPath = process.env.TRADE_LEDGER_PATH ?? join(serviceDirectory, "data", "trading-ledger.sqlite3");
-const riskPolicyPath = join(serviceDirectory, "data", "risk-policy.json");
+const riskPolicyPath = process.env.RISK_POLICY_PATH ?? join(serviceDirectory, "data", "risk-policy.json");
+const historicalEvidencePath = process.env.HISTORICAL_BROKER_EVIDENCE_PATH ?? join(serviceDirectory, "data", "paper-transaction-history.json");
+const paperFlexEvidencePath = process.env.PAPER_FLEX_EVIDENCE_PATH ?? join(serviceDirectory, "data", "paper-flex-attribution.json");
 let tradingLedger = null;
 let reconciliationStore = null;
 const strategy = JSON.parse(readFileSync(strategyStatePath, "utf8"));
+const simulatedBroker = brokerMode === "simulated"
+  ? new DeterministicBroker({ account: "SIM-PAPER", cash: 100_000, now: Date.now() })
+  : null;
+let simulatedDisconnectAfterSubmit = false;
 const defaultRiskPolicy = {
   adaptive: true,
   sleeveValue: 50_000,
@@ -215,7 +236,7 @@ async function scanDailyShadowSignals() {
   try {
     const { stdout } = await execFileAsync(ibkrPython, [alpacaMarketCacheScript, "scan"], {
       timeout: 180_000,
-      maxBuffer: 1024 * 1024,
+      maxBuffer: 8 * 1024 * 1024,
     });
     return JSON.parse(stdout);
   } catch (error) {
@@ -262,16 +283,23 @@ function strategySummary() {
 
 const now = () => Date.now();
 
+function positionOwnership(snapshot) {
+  return reconcilePositionOwnership(snapshot, ledger(), {
+    historicalSymbols: strategy.completed.filter((item) => item.outcome === "submitted").map((item) => item.symbol),
+    externalSymbols: reconciliations().listActivity().filter((item) => item.ownership === "external").map((item) => item.symbol),
+    historicalEvidence: loadHistoricalEvidence(historicalEvidencePath),
+    flexEvidence: loadPaperFlexEvidence(paperFlexEvidencePath),
+  });
+}
+
 function currentStrategyBudget() {
   const ledgerBudget = ledger().strategyBudget(strategy.capitalLimit);
   const latest = reconciliations().latest();
   if (latest) {
     const portfolio = authoritativePortfolio(latest.snapshot);
     if (portfolio.status === "COMPLETE") {
-      const strategySymbols = new Set(strategy.completed.filter((item) => item.outcome === "submitted").map((item) => item.symbol));
-      const invested = roundPrice(portfolio.positions
-        .filter((position) => strategySymbols.has(position.symbol))
-        .reduce((sum, position) => sum + Math.abs(Number(position.quantity ?? 0)) * Number(position.averageCost ?? 0), 0));
+      const ownership = positionOwnership(latest.snapshot);
+      const invested = roundPrice(ownership.items.reduce((sum, position) => sum + position.strategyCost, 0));
       const reserved = ledgerBudget.reserved;
       const deployed = roundPrice(invested + reserved);
       return {
@@ -279,9 +307,16 @@ function currentStrategyBudget() {
         invested,
         reserved,
         deployed,
-        available: Math.max(0, roundPrice(strategy.capitalLimit - deployed)),
+        available: ownership.ownershipComplete && ownership.protectionComplete
+          ? Math.max(0, roundPrice(strategy.capitalLimit - deployed)) : 0,
         overAllocated: deployed > strategy.capitalLimit,
-        status: "reconciled",
+        status: !ownership.ownershipComplete ? "ownership_incomplete"
+          : !ownership.protectionComplete ? "protection_incomplete" : "reconciled",
+        ownershipComplete: ownership.ownershipComplete,
+        protectionComplete: ownership.protectionComplete,
+        ownershipConflicts: ownership.items.filter((item) => item.ownership === "conflict").map((item) => item.symbol),
+        protectionGaps: ownership.items.filter((item) => item.ownership === "strategy_owned" && item.protection !== "verified")
+          .map((item) => item.symbol),
         asOf: portfolio.asOf,
       };
     }
@@ -290,9 +325,9 @@ function currentStrategyBudget() {
   return {
     ...ledgerBudget,
     deployed,
-    available: Math.max(0, roundPrice(strategy.capitalLimit - deployed)),
+    available: 0,
     overAllocated: deployed > strategy.capitalLimit,
-    status: "conservative_fallback",
+    status: "reconciliation_required",
     asOf: null,
   };
 }
@@ -321,6 +356,82 @@ export function wasDeniedForSignal(candidate = {}, completed = []) {
     && Boolean(item.signalDate)
     && item.signalDate === candidate.signalDate
   );
+}
+
+export function buildPortfolioReview(scan = {}, snapshot = {}, budget = {}) {
+  const evaluations = new Map((scan.evaluations ?? []).map((item) => [item.symbol, item]));
+  const ownershipItems = new Map((budget.ownership?.items ?? []).map((item) => [item.symbol, item]));
+  const protectedQuantities = new Map();
+  for (const order of snapshot.openOrders ?? []) {
+    if (order.action !== "SELL" || order.orderType !== "STP" || !["Submitted", "PreSubmitted"].includes(order.status)) continue;
+    protectedQuantities.set(order.symbol, (protectedQuantities.get(order.symbol) ?? 0) + Number(order.quantity ?? 0));
+  }
+  const holdings = (snapshot.positions ?? []).map((position) => {
+    const signal = evaluations.get(position.symbol) ?? null;
+    const ownership = ownershipItems.get(position.symbol) ?? null;
+    const quantity = Math.abs(Number(position.quantity ?? 0));
+    const estimatedValue = roundPrice(quantity * Number(signal?.referenceClose ?? position.averageCost ?? 0));
+    const protectedPosition = ownership ? ownership.protection === "verified"
+      : Math.abs((protectedQuantities.get(position.symbol) ?? 0) - quantity) < 1e-8;
+    const evaluated = Boolean(signal);
+    const qualified = signal?.eligible === true;
+    return {
+      symbol: position.symbol,
+      quantity,
+      averageCost: Number(position.averageCost ?? 0),
+      estimatedValue,
+      qualified,
+      recommendationScore: signal?.recommendationScore ?? null,
+      marketRisk: signal?.marketRisk?.level ?? null,
+      protected: protectedPosition,
+      ownership: ownership?.ownership ?? "unknown",
+      status: ownership && ownership.ownership !== "strategy_owned" ? "OWNERSHIP_REVIEW"
+        : !evaluated ? "DATA_UNAVAILABLE" : qualified && protectedPosition ? "HOLD" : "EXIT_REVIEW",
+      reasons: [
+        ...(!evaluated ? ["No current scanner evaluation is available"] : qualified ? ["Still passes the current momentum scan"] : ["Does not pass the current momentum scan"]),
+        ...(ownership?.reasons ?? []),
+        ...(protectedPosition ? ["Protective stop is visible at the broker"] : ["No verified protective stop is visible at the broker"]),
+      ],
+    };
+  });
+  const reductionRequired = Math.max(0, roundPrice(Number(budget.deployed ?? 0) - Number(budget.capitalLimit ?? 0)));
+  let plannedRelease = 0;
+  const rankedExitSymbols = new Set(holdings
+    .filter((item) => item.status === "EXIT_REVIEW" && item.ownership === "strategy_owned")
+    .sort((left, right) => Number(left.qualified) - Number(right.qualified)
+      || Number(left.protected) - Number(right.protected)
+      || (left.recommendationScore ?? -1) - (right.recommendationScore ?? -1))
+    .filter((item) => {
+      if (reductionRequired <= 0) return false;
+      if (plannedRelease >= reductionRequired && reductionRequired > 0) return false;
+      plannedRelease = roundPrice(plannedRelease + item.estimatedValue);
+      return true;
+    })
+    .map((item) => item.symbol));
+  const heldSymbols = new Set(holdings.map((item) => item.symbol));
+  const replacements = eligibleQueueCandidates(scan, heldSymbols).slice(0, 5).map((item) => ({
+    symbol: item.symbol,
+    company: item.company,
+    recommendationScore: item.recommendationScore,
+    referenceClose: item.referenceClose,
+    marketRisk: item.marketRisk?.level ?? null,
+    status: "AWAITING_EXIT_FILL_AND_FRESH_QUOTE",
+  }));
+  return {
+    asOf: snapshot.capturedAt ?? null,
+    signalDate: scan.selected?.signalDate ?? scan.evaluations?.[0]?.signalDate ?? null,
+    reductionRequired,
+    estimatedPlannedRelease: plannedRelease,
+    holdings: holdings.map((item) => ({ ...item, recommendedForExit: rankedExitSymbols.has(item.symbol) })),
+    replacements,
+    nextStep: holdings.some((item) => item.status === "OWNERSHIP_REVIEW")
+      ? "MANUAL_REVIEW_REQUIRED"
+      : rankedExitSymbols.size > 0
+      ? "APPROVE_EXIT_SEQUENTIALLY"
+      : reductionRequired > 0
+        ? "MANUAL_REVIEW_REQUIRED"
+        : "MONITOR_HOLDINGS",
+  };
 }
 
 function seedProposal(snapshot = null, secResearch = null, candidate = null) {
@@ -383,8 +494,7 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
 
 async function recommendationQueue({ additionalExcludedSymbols = [] } = {}) {
   if (strategy.status !== "active") throw new Error("strategy_paused");
-  const strategyBudget = currentStrategyBudget();
-  if (strategyBudget.available <= 0) throw new Error("strategy_capital_limit");
+  let strategyBudget = currentStrategyBudget();
 
   const existing = [...proposals.values()]
     .filter((proposal) => proposal.status === "pending" && proposal.expiresAt > now())
@@ -392,6 +502,24 @@ async function recommendationQueue({ additionalExcludedSymbols = [] } = {}) {
 
   const scan = await scanDailyShadowSignals();
   if (!scan.ok) throw new Error(scan.error ?? "scanner_unavailable");
+  if (strategyBudget.available <= 0) {
+    let snapshot = reconciliations().latest()?.snapshot ?? null;
+    try {
+      snapshot = (await performReconciliation()).snapshot;
+    } catch {
+      // Only a still-fresh complete snapshot may support a read-only review.
+    }
+    if (!snapshot || authoritativePortfolio(snapshot).status !== "COMPLETE") throw new Error("portfolio_review_unavailable");
+    strategyBudget = currentStrategyBudget();
+    if (strategyBudget.available <= 0) {
+      const ownership = positionOwnership(snapshot);
+      return {
+        recommendations: [],
+        strategy: strategySummary(),
+        portfolioReview: buildPortfolioReview(scan, snapshot, { ...strategyBudget, ownership }),
+      };
+    }
+  }
   const excludedSymbols = new Set([
     ...existing.map((proposal) => proposal.symbol),
     ...strategy.completed.filter((item) => item.outcome === "submitted").map((item) => item.symbol),
@@ -511,6 +639,12 @@ async function body(request) {
 async function runIbkrSnapshot(symbol = "NVDA") {
   const normalized = symbol.toUpperCase();
   if (!/^[A-Z0-9]{1,10}$/.test(normalized)) throw new Error("invalid_symbol");
+  if (simulatedBroker) {
+    return {
+      ...simulatedBroker.snapshot(),
+      quote: { symbol: normalized, bid: 99.9, ask: 100, last: 100, close: 100, dataType: "simulated" },
+    };
+  }
   const { stdout } = await execFileAsync(ibkrPython, [ibkrSnapshotScript, normalized], {
     timeout: 20_000,
     maxBuffer: 128 * 1024,
@@ -530,6 +664,7 @@ function ibkrSnapshot(symbol = "NVDA") {
 let reconciliationQueue = Promise.resolve();
 function ibkrReconciliation() {
   const request = reconciliationQueue.then(async () => {
+    if (simulatedBroker) return simulatedBroker.snapshot();
     try {
       const { stdout } = await execFileAsync(ibkrPython, [ibkrReconciliationScript], {
         timeout: 35_000,
@@ -571,6 +706,74 @@ async function performReconciliation() {
   return { snapshot, result, linkedOrders };
 }
 
+async function automaticPaperExitCycle(snapshot) {
+  if (!automaticPaperSellsEnabled || brokerMode !== "ibkr" || snapshot.environment !== "paper" || snapshot.readOnly !== true) return [];
+  const ownership = positionOwnership(snapshot);
+  // The feature flag alone must not turn a ticker match into sale authority.
+  if (!ownership.ownershipComplete || ownership.items.some((item) => item.ownership !== "strategy_owned" || item.protection !== "verified")) return [];
+  const scan = await scanDailyShadowSignals();
+  if (!scan.ok) return [];
+  const evaluated = evaluateAutomaticExits({
+    scan,
+    snapshot,
+    prior: strategy.automaticExitState ?? {},
+    requiredFailures: 2,
+  });
+  strategy.automaticExitState = evaluated.state;
+  saveStrategy();
+  const submitted = [];
+  for (const exit of evaluated.exits) {
+    const owned = ownership.items.find((item) => item.symbol === exit.symbol);
+    if (!owned || owned.strategyOwnedQuantity !== exit.quantity || owned.protection !== "verified") continue;
+    const quote = await ibkrSnapshot(exit.symbol);
+    const assessed = assessAutomaticExitQuote(quote, { maxSpreadPercent: maximumBidAskSpreadPercent });
+    if (!assessed.ok) {
+      auditLog.push({ id: randomUUID(), at: now(), event: "automatic_paper_exit_blocked", symbol: exit.symbol,
+        signalDate: exit.signalDate, reason: assessed.reason });
+      continue;
+    }
+    const { bid } = assessed;
+    const decisionId = randomUUID();
+    const sellOrders = (snapshot.openOrders ?? [])
+      .filter((order) => order.symbol === exit.symbol && order.action === "SELL" && ["Submitted", "PreSubmitted"].includes(order.status))
+    const linkedIds = new Set(ledger().listPositions().filter((item) => item.symbol === exit.symbol && item.accountId === snapshot.account)
+      .flatMap((item) => ledger().listBrokerOrders(item.id))
+      .filter((order) => ["protective_stop", "profit_target"].includes(order.role))
+      .map((order) => String(order.brokerOrderId)));
+    if (sellOrders.some((order) => !linkedIds.has(String(order.permanentId ?? order.orderId)))) continue;
+    const cancelOrderIds = sellOrders.map((order) => order.orderId);
+    // Do not remove a verified stop before a replacement sale is accepted.
+    // The current adapter has no safe atomic cancel/replace lifecycle.
+    if (cancelOrderIds.length > 0) {
+      auditLog.push({ id: randomUUID(), at: now(), event: "automatic_paper_exit_blocked", symbol: exit.symbol,
+        signalDate: exit.signalDate, reason: "unsafe_cancel_replace_not_supported" });
+      continue;
+    }
+    const request = {
+      account: snapshot.account,
+      symbol: exit.symbol,
+      action: "SELL",
+      quantity: exit.quantity,
+      limitPrice: roundPrice(bid * 0.998),
+      decisionId,
+      cancelOrderIds,
+    };
+    try {
+      const { stdout } = await execFileAsync(ibkrPython, [ibkrPaperExitScript, JSON.stringify(request)], { timeout: 35_000, maxBuffer: 128 * 1024 });
+      const result = JSON.parse(stdout);
+      if (!result.ok) continue;
+      strategy.automaticExitState.submitted[exit.symbol] = exit.signalDate;
+      strategy.completed.push({ proposalId: `automatic-exit:${decisionId}`, symbol: exit.symbol, side: "sell", quantity: exit.quantity, limitPrice: request.limitPrice, signalDate: exit.signalDate, outcome: "submitted", reason: exit.reason, at: now() });
+      saveStrategy();
+      auditLog.push({ id: randomUUID(), at: now(), event: "automatic_paper_exit_submitted", symbol: exit.symbol, quantity: exit.quantity, signalDate: exit.signalDate, brokerOrderId: result.result?.orderId ?? null });
+      submitted.push(result);
+    } catch (error) {
+      auditLog.push({ id: randomUUID(), at: now(), event: "automatic_paper_exit_failed", symbol: exit.symbol, signalDate: exit.signalDate, error: error.message });
+    }
+  }
+  return submitted;
+}
+
 function reconciliationDelay(snapshot) {
   if ((snapshot?.openOrders?.length ?? 0) > 0) return 5_000;
   if ((snapshot?.positions?.length ?? 0) > 0) return 15_000;
@@ -583,6 +786,7 @@ function scheduleReconciliation(delay = 1_000) {
     let nextDelay = 60_000;
     try {
       const { snapshot } = await performReconciliation();
+      await automaticPaperExitCycle(snapshot);
       nextDelay = reconciliationDelay(snapshot);
     } catch {
       nextDelay = 60_000;
@@ -600,6 +804,18 @@ async function ibkrWhatIf(receipt) {
     quantity: receipt.quantity,
     limitPrice: receipt.limitPrice,
   };
+  if (simulatedBroker) {
+    return {
+      ok: simulatedBroker.connected,
+      environment: "paper",
+      account: simulatedBroker.account,
+      symbol: receipt.symbol,
+      quantity: receipt.quantity,
+      estimatedCommission: 1,
+      warnings: [],
+      errors: [],
+    };
+  }
   try {
     const { stdout } = await execFileAsync(ibkrPython, [ibkrWhatIfScript, JSON.stringify(request)], {
       timeout: 20_000,
@@ -624,6 +840,48 @@ async function ibkrPaperSubmit(receipt) {
     targetPrice: receipt.targetPrice,
     decisionId: receipt.decisionId,
   };
+  if (simulatedBroker) {
+    const ids = simulatedBroker.submitBracket({
+      symbol: receipt.symbol,
+      quantity: receipt.quantity,
+      limitPrice: receipt.limitPrice,
+      stopPrice: receipt.stopPrice,
+      targetPrice: receipt.targetPrice,
+      decisionId: receipt.decisionId,
+    });
+    simulatedBroker.accept(ids.entryId);
+    if (simulatedDisconnectAfterSubmit) {
+      simulatedDisconnectAfterSubmit = false;
+      simulatedBroker.disconnect();
+      throw new Error("simulated_disconnect_after_transmission");
+    }
+    const values = [ids.entryId, ids.targetId, ids.stopId].map((id) => simulatedBroker.orders.get(id));
+    const normalize = (order) => ({
+      orderId: order.orderId,
+      permanentId: order.permanentId,
+      parentId: order.parentId,
+      status: order.status,
+      filled: order.filled,
+      remaining: order.remaining,
+      orderRef: order.orderRef,
+      symbol: order.symbol,
+    });
+    return {
+      ok: true,
+      environment: "paper",
+      account: simulatedBroker.account,
+      symbol: receipt.symbol,
+      action: "BUY",
+      quantity: receipt.quantity,
+      limitPrice: receipt.limitPrice,
+      stopPrice: receipt.stopPrice,
+      targetPrice: receipt.targetPrice,
+      result: normalize(values[0]),
+      exitOrders: [normalize(values[1]), normalize(values[2])],
+      errors: [],
+      warnings: [],
+    };
+  }
   try {
     const { stdout } = await execFileAsync(ibkrPython, [ibkrPaperSubmitScript, JSON.stringify(request)], {
       timeout: 20_000,
@@ -678,7 +936,10 @@ async function route(request, response) {
 
   if (request.method === "GET" && url.pathname === "/health") {
     const latest = reconciliations().latest();
-    return json(response, 200, { ok: true, environment: "paper", paused, reconciliation: {
+    return json(response, 200, { ok: true, environment: "paper", brokerMode, paused,
+      automaticPaperSellsEnabled, automaticPaperSellsRequested,
+      automaticPaperSellsBlocker: automaticExitReleaseReady ? null : "protected_exit_lifecycle_not_ready",
+      reconciliation: {
       enabled: reconciliationEnabled, status: latest?.status ?? "not_started", capturedAt: latest?.capturedAt ?? null,
     } });
   }
@@ -745,12 +1006,17 @@ async function route(request, response) {
     if (latest) {
       const portfolio = authoritativePortfolio(latest.snapshot);
       if (portfolio.status === "COMPLETE") {
+        const ownership = positionOwnership(latest.snapshot);
+        const ownershipBySymbol = new Map(ownership.items.map((item) => [item.symbol, item]));
         return json(response, 200, { items: portfolio.positions.map((position) => ({
+          ...(ownershipBySymbol.get(position.symbol) ?? {}),
           id: `ibkr:${position.contractId ?? position.symbol}`, symbol: position.symbol,
           quantity: position.quantity, averageEntryPrice: position.averageCost, currentPrice: null,
-          protectiveStopPrice: null, profitTargetPrice: null, updatedAt: portfolio.asOf,
+          protectiveStopPrice: ownershipBySymbol.get(position.symbol)?.protectiveStopPrice ?? null,
+          profitTargetPrice: null, updatedAt: portfolio.asOf,
           dataState: "reconciled",
-        })), reconciled: true, asOf: portfolio.asOf });
+        })), reconciled: true, ownershipComplete: ownership.ownershipComplete,
+          missingBrokerPositions: ownership.missingBrokerPositions, asOf: portfolio.asOf });
       }
     }
     return json(response, 200, {
@@ -762,6 +1028,20 @@ async function route(request, response) {
 
   if (request.method === "GET" && url.pathname === "/shadow/signals") {
     return json(response, 200, readShadowLedger());
+  }
+
+  if (request.method === "GET" && url.pathname === "/shadow/aggressive") {
+    try {
+      const { stdout } = await execFileAsync(ibkrPython, [aggressiveShadowScannerScript, "scan"], {
+        timeout: 180_000,
+        maxBuffer: 8 * 1024 * 1024,
+      });
+      const scan = JSON.parse(stdout);
+      return json(response, scan.ok ? 200 : 503, scan);
+    } catch (error) {
+      return json(response, 503, { ok: false, mode: "aggressive_shadow", orderSubmissionAllowed: false,
+        error: "aggressive_shadow_unavailable" });
+    }
   }
 
   if (request.method === "POST" && url.pathname === "/shadow/scan") {
@@ -807,10 +1087,12 @@ async function route(request, response) {
     const latest = reconciliations().latest();
     if (!latest) return json(response, 404, { ok: false, error: "no_reconciliation_snapshot" });
     const portfolio = authoritativePortfolio(latest.snapshot);
+    const ownership = portfolio.status === "COMPLETE" ? positionOwnership(latest.snapshot) : null;
     return json(response, portfolio.status === "COMPLETE" ? 200 : 409, {
       ok: portfolio.status === "COMPLETE",
       reconciliationRunId: latest.id,
       portfolio,
+      ownership,
       brokerActivity: reconciliations().listActivity(),
     });
   }
@@ -831,6 +1113,44 @@ async function route(request, response) {
       return json(response, 201, await nextRecommendation());
     } catch (error) {
       return json(response, 503, { error: error.message ?? "recommendation_unavailable" });
+    }
+  }
+
+  if (brokerMode === "simulated" && request.method === "POST" && url.pathname === "/__test/proposals") {
+    const input = await body(request);
+    const symbol = typeof input.symbol === "string" ? input.symbol.toUpperCase() : "NVDA";
+    const snapshot = await ibkrSnapshot(symbol);
+    const proposal = seedProposal(snapshot, null, {
+      symbol,
+      company: `${symbol} Test Company`,
+      atrPercent14: 2,
+      category: "TEST_SCENARIO",
+      recommendationScore: 100,
+      signalDate: "2099-01-01",
+      checks: [{ id: "test", label: "Deterministic test candidate", passed: true }],
+    });
+    ledger().recordProposal(proposalLedgerRecord(proposal));
+    proposals.set(proposal.id, proposal);
+    proposalSnapshots.set(proposal.id, snapshot);
+    return json(response, 201, { proposal, broker: snapshot });
+  }
+
+  if (brokerMode === "simulated" && request.method === "POST" && url.pathname === "/__test/broker-events") {
+    const input = await body(request);
+    try {
+      if (input.type === "fill") simulatedBroker.fill(Number(input.orderId), Number(input.quantity), Number(input.price), { commission: Number(input.commission ?? 0) });
+      else if (input.type === "reject") simulatedBroker.reject(Number(input.orderId), input.reason);
+      else if (input.type === "cancel") simulatedBroker.cancel(Number(input.orderId), input.reason);
+      else if (input.type === "disconnect") simulatedBroker.disconnect();
+      else if (input.type === "reconnect") simulatedBroker.reconnect();
+      else if (input.type === "disconnect_after_submit") simulatedDisconnectAfterSubmit = true;
+      else if (input.type === "external_order") simulatedBroker.addExternalOrder(input);
+      else if (input.type === "remove_order") simulatedBroker.removeOrder(Number(input.orderId));
+      else if (input.type === "advance") simulatedBroker.advance(Number(input.milliseconds ?? 1));
+      else return json(response, 400, { error: "invalid_simulated_event" });
+      return json(response, 200, { ok: true, snapshot: simulatedBroker.snapshot() });
+    } catch (error) {
+      return json(response, 409, { error: error.message });
     }
   }
 
@@ -1111,10 +1431,13 @@ async function route(request, response) {
       });
       let recalculated = null;
       if (submission.ok) {
-        try {
-          recalculated = await recalculateRecommendationQueue({ excludedSymbols: [receipt.symbol] });
-        } catch {
-          recalculated = { recommendations: [], strategy: strategySummary() };
+        if (simulatedBroker) recalculated = { recommendations: [], strategy: strategySummary() };
+        else {
+          try {
+            recalculated = await recalculateRecommendationQueue({ excludedSymbols: [receipt.symbol] });
+          } catch {
+            recalculated = { recommendations: [], strategy: strategySummary() };
+          }
         }
       }
       return json(response, submission.ok ? 200 : 409, { submission, ...recalculated });

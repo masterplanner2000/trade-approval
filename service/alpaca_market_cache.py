@@ -271,7 +271,9 @@ def scan() -> dict[str, object]:
         "evaluatedCount": len(evaluations),
         "qualifiedCount": len(ranked),
         "selected": ranked[0] if ranked else None,
-        "evaluations": ranked[:50],
+        # Exit and portfolio review must see explicit failed evaluations for
+        # held symbols; a qualified-only list makes those failures invisible.
+        "evaluations": evaluations,
         "rejectionCounts": dict(rejection_counts),
         "error": None if asset_rows else "alpaca_cache_empty",
     }

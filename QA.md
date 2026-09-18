@@ -1,9 +1,15 @@
 # Trade Approval — Quality and Release Plan
 
-**Version:** 1.0
-**Last updated:** 2026-09-12
+**Version:** 1.1
+**Last updated:** 2026-09-17
 
 This is the source of truth for verification of the stock paper-trading application. A passing test suite reduces implementation risk; it does not establish that a strategy is profitable or that paper fills predict live execution.
+
+**2026-09-17 paper audit blocker:** The scanner now returns explicit failed held-symbol evaluations, with a regression test and unchanged qualified-buy selection. Automatic paper selling remains disabled. Its unit tests do not prove the end-to-end scan-to-exit path. Verify strategy-owned quantities versus external shares, broker-visible protection, quote freshness, and fee-complete P/L before treating the current paper results as a valid strategy-performance sample. Keep order-submitting tests gated and paper-only.
+
+**Priority-1 progress:** A pure ownership/protection reconciliation now checks same-account filled entries, exact broker quantity, observed external activity and linked active stops. A simulated HTTP scenario removes a stop and verifies Positions reports the gap and new-buy capacity is blocked. Historical completeness, manual-position provenance and full automatic-exit fault injection remain open; do not classify this milestone as complete.
+
+**Automatic-exit release gate:** Cover acceptance-before-protection-cancellation, rejection, partial fill, broker stop/target race, reconnect and idempotent retry in a paper-only simulator before any feature-flag activation. Verify a current type-1 IBKR quote or fail closed. Two failed observations count only when they correspond to adjacent completed market bars. The current adapter does not meet the cancel/replace gate; keep automatic ordinary selling disabled.
 
 ## Safety rules for tests
 
@@ -46,11 +52,12 @@ These scenarios must be automated before live-trading consideration:
 - [x] Missing or stale portfolio inputs prevent sizing.
 - [x] Strategy capital is reserved on submission and released after a confirmed exit.
 - [x] Net profit is shown only when both entry and exit fees are known.
-- [ ] A partial entry fill protects exactly the filled quantity.
+- [x] A partial entry fill protects exactly the filled quantity in the deterministic broker and is represented as partial through HTTP reconciliation.
 - [ ] Rejected and cancelled entries never create positions.
 - [ ] A missing, cancelled, or undersized protective stop creates a blocking exception.
 - [ ] A partial exit preserves the correct remaining position, protection and cost basis.
-- [ ] Manual broker orders, fills, cancellations and position changes are reconciled visibly.
+- [x] Manual broker orders are reconciled visibly in the HTTP integration foundation.
+- [ ] Manual fills, cancellations and position changes are reconciled visibly.
 - [ ] Changed cash, price or exposure invalidates stale sizing and requires renewed approval.
 - [ ] Ordinary profit targets generate sell approval rather than automatic submission.
 - [ ] Paper and live account identities cannot be confused at any service boundary.
@@ -84,7 +91,7 @@ A live pilot additionally requires completed lifecycle/reconciliation scenarios,
 
 1. **CI foundation — implemented:** unified local command, clean-install GitHub checks, dependency review, secret scan and this matrix.
 2. **Deterministic broker simulator — foundation implemented:** scripted fills, partial fills, rejects, cancels, disconnects, delayed evidence, duplicate callbacks and manual activity. Next connect full service routes and lifecycle exception handling.
-3. **API integration harness:** start the service on an isolated database and exercise complete proposal-to-reconciliation flows.
+3. **API integration harness — foundation implemented:** starts a real service process on isolated files and exercises approval, preview, What-If, submission, partial/full fills, closed trades, manual orders and uncertain-outcome recovery through HTTP. Cancellation/protection-gap and restart expansion remain next.
 4. **Mobile automation:** Maestro flows and accessibility identifiers for primary states and decisions.
 5. **Visual/accessibility checks:** screenshot baselines, Dynamic Type, themes, VoiceOver checklist and automated accessibility assertions where supported.
 6. **Gated IBKR Paper smoke:** read-only health by default; order smoke requires an additional explicit flag and strict account/notional controls.
