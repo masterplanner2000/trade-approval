@@ -53,7 +53,7 @@ test("disconnect and JSON restart do not retransmit an uncertain replacement", (
   assert.deepEqual(lost.commands, []);
   const restored = JSON.parse(JSON.stringify(lost.state));
   broker.reconnect();
-  assert.equal(advance(restored).state.phase, "awaiting_ack");
+  assert.equal(advance(restored).state.phase, "unknown");
   assert.deepEqual(advance(restored).commands, []);
   broker.resolveTargetReplacement("exit-1", "Accepted");
   assert.equal(advance(restored).state.phase, "working");

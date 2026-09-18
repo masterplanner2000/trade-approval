@@ -83,6 +83,8 @@ This is the living record of product, design, trading-safety, data, and technica
 
 **Simulator exit lifecycle:** A Paper-only pure state machine issues at most one target-replacement intent for a request ID and waits for a changed broker order before calling the exit working. It never cancels the stop to make way for a new sale and never resubmits an uncertain intent merely because a process restarted. The simulator verifies rejection, disconnect, restart, partial fill with oversized sibling stop, extra sell order, stop/target race, duplicate callback and same-account full-quantity closure evidence. This is not a production outbox, IBKR modification adapter, or proof that IBKR will rebalance siblings on partial fills. Automatic selling remains disabled until those separate gates pass.
 
+**Durable intent boundary:** A simulator-only SQLite outbox now persists the exact request before dispatch and commits a one-time claim before handing back a descriptive broker command. A crash after the claim may mean the broker did or did not receive it; the app must reconcile, not blindly retry. Fresh broker evidence is required again at claim time, and conflicting/stale evidence blocks it. Rejected or formerly working intents cannot silently rearm after evidence is lost. One unresolved intent per Paper account/symbol is allowed. The outbox is not connected to TWS or the service worker; the existing automatic-sell release hold remains. An IBKR support ticket still needs user login and authorization to send account-specific diagnostics.
+
 ### D-043 — Reconcile terminal Paper orders without guessing from absence
 
 **Status:** Confirmed; simulator-tested, with read-only IBKR callback verification.

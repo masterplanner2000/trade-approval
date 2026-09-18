@@ -36,6 +36,11 @@ export function advanceProtectedExitLifecycle(previous, { snapshot, requestId, a
   if (assessed.state === "closed") return output("closed", null);
   if (assessed.state === "blocked") return output("blocked", assessed.reason);
   if (assessed.state === "replacement_working") return output("working", null);
+  if (previous?.phase === "blocked") return output("blocked", previous.reason ?? "requires_manual_review");
+  if (previous?.phase === "transmission_unknown" || previous?.phase === "unknown") {
+    return output("unknown", "transport_outcome_unconfirmed");
+  }
+  if (previous?.phase === "working") return output("unknown", "replacement_no_longer_verified");
   if (previous) return output("awaiting_ack", "replacement_not_acknowledged");
 
   return output("awaiting_ack", "replacement_not_acknowledged", [{
