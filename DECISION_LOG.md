@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-18.6 · **Corresponding architecture:** 3.27
+**Log revision:** 2026-09-18.7 · **Corresponding architecture:** 3.27
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -85,6 +85,8 @@ This is the living record of product, design, trading-safety, data, and technica
 
 **Durable intent boundary:** A simulator-only SQLite outbox now persists the exact request before dispatch and commits a one-time claim before handing back a descriptive broker command. A crash after the claim may mean the broker did or did not receive it; the app must reconcile, not blindly retry. Fresh broker evidence is required again at claim time, and conflicting/stale evidence blocks it. Rejected or formerly working intents cannot silently rearm after evidence is lost. One unresolved intent per Paper account/symbol is allowed. The outbox is not connected to TWS or the service worker; the existing automatic-sell release hold remains. An IBKR support ticket still needs user login and authorization to send account-specific diagnostics.
 
+**IBKR support follow-up, 2026-09-18:** After the user signed in and asked us to proceed, submitted TWS API ticket #496671 about warning 2186 on read-only Paper live-quote requests. It asks IBKR to identify the exact entitlement, whether the included non-consolidated feed is API-eligible, and any remaining settings; it explicitly asks them not to purchase or change subscriptions. The support flow said responses are typically within 48 hours. An automated self-help answer suggests a separate Level 1 off-platform subscription, but it did not identify the exact entitlement for this account, so the live-quote gate remains closed until a broker-confirmed answer and a successful read-only retest.
+
 ### D-043 — Reconcile terminal Paper orders without guessing from absence
 
 **Status:** Confirmed; simulator-tested, with read-only IBKR callback verification.
@@ -122,6 +124,8 @@ This is the living record of product, design, trading-safety, data, and technica
 **Decision:** Explore active, tradable U.S.-listed common equities beyond the existing top-500 universe, including eligible names from the user's thematic watchlist, in a separate read-only shadow lane. Do not treat watchlist symbols as holdings. Keep OTC and obvious non-common-stock instruments out. Completed daily momentum, volatility, and relative-volume thresholds are test variables; zero candidates is valid.
 
 **Boundary:** The lane cannot create app proposals, approval receipts, paper or live orders. IEX volume is venue-specific, not consolidated liquidity. Every shadow result explicitly lacks verified catalyst, current bid/ask spread, portfolio sizing and fresh broker validation. Do not promote candidates to the actionable queue until those data, out-of-sample testing and a separately reviewed risk policy exist.
+
+**BMNR diagnostic, 2026-09-18:** BMNR was not missed by universe discovery: it ranked 168th in the main top-500 cache. On the September 17 completed IEX daily signal, it failed the main strategy's $50 million 20-day average dollar-volume floor ($46.44 million), required close > 50-day average > 200-day average (the 50-day average was below the 200-day average), and 6% maximum ATR (7.75%). The separate shadow cache was last refreshed September 17 and failed five-day momentum (0.0% versus 2% minimum) and relative volume (0.17 versus 1.3 minimum). The user's roughly 10% September 18 intraday rise was not observable by either completed-daily scan at decision time. This is evidence for adding and evaluating an intraday discovery lane, not evidence that chasing an already-risen stock would be profitable or safe. Do not silently relax thresholds or promote the shadow lane.
 
 **Reason:** The current top-500 liquid-momentum strategy often favors familiar large-cap stocks and cannot answer whether a carefully constrained, less conservative universe offers useful opportunities. Increased volatility is not evidence of higher expected return.
 
