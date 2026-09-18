@@ -79,6 +79,8 @@ This is the living record of product, design, trading-safety, data, and technica
 
 **Later portal state:** At 12:47 p.m. ET, Client Portal displayed Market Data Subscriber Status as Non-Professional; the separate Non-Commercial Form section was no longer visible. The current Paper TWS session still returned 2186 for an explicitly live-only NVDA request. A TWS re-authentication may be needed to test refreshed rights, but is not proven to fix the missing entitlement. No safety gate was released.
 
+**Post-restart result:** Paper TWS restarted and accepted fresh read-only connections, but live-only NVDA and MSFT API requests still returned 2186 with no quote. A stale TWS session is not sufficient to explain the problem. Ask IBKR for the precise API entitlement/provisioning requirement rather than selecting a paid package by guesswork. The live quote, repair and automatic-exit holds remain in place.
+
 ### D-043 — Reconcile terminal Paper orders without guessing from absence
 
 **Status:** Confirmed; simulator-tested, with read-only IBKR callback verification.
