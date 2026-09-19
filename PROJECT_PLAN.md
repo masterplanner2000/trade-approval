@@ -1,6 +1,6 @@
 # Trade Approval — Project Plan
 
-**Last updated:** 2026-09-18
+**Last updated:** 2026-09-19
 **Current objective:** Establish a trustworthy paper-trading loop—owned positions, protection, execution state and measurable results—before expanding the recommendation strategy or enabling automatic exits.
 
 ## Today's work order — 2026-09-18
@@ -15,6 +15,16 @@
 ## Prioritized recovery and product roadmap — 2026-09-17
 
 This is the working sequence for the user's current concerns. A passing code test is not proof of profitable recommendations or reliable broker execution. Keep the existing paper/live separation and do not place an order merely to exercise the app.
+
+### September 19 priority reset
+
+1. **Broker correctness and protection (release blocker):** obtain IBKR's answer to ticket #496671, retest read-only type-1 quotes, finish protected-exit/reconciliation fault coverage, and only then run a strictly bounded Paper adapter test. Never use a live account for this work.
+2. **Measurement integrity:** store complete as-known-at-the-time decisions and non-decisions, calculate fee/slippage-aware results, and compare daily and intraday hypotheses with cash and a benchmark through walk-forward and forward Paper samples.
+3. **Intraday opportunity research:** build capture, persistence and replay around the new pure intraday evaluator. Validate provider timestamps, expected-volume baselines, consolidated liquidity, spreads, halts and catalysts. It remains shadow-only until explicitly promoted after evidence review.
+4. **Portfolio/sizing integration:** connect authoritative broker state and policy to the pure sizing engine, stale-approval invalidation and sequential rotations.
+5. **Product quality and release:** mobile automation/accessibility, notifications, operational resilience, security, data rights and legal review.
+
+**Work started:** `service/intraday_shadow_evaluator.py` evaluates immutable snapshots with complete rejection reasons and no network, storage, recommendation or order authority. Tests include a BMNR-like 9.7% move, stale/future observations, crossed quotes, multiple simultaneous failures and missing fields. Next is an append-only snapshot journal plus deterministic replay; a live provider is selected only after its timestamp, volume and licensing semantics are verified.
 
 | Priority | User concern and deliverable | Acceptance gate |
 |---|---|---|

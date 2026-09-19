@@ -1,7 +1,7 @@
 # Trade Approval — Quality and Release Plan
 
-**Version:** 1.2
-**Last updated:** 2026-09-18
+**Version:** 1.3
+**Last updated:** 2026-09-19
 
 This is the source of truth for verification of the stock paper-trading application. A passing test suite reduces implementation risk; it does not establish that a strategy is profitable or that paper fills predict live execution.
 
@@ -32,6 +32,15 @@ This is the source of truth for verification of the stock paper-trading applicat
 | IBKR Paper smoke | Manual/scheduled gated run | Next | Verify current TWS connectivity and harmless paper lifecycle behavior |
 | Resilience and soak | Nightly/release candidate | Planned | Restarts, outages, retry safety, resource use and reconciliation stability |
 | Production monitoring | After hosted pilot | Planned | Detect connection, reconciliation, execution and notification failures |
+
+## Prioritized remaining verification
+
+1. **P0 — Broker truth and protected Paper lifecycle:** resolve live API quote entitlement; verify missing/undersized protection, partial exit and sibling resizing, manual fills/cancellations, account isolation, and crash/restart behavior before a narrowly gated Paper smoke test. Automatic selling stays disabled.
+2. **P1 — Strategy evidence:** preserve every eligible, rejected, unselected, denied, expired and executed observation as known at the time; add fee/slippage-complete outcomes, benchmark comparison, drawdown, walk-forward splits and negative/missed-opportunity review.
+3. **P2 — Intraday discovery in shadow:** collect immutable timestamped snapshots, test provider coverage and consolidated volume, replay without look-ahead, and measure false positives and late entries. The pure evaluator is implemented; data collection, persistence, replay and promotion criteria are not.
+4. **P3 — Portfolio sizing integration:** connect the pure sizing model to complete reconciled inputs; invalidate stale approvals when cash, exposure or price changes; test sectors, correlations and sequential rotations.
+5. **P4 — Mobile behavior and accessibility:** automate primary states, gestures, offline/recovery, Dynamic Type, VoiceOver, themes and supported viewport screenshots.
+6. **P5 — Operations and external release:** authentication, encrypted secrets, monitoring, backup/recovery, dependency/security review, data licensing and securities/legal review.
 
 ## Local quality gate
 

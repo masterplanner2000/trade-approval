@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-18.7 · **Corresponding architecture:** 3.27
+**Log revision:** 2026-09-19.1 · **Corresponding architecture:** 3.28
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -60,10 +60,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-042 | Prioritize position truth, execution reliability and measurement before expanding recommendations | Confirmed delivery sequence | 2026-09-17 |
 | D-043 | Require explicit broker terminal-order evidence before releasing an unfilled order reservation | Confirmed; simulator-tested | 2026-09-18 |
 | D-044 | Repair legacy Paper protection only from fresh broker evidence and a bounded stop policy | Confirmed safety gate; order placement pending | 2026-09-18 |
+| D-045 | Develop intraday discovery as a timestamped, research-only lane | Confirmed direction; pure evaluator implemented | 2026-09-19 |
 
 ---
 
 ## Detailed decisions
+
+### D-045 — Intraday discovery remains timestamped research until validated
+
+**Status:** Confirmed direction; pure evaluator implemented with no data-provider or order authority.
+
+**Decision:** Build intraday opportunity discovery separately from the existing completed-daily recommendation strategy. Every observation must preserve what was known at its timestamp and report every failed or missing gate. The initial evaluator checks session, snapshot and quote freshness, halt state, coherent prices, day movement, opening gap, relative volume, session dollar volume and spread. Thresholds and score are proposed test variables. A passing result is a research observation, not a trade recommendation.
+
+**Promotion boundary:** Before this lane can influence approval cards, add immutable capture and replay, validate provider timestamps and consolidated-volume semantics, link sourced catalysts, test false positives and late entries out of sample and in forward Paper observation, connect portfolio sizing and fresh broker validation, and separately approve its risk policy. It cannot size, approve or submit orders. BMNR is the first diagnostic fixture, not proof that the rules are profitable.
 
 ### D-044 — Repair legacy Paper protection without guessing
 
