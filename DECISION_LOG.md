@@ -60,7 +60,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-042 | Prioritize position truth, execution reliability and measurement before expanding recommendations | Confirmed delivery sequence | 2026-09-17 |
 | D-043 | Require explicit broker terminal-order evidence before releasing an unfilled order reservation | Confirmed; simulator-tested | 2026-09-18 |
 | D-044 | Repair legacy Paper protection only from fresh broker evidence and a bounded stop policy | Confirmed safety gate; order placement pending | 2026-09-18 |
-| D-045 | Develop intraday discovery as a timestamped, research-only lane | Confirmed direction; pure evaluator implemented | 2026-09-19 |
+| D-045 | Develop intraday discovery as a timestamped, research-only lane | Confirmed; evaluator and recorded-evidence pipeline implemented | 2026-09-19 |
 
 ---
 
@@ -68,13 +68,13 @@ This is the living record of product, design, trading-safety, data, and technica
 
 ### D-045 — Intraday discovery remains timestamped research until validated
 
-**Status:** Confirmed direction; pure evaluator and append-only journal implemented with no data-provider or order authority.
+**Status:** Confirmed direction; evaluator, append-only journal, recorded-data importer and observation-outcome report implemented with no data-provider or order authority.
 
 **Decision:** Build intraday opportunity discovery separately from the existing completed-daily recommendation strategy. Every observation must preserve what was known at its timestamp and report every failed or missing gate. The initial evaluator checks session, snapshot and quote freshness, halt state, coherent prices, day movement, opening gap, relative volume, session dollar volume and spread. Thresholds and score are proposed test variables. A passing result is a research observation, not a trade recommendation.
 
 **Promotion boundary:** Before this lane can influence approval cards, add immutable capture and replay, validate provider timestamps and consolidated-volume semantics, link sourced catalysts, test false positives and late entries out of sample and in forward Paper observation, connect portfolio sizing and fresh broker validation, and separately approve its risk policy. It cannot size, approve or submit orders. BMNR is the first diagnostic fixture, not proof that the rules are profitable.
 
-**Persistence progress:** The local journal records the exact snapshot, evaluation time, source, volume scope, ruleset and result. Exact repeats are idempotent; database triggers block update and delete; passing, failed and incomplete evidence all survive restart. Replay is chronological and re-evaluates only the current known ruleset, reporting unsupported historical versions instead of silently applying new logic. No live data is collected yet.
+**Persistence and measurement progress:** The local journal records the exact snapshot, evaluation time, source, volume scope, ruleset and result. Exact repeats are idempotent; database triggers block update and delete; passing, failed and incomplete evidence all survive restart. Replay is chronological and re-evaluates only the current known ruleset, reporting unsupported historical versions instead of silently applying new logic. Recorded JSONL is validated before import. Outcome reporting uses the first eligible observation per symbol and New York session, fixed 5-minute and 30-minute windows, last-observed return and favorable/adverse excursion. Missing horizons remain incomplete. Observations are not fills; costs and market impact are excluded; no profitability claim is permitted. No live data is collected yet.
 
 ### D-044 — Repair legacy Paper protection without guessing
 
