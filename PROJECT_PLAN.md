@@ -24,7 +24,7 @@ This is the working sequence for the user's current concerns. A passing code tes
 4. **Portfolio/sizing integration:** connect authoritative broker state and policy to the pure sizing engine, stale-approval invalidation and sequential rotations.
 5. **Product quality and release:** mobile automation/accessibility, notifications, operational resilience, security, data rights and legal review.
 
-**Work started:** `service/intraday_shadow_evaluator.py` evaluates immutable snapshots with complete rejection reasons and no network, storage, recommendation or order authority. Tests include a BMNR-like 9.7% move, stale/future observations, crossed quotes, multiple simultaneous failures and missing fields. Next is an append-only snapshot journal plus deterministic replay; a live provider is selected only after its timestamp, volume and licensing semantics are verified.
+**Work started:** `service/intraday_shadow_evaluator.py` evaluates snapshots with complete rejection reasons and no network, recommendation or order authority. `service/intraday_shadow_journal.py` now stores exact passing, failing and incomplete observations in an append-only SQLite timeline, deduplicates exact repeats, survives restart, records source/volume provenance and supports chronological deterministic replay without reinterpreting unknown ruleset versions. Tests include a BMNR-like 9.7% move, stale/future observations, crossed quotes, multiple simultaneous failures, missing fields and storage immutability. Next: define recorded fixture import and an outcome report, then select a live provider only after its timestamp, volume and licensing semantics are verified.
 
 | Priority | User concern and deliverable | Acceptance gate |
 |---|---|---|

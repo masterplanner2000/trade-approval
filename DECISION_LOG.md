@@ -68,11 +68,13 @@ This is the living record of product, design, trading-safety, data, and technica
 
 ### D-045 — Intraday discovery remains timestamped research until validated
 
-**Status:** Confirmed direction; pure evaluator implemented with no data-provider or order authority.
+**Status:** Confirmed direction; pure evaluator and append-only journal implemented with no data-provider or order authority.
 
 **Decision:** Build intraday opportunity discovery separately from the existing completed-daily recommendation strategy. Every observation must preserve what was known at its timestamp and report every failed or missing gate. The initial evaluator checks session, snapshot and quote freshness, halt state, coherent prices, day movement, opening gap, relative volume, session dollar volume and spread. Thresholds and score are proposed test variables. A passing result is a research observation, not a trade recommendation.
 
 **Promotion boundary:** Before this lane can influence approval cards, add immutable capture and replay, validate provider timestamps and consolidated-volume semantics, link sourced catalysts, test false positives and late entries out of sample and in forward Paper observation, connect portfolio sizing and fresh broker validation, and separately approve its risk policy. It cannot size, approve or submit orders. BMNR is the first diagnostic fixture, not proof that the rules are profitable.
+
+**Persistence progress:** The local journal records the exact snapshot, evaluation time, source, volume scope, ruleset and result. Exact repeats are idempotent; database triggers block update and delete; passing, failed and incomplete evidence all survive restart. Replay is chronological and re-evaluates only the current known ruleset, reporting unsupported historical versions instead of silently applying new logic. No live data is collected yet.
 
 ### D-044 — Repair legacy Paper protection without guessing
 
