@@ -61,10 +61,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-043 | Require explicit broker terminal-order evidence before releasing an unfilled order reservation | Confirmed; simulator-tested | 2026-09-18 |
 | D-044 | Repair legacy Paper protection only from fresh broker evidence and a bounded stop policy | Confirmed safety gate; order placement pending | 2026-09-18 |
 | D-045 | Develop intraday discovery as a timestamped, research-only lane | Confirmed; evaluator and recorded-evidence pipeline implemented | 2026-09-19 |
+| D-046 | Add macro/news events and volatility as a separately measured ranking bias | Confirmed direction; pure shadow evaluator implemented | 2026-09-19 |
 
 ---
 
 ## Detailed decisions
+
+### D-046 — Macro/event bias requires sourced events and confirming market reaction
+
+**Status:** Confirmed direction; pure shadow evaluator implemented with no provider, proposal or order authority.
+
+**Decision:** Add a modular macro/news-event bias alongside the technical scanner. Every event must be timestamped and supported by a verified primary source or at least two independent sources. The mapping from the event or economic theme to a company must state its direction and strength rather than relying on a generated narrative. A fresh market snapshot must confirm the expected direction with price movement, relative volume, an explicit volatility band, acceptable spread and no halt. Record both positive `LONG` and adverse `AVOID_OR_EXIT` observations.
+
+**Boundary:** Event evidence cannot rescue a candidate that fails core liquidity, spread, freshness or portfolio controls. The initial thresholds and weighting are test hypotheses. The component returns `orderSubmissionAllowed: false` and is not connected to the actionable recommendation queue. Before promotion, add trusted event and economic-calendar adapters, revision/correction handling, immutable exposure-map provenance, no-event controls, forward outcomes and comparisons by volatility regime. News reaction can be fast and already priced in; this design does not establish predictive value.
 
 ### D-045 — Intraday discovery remains timestamped research until validated
 
