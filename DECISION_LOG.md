@@ -67,10 +67,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-048 | Require reviewed, versioned evidence for theme-to-company exposure | Confirmed; immutable registry implemented, production mappings pending | 2026-09-20 |
 | D-049 | Join macro records only through an explicit reviewed event crosswalk | Confirmed; pure fail-closed joiner implemented, scheduling pending | 2026-09-20 |
 | D-050 | Pre-register durable forward macro capture windows | Confirmed; provider-neutral scheduler implemented, runtime worker pending | 2026-09-20 |
+| D-051 | Execute forward capture through a supervised read-only worker | Confirmed; injected-adapter worker implemented, real providers pending | 2026-09-20 |
 
 ---
 
 ## Detailed decisions
+
+### D-051 — Forward capture workers are read-only, single-claim and fail visibly
+
+**Status:** Confirmed; supervised worker and normalized evidence validation implemented with fixture adapters only.
+
+**Decision:** A worker may claim due scheduler tasks and call only injected release-data or market-data readers. Release captures require identified primary-source and consensus records. Market captures require timestamped bid, ask, last, session and expected volume, prior close, ATR, halt status and explicit data/volume provenance. Valid results complete once; invalid results and provider exceptions become sanitized failures without storing raw error messages.
+
+**Boundary:** The worker has no timer, credentials, production provider configuration, recommendation route or broker/order method. It catches ordinary provider failures but deliberately does not catch process termination; a crash after claim therefore remains visibly `CLAIMED` and cannot be silently retried by another worker. Real adapters, operational supervision, unresolved-claim handling and licensed forward collection remain pending.
 
 ### D-050 — Forward event research must be scheduled before the release
 
