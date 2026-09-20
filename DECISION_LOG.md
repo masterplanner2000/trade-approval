@@ -66,10 +66,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-047 | Evaluate Trading Economics as the first consensus/forecast source | Provisional adapter implemented; access and licensing unapproved | 2026-09-20 |
 | D-048 | Require reviewed, versioned evidence for theme-to-company exposure | Confirmed; immutable registry implemented, production mappings pending | 2026-09-20 |
 | D-049 | Join macro records only through an explicit reviewed event crosswalk | Confirmed; pure fail-closed joiner implemented, scheduling pending | 2026-09-20 |
+| D-050 | Pre-register durable forward macro capture windows | Confirmed; provider-neutral scheduler implemented, runtime worker pending | 2026-09-20 |
 
 ---
 
 ## Detailed decisions
+
+### D-050 — Forward event research must be scheduled before the release
+
+**Status:** Confirmed; durable provider-neutral schedule and audit trail implemented. No runtime worker or external data call is connected.
+
+**Decision:** Register each macro study before its scheduled release with pinned event, event-link and exposure-map versions and an exact symbol set. Create one five-minute pre-release baseline, one release capture, and per-symbol 1-, 5- and 30-minute reaction windows. Tasks are claimed transactionally by one worker, survive restart and require observations inside their stated windows with named data provenance.
+
+**Boundary:** A task that passes its tolerance becomes `MISSED`; the application must not backfill it later and call it forward evidence. Claimed work is not silently reissued after a crash, so an uncertain capture remains visibly unresolved until explicitly failed. The scheduler itself has no provider, recommendation, mobile or broker authority. A supervised worker, reviewed real plans, provider rights and forward sample remain pending.
 
 ### D-049 — Macro event joins require reviewed identity and timing evidence
 

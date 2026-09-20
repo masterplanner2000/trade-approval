@@ -159,6 +159,8 @@ The existing news sheet supports symbol search, source links and publication/upd
 
 `service/macro_event_joiner.py` is the pure boundary between normalized inputs and journal-ready macro evidence. It requires a reviewed crosswalk that names the exact official and consensus record identities, plus compatible release timing, a standardized released surprise with sufficient prior history, an active explicit exposure-map version and a post-release reaction. It rejects mismatches instead of matching on similar titles or dates. Successful output can enter the immutable macro journal and evaluator, but retains no proposal, scheduling, network or broker authority.
 
+`service/macro_capture_scheduler.py` durably pre-registers forward event studies before release time. Each plan pins its event, crosswalk, exposure-map version and symbols, then creates a five-minute baseline, release task and 1/5/30-minute reaction tasks. Transactional single-worker claims, bounded observation windows, explicit missed states and immutable transition audit make restarts and incomplete capture visible. It has no timer process or external adapters yet; a claimed-but-unfinished task stays claimed instead of being blindly retried.
+
 ## Proposed crypto workstream — design review required
 
 [CRYPTO_MVP_ASSESSMENT.md](./CRYPTO_MVP_ASSESSMENT.md) evaluates the next path: exchange-only paper MVP, separate software-correctness and market-economics tests, and deferred 0x observation/wallet work. Public production read-only data and unattended session behavior are proposed scope changes awaiting review; the sandbox-only diagram below remains the baseline. No signing component is proposed for the MVP.
