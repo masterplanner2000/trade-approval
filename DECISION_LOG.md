@@ -64,10 +64,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-045 | Develop intraday discovery as a timestamped, research-only lane | Confirmed; evaluator and recorded-evidence pipeline implemented | 2026-09-19 |
 | D-046 | Add macro/news events and volatility as a separately measured ranking bias | Confirmed; evaluator, journal and first official-source adapters implemented | 2026-09-19 |
 | D-047 | Evaluate Trading Economics as the first consensus/forecast source | Provisional adapter implemented; access and licensing unapproved | 2026-09-20 |
+| D-048 | Require reviewed, versioned evidence for theme-to-company exposure | Confirmed; immutable registry implemented, production mappings pending | 2026-09-20 |
 
 ---
 
 ## Detailed decisions
+
+### D-048 — Theme-to-company exposure is reviewed data, not generated narrative
+
+**Status:** Confirmed; append-only registry implemented with synthetic tests only. No production company mappings are approved.
+
+**Decision:** Store every theme-to-symbol relationship in a named reviewed map version. Each relationship must specify a nonzero direction, bounded strength, effective interval, substantive rationale, and at least one timestamped HTTPS source classified as a regulatory filing, company report, official dataset, index methodology or regulator publication. Resolution always names both a map version and an as-of time.
+
+**Change policy:** Draft maps cannot resolve. A version is content-addressed and idempotent; changing it under the same version is a conflict. A later reviewed version may explicitly supersede a known earlier version, but database triggers preserve the old map and its entries for replay. Expired, absent, duplicate, future-dated or weakly sourced relationships fail closed.
+
+**Boundary:** The registry does not infer exposure from company names, tickers, headlines or model output. Initial production mappings must be curated and reviewed from primary evidence. A resolved exposure remains research-only and cannot bypass technical, liquidity, portfolio, broker or forward-validation gates.
 
 ### D-047 — Consensus data is provisional and surprise must be standardized within series
 
