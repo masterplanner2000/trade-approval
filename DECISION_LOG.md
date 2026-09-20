@@ -65,10 +65,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-046 | Add macro/news events and volatility as a separately measured ranking bias | Confirmed; evaluator, journal and first official-source adapters implemented | 2026-09-19 |
 | D-047 | Evaluate Trading Economics as the first consensus/forecast source | Provisional adapter implemented; access and licensing unapproved | 2026-09-20 |
 | D-048 | Require reviewed, versioned evidence for theme-to-company exposure | Confirmed; immutable registry implemented, production mappings pending | 2026-09-20 |
+| D-049 | Join macro records only through an explicit reviewed event crosswalk | Confirmed; pure fail-closed joiner implemented, scheduling pending | 2026-09-20 |
 
 ---
 
 ## Detailed decisions
+
+### D-049 — Macro event joins require reviewed identity and timing evidence
+
+**Status:** Confirmed; pure integration component implemented with no scheduler, proposal or order authority.
+
+**Decision:** A normalized official release, consensus row and symbol exposure may become one research observation only through an explicitly reviewed event-link record. The link pins the exact official and consensus event identities, event type, theme, reviewer, review time, rationale and source evidence. Joining also requires compatible release/schedule timing, a released standardized surprise based on at least 12 prior same-series observations, an active reviewed exposure-map version and a post-release market observation.
+
+**Boundary:** The joiner does not infer event equivalence from titles, categories or timestamps and does not infer a company relationship. Missing or conflicting identities, timing, consensus, exposure or reaction evidence fail closed. The output is accepted by the existing append-only research journal and evaluator but remains `orderSubmissionAllowed: false`. Real crosswalks, provider licensing, scheduled capture and forward outcomes are still pending.
 
 ### D-048 — Theme-to-company exposure is reviewed data, not generated narrative
 
