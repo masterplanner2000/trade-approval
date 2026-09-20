@@ -61,7 +61,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-043 | Require explicit broker terminal-order evidence before releasing an unfilled order reservation | Confirmed; simulator-tested | 2026-09-18 |
 | D-044 | Repair legacy Paper protection only from fresh broker evidence and a bounded stop policy | Confirmed safety gate; order placement pending | 2026-09-18 |
 | D-045 | Develop intraday discovery as a timestamped, research-only lane | Confirmed; evaluator and recorded-evidence pipeline implemented | 2026-09-19 |
-| D-046 | Add macro/news events and volatility as a separately measured ranking bias | Confirmed; evaluator and append-only evidence journal implemented | 2026-09-19 |
+| D-046 | Add macro/news events and volatility as a separately measured ranking bias | Confirmed; evaluator, journal and first official-source adapters implemented | 2026-09-19 |
 
 ---
 
@@ -75,7 +75,9 @@ This is the living record of product, design, trading-safety, data, and technica
 
 **Boundary:** Event evidence cannot rescue a candidate that fails core liquidity, spread, freshness or portfolio controls. The initial thresholds and weighting are test hypotheses. The component returns `orderSubmissionAllowed: false` and is not connected to the actionable recommendation queue. Before promotion, add trusted event and economic-calendar adapters, revision/correction handling, immutable exposure-map provenance, no-event controls, forward outcomes and comparisons by volatility regime. News reaction can be fast and already priced in; this design does not establish predictive value.
 
-**Evidence progress:** The macro journal now requires exact source URLs and publication/retrieval timestamps, an event key and revision, exposure-map version and rationale, and market-data source/volume scope. Exact duplicates are idempotent; corrected events append as later revisions; database triggers block changes and deletion. Deterministic replay refuses unknown rulesets. This provides auditability but does not yet provide event ingestion, source-conflict resolution or a forward sample.
+**Evidence progress:** The macro journal now requires exact source URLs and publication/retrieval timestamps, an event key and revision, exposure-map version and rationale, and market-data source/volume scope. Exact duplicates are idempotent; corrected events append as later revisions; database triggers block changes and deletion. Deterministic replay refuses unknown rulesets. This provides auditability but does not yet provide source-conflict resolution, consensus forecasts, scheduled capture or a forward sample.
+
+**Source-adapter progress, 2026-09-20:** Fixed-host, bounded adapters now normalize the Federal Reserve monetary-policy RSS feed and BLS Employment Situation and CPI RSS feeds into one identification contract. Stable event IDs are distinct from content fingerprints so a correction can be detected. Official feed evidence is primary-source verified but remains `IDENTIFIED_NOT_SCORED`: the feeds do not provide a market consensus, so the system cannot calculate surprise. A parser exists for the documented BLS calendar ICS, including Eastern-time conversion, but the live endpoint returned HTTP 403 to automated GET and is not treated as available. No adapter output is automatically journaled, ranked or traded.
 
 ### D-045 — Intraday discovery remains timestamped research until validated
 
