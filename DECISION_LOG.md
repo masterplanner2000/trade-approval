@@ -60,12 +60,24 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-042 | Prioritize position truth, execution reliability and measurement before expanding recommendations | Confirmed delivery sequence | 2026-09-17 |
 | D-043 | Require explicit broker terminal-order evidence before releasing an unfilled order reservation | Confirmed; simulator-tested | 2026-09-18 |
 | D-044 | Repair legacy Paper protection only from fresh broker evidence and a bounded stop policy | Confirmed safety gate; order placement pending | 2026-09-18 |
+| D-045 | Continue scanning at full allocation and permit only profitable ordinary rotations | Confirmed; review policy implemented | 2026-09-20 |
 | D-045 | Develop intraday discovery as a timestamped, research-only lane | Confirmed; evaluator and recorded-evidence pipeline implemented | 2026-09-19 |
 | D-046 | Add macro/news events and volatility as a separately measured ranking bias | Confirmed; evaluator, journal and first official-source adapters implemented | 2026-09-19 |
+| D-047 | Evaluate Trading Economics as the first consensus/forecast source | Provisional adapter implemented; access and licensing unapproved | 2026-09-20 |
 
 ---
 
 ## Detailed decisions
+
+### D-047 — Consensus data is provisional and surprise must be standardized within series
+
+**Status:** Provisional Trading Economics adapter implemented; no subscription, configured key, provider approval or strategy integration.
+
+**Decision:** Use a provider-neutral calendar contract and evaluate Trading Economics first because its documented schema separates actual, consensus forecast, provider forecast, previous/revised values, exact versus estimated timing, importance, official source and update timestamp. Accept only exact-time, medium/high-importance U.S. records. Keep `SCHEDULED`, `RELEASED_NO_CONSENSUS` and `RELEASED_WITH_CONSENSUS` distinct. Never translate missing actual or forecast values into zero.
+
+**Surprise policy:** Preserve `actual − consensus` in native units, but never compare raw differences across indicators. Calculate the bounded surprise used by the research evaluator only when at least 12 strictly earlier observations of the same series exist and historical variance is nonzero. Future releases and other series cannot enter the calculation. Provider corrections remain separate fingerprints/revisions.
+
+**Boundary:** Trading Economics requires an API subscription and its access, retention and redistribution terms must be reviewed before a key is configured. No purchase is authorized by this decision. The adapter keeps the key in an authorization header, limits queries to 31 days, and remains disconnected from the journal, mobile application, ranking and order paths.
 
 ### D-046 — Macro/event bias requires sourced events and confirming market reaction
 
@@ -186,6 +198,16 @@ This is the living record of product, design, trading-safety, data, and technica
 **Safety boundary:** Exit review is information, not execution authority. Each ordinary paper sale still requires a separate approval and confirmed broker fill. Only after reconciliation confirms that fill may the engine refresh prices, recalculate cash and create a replacement buy proposal.
 
 **Reason:** “Allocation fully deployed” describes capacity but does not answer whether the existing allocation still fits the strategy. The portfolio review closes that product gap without pretending a two-leg rotation is atomic.
+
+### D-045 — Continue scanning at full allocation and permit only profitable ordinary rotations
+
+**Status:** Confirmed; portfolio-review screening implemented.
+
+**Decision:** A fully allocated sleeve continues scanning the market. When a currently qualified candidate has a higher recommendation score than a strategy-owned holding, the review may identify the weakest qualifying holding as a possible rotation only when its completed-close estimate is at or above average cost. This is a preliminary screen, not executable profit evidence.
+
+**Execution boundary:** Before an ordinary sale can be proposed, a fresh broker quote and estimated transaction costs must show expected net proceeds at or above cost basis. The sale is approved and filled first; only then may reconciled cash fund a newly generated replacement buy. A protective stop or independently approved emergency exit may still realize a loss and is never blocked by the ordinary-rotation profit preference.
+
+**Reason:** Full allocation should not stop opportunity discovery, but rotating merely because another score is marginally higher can create churn, costs and stale two-leg assumptions. Separating profitable ordinary rotations from downside protection preserves both portfolio improvement and risk control.
 
 ### D-037 — Separate broker-free CI from IBKR Paper verification
 

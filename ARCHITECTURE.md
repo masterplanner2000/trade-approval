@@ -1,7 +1,7 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.28
-**Last updated:** 2026-09-19
+**Current architecture version:** 3.29
+**Last updated:** 2026-09-20
 **Status:** Living source of truth
 
 This document explains the major application components, their responsibilities, and how information moves from research to recommendations, approval, broker execution, reconciliation, and performance evaluation.
@@ -126,7 +126,7 @@ flowchart LR
 | Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
 | Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Evaluator, append-only journal, recorded-data importer and observation-outcome report implemented | Add provider integrity checks, scheduled capture and a forward dataset |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
-| Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Pure evaluator, append-only journal and initial Fed/BLS official-source adapters implemented | Add consensus/surprise data, maintained exposure mappings, scheduled capture and forward outcome comparison before any proposal integration |
+| Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Evaluator, journal, official-source adapters and provisional consensus/surprise adapter implemented | Review provider access/licensing, join official and consensus records, maintain exposure mappings, schedule capture and compare forward outcomes |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | Full-allocation portfolio review implemented; add approved sell execution and post-fill replacement regeneration |
 | Risk and position sizing | Calculate quantity, loss, concentration, and limits | Partial | Pure sizing model implemented; connect reconciled IBKR inputs |
 | Safety validation | Recheck price, account, approval, limits, and What-If | Prototype | Preserve exact validation results |
@@ -152,6 +152,8 @@ The existing news sheet supports symbol search, source links and publication/upd
 `service/macro_event_bias.py` defines the first versioned macro/event research contract. It accepts already-sourced event evidence, an explicit directional mapping between a theme and symbol, and a fresh reaction snapshot. Provenance, recency, surprise/confidence, exposure strength, direction alignment, relative volume, ATR, spread and halt state all fail closed and report every missing gate. `service/macro_event_journal.py` immutably stores the exact sources, event revision, exposure-map version and rationale, market-data provenance, reaction and evaluation. Corrections append rather than overwrite, exact repeats are idempotent and replay never applies an unknown ruleset. A passing result is still only a `LONG` or `AVOID_OR_EXIT` ranking-bias observation with `orderSubmissionAllowed: false`; it is not connected to the current recommendation queue. Provider ingestion, economic-release normalization, maintained theme/exposure mappings and forward evaluation remain pending.
 
 `service/macro_event_sources.py` adds fixed-host, bounded adapters for the Federal Reserve monetary-policy RSS feed and BLS Employment Situation/CPI RSS feeds, plus a parser for the documented BLS calendar ICS format. It preserves stable event identity and separate content fingerprints for correction detection. The official RSS feeds identify releases but do not establish market consensus or surprise, so records remain unscored. Live read-only checks succeeded for the three RSS feeds on September 20; the BLS calendar rejected an automated GET with HTTP 403 and is not an operational schedule source. Nothing from these adapters enters the recommendation queue or journal automatically yet.
+
+`service/macro_consensus.py` adds a provisional Trading Economics economic-calendar adapter because its documented schema distinguishes consensus forecast, provider forecast, actual, prior/revised values, timing precision, importance, official source and last update. It rejects estimated-time and low-importance records, preserves missing-value states, keeps credentials out of URLs and caps retrieval windows. Raw differences are not compared across indicators. Standardized surprise requires at least 12 earlier same-series releases and fails closed for missing history or zero variance. Provider access and redistribution terms remain unreviewed; no key is configured and no output reaches recommendations.
 
 ## Proposed crypto workstream — design review required
 
@@ -259,6 +261,8 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Replaced the full-allocation dead end with a reconciled portfolio review.
 - Classifies holdings as hold or exit review using the same completed-daily scan plus visible protective-stop evidence.
 - Selects only enough exit-review positions to restore the configured sleeve limit and lists replacement candidates as contingent on a confirmed sale fill and fresh quote.
+- Continues scanning when the sleeve is exactly fully allocated. It may screen the weakest strategy-owned holding for an ordinary rotation when a stronger eligible candidate exists and the completed-close estimate is at or above the holding's average cost.
+- Treats that profitability result as preliminary: an executable ordinary rotation still requires a fresh broker quote and estimated costs showing net break-even-or-better proceeds. Protective and emergency exits remain separate and may realize a loss.
 - Does not authorize or transmit a sale; approved sell execution and post-fill replacement generation remain separate milestones.
 
 ### Version 3.21 — 2026-09-15
