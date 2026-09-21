@@ -19,7 +19,17 @@ def main() -> int:
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     try:
         if command == "capture":
-            result = store.capture(DATA / "market-cache.sqlite3", DATA / "aggressive-market-cache.sqlite3", captured_at=now)
+            try:
+                result = store.capture(DATA / "market-cache.sqlite3", DATA / "aggressive-market-cache.sqlite3", captured_at=now)
+            except ValueError as error:
+                if str(error) != "daily_evidence_capture_conflict":
+                    raise
+                status = store.status()
+                result = {
+                    "signalDate": status["latestSignalDate"], "idempotent": True,
+                    "snapshotPreserved": True,
+                    "warning": "completed_session_already_frozen_with_different_refresh_payload",
+                }
             _, baseline = load_cache(DATA / "market-cache.sqlite3")
             _, shadow = load_cache(DATA / "aggressive-market-cache.sqlite3")
             result["outcomes"] = store.record_available_outcomes({**baseline, **shadow}, recorded_at=now)

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tradeapproval.daily-evidence</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>/Users/timmac2/.codex/.chatgpt-projects/g-p-6a8b606292bc81919b5ed254237ea6c6/trade-approval/ops/run-daily-evidence.zsh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/timmac2/.codex/.chatgpt-projects/g-p-6a8b606292bc81919b5ed254237ea6c6/trade-approval</string>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/timmac2/.codex/.chatgpt-projects/g-p-6a8b606292bc81919b5ed254237ea6c6/trade-approval/service/data/daily-evidence-launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/timmac2/.codex/.chatgpt-projects/g-p-6a8b606292bc81919b5ed254237ea6c6/trade-approval/service/data/daily-evidence-launchd.log</string>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+</dict>
+</plist>

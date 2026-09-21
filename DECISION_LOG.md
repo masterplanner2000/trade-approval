@@ -88,7 +88,9 @@ This is the living record of product, design, trading-safety, data, and technica
 
 **Initial capture:** The September 18 completed session stored 500 baseline evaluations with 22 eligible and 1,721 volatile-lane evaluations with 63 eligible. All 255 candidate/horizon outcomes correctly remain pending because the local cache has no later completed sessions. This is collection state, not a performance result.
 
-**Boundary:** The store is local and excluded from Git because it will grow and may include licensed evidence. The combined `market:daily` command refreshes both caches and captures evidence, but a host-level weekday timer is not installed by the repository. Catalyst evidence is empty until a compliant market-wide, as-known-at-the-time collector is connected. The capture path has no recommendation or broker authority.
+**Boundary:** The store is local and excluded from Git because it will grow and may include licensed evidence. The combined `market:daily` command refreshes both caches and captures evidence. The repository carries a host-specific timer definition but does not silently install it on other machines. Catalyst evidence is empty until a compliant market-wide, as-known-at-the-time collector is connected. The capture path has no recommendation or broker authority.
+
+**Operational update:** A user LaunchAgent is installed for weekdays at 4:30 PM local Mac time. If a later refresh for the same completed session differs, the immutable store retains the first snapshot, the scheduled command emits an explicit warning, outcome attachment still runs and the job completes without treating preservation as a system failure. Overlapping runs are skipped through a local lock.
 
 ### D-057 — The volatile lane requires matched, forward comparisons before promotion
 

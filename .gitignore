@@ -16,4 +16,5 @@ service/data/trading-ledger.sqlite3*
 
 # Runtime trading and shadow state stays on this computer.
 service/data/*.json
+service/data/*.log
 !service/data/*.example.json
