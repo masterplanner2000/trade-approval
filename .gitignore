@@ -9,6 +9,7 @@ vendor/
 __pycache__/
 service/data/market-cache.sqlite3*
 service/data/aggressive-market-cache.sqlite3*
+service/data/daily-forward-evidence.sqlite3*
 service/data/trading-ledger.sqlite3*
 *.py[cod]
 .DS_Store

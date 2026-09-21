@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 4.7
+**Current architecture version:** 4.8
 **Last updated:** 2026-09-21
 **Status:** Living source of truth
 
@@ -418,6 +418,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a research-only matched daily comparison between the baseline and higher-volatility lanes.
 - Enforced signal-date information boundaries, next-session entry, chronological calibration/forward separation, visible costs and benchmark comparison.
 - Recorded the first current-universe retrospective diagnostic while explicitly blocking promotion because point-in-time universe and catalyst evidence are absent.
+
+### Version 4.8 — 2026-09-21
+
+- Added an append-only daily forward-evidence store downstream of both completed-session caches.
+- Frozen snapshots preserve full universe membership, every evaluation, ruleset/feed provenance and optional contemporaneous catalyst records before outcomes exist.
+- Added later immutable 1-, 5- and 10-session outcome attachment plus one combined refresh-and-capture command; no calendar timer or order authority was added.
 
 ### Version 3.8 — 2026-09-06
 

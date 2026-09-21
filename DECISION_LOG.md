@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-21.4 · **Corresponding architecture:** 4.7
+**Log revision:** 2026-09-21.5 · **Corresponding architecture:** 4.8
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -74,10 +74,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-055 | Headline catalysts are classified context, not predictive evidence | Confirmed; Day 2 research classifier implemented | 2026-09-21 |
 | D-056 | Options volatility requires licensed, point-in-time evidence | Confirmed; provider-neutral research contract implemented | 2026-09-21 |
 | D-057 | Historical lane comparisons must preserve timing and universe limitations | Confirmed; first retrospective diagnostic implemented | 2026-09-21 |
+| D-058 | Freeze daily forward evidence before measuring outcomes | Confirmed; append-only capture implemented | 2026-09-21 |
 
 ---
 
 ## Detailed decisions
+
+### D-058 — Daily lane evidence is immutable and outcomes arrive later
+
+**Status:** Confirmed; local append-only store, cache runner, combined daily workflow and deterministic tests implemented.
+
+**Decision:** After both daily caches share one explicit completed-session boundary, freeze each lane's entire universe, every eligible and rejected evaluation, exact ruleset/feed identity, optional already-known catalyst evidence and a content digest. A second pass may append 1-, 5- and 10-session outcomes for eligible observations only when those future bars actually exist. It may never update the original evidence or an already recorded outcome.
+
+**Initial capture:** The September 18 completed session stored 500 baseline evaluations with 22 eligible and 1,721 volatile-lane evaluations with 63 eligible. All 255 candidate/horizon outcomes correctly remain pending because the local cache has no later completed sessions. This is collection state, not a performance result.
+
+**Boundary:** The store is local and excluded from Git because it will grow and may include licensed evidence. The combined `market:daily` command refreshes both caches and captures evidence, but a host-level weekday timer is not installed by the repository. Catalyst evidence is empty until a compliant market-wide, as-known-at-the-time collector is connected. The capture path has no recommendation or broker authority.
 
 ### D-057 — The volatile lane requires matched, forward comparisons before promotion
 
