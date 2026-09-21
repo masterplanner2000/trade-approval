@@ -14,12 +14,13 @@ import sqlite3
 import sys
 import time
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date, datetime, time as wall_time, timedelta
 from pathlib import Path
 from typing import Iterable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 from ibkr_daily_scanner import DailyBar, evaluate
 
@@ -36,6 +37,9 @@ ALLOWED_EXCHANGES = {"NASDAQ", "NYSE", "AMEX", "ARCA", "BATS", "NYSEARCA"}
 EXCLUDED_NAME_PATTERN = re.compile(
     r"\b(ETF|ETN|FUND|WARRANTS?|WTS|UNITS?|PREFERRED|PFD|DEPOSITARY|RIGHTS)\b|\bACQUISITION\s+(CORP|CO|LTD)\b"
 )
+NEW_YORK = ZoneInfo("America/New_York")
+SESSION_COMPLETION_GRACE = wall_time(16, 15)
+CACHE_FORMAT_VERSION = "2"
 
 
 def credentials() -> tuple[str, str]:
@@ -139,6 +143,37 @@ def batches(values: list[str], size: int = SYMBOL_BATCH_SIZE) -> Iterable[list[s
         yield values[start:start + size]
 
 
+def completed_bar_date(raw_timestamp: object) -> date | None:
+    """Return the market date encoded by an Alpaca daily-bar timestamp."""
+    try:
+        return date.fromisoformat(str(raw_timestamp)[:10])
+    except ValueError:
+        return None
+
+
+def is_completed_daily_bar(raw_timestamp: object, *, now: datetime | None = None) -> bool:
+    """Fail closed for today's bar until the regular session has settled.
+
+    Alpaca can return a still-forming 1Day bar during regular trading. A bar
+    before today's New York date is complete. Today's bar is accepted only
+    after a conservative 16:15 ET grace boundary. Future or malformed dates
+    are never accepted. Delaying early-close bars until 16:15 is intentional.
+    """
+    observed_at = (now or datetime.now(tz=NEW_YORK)).astimezone(NEW_YORK)
+    bar_day = completed_bar_date(raw_timestamp)
+    if bar_day is None or bar_day > observed_at.date():
+        return False
+    if bar_day < observed_at.date():
+        return True
+    return observed_at.weekday() < 5 and observed_at.time() >= SESSION_COMPLETION_GRACE
+
+
+def completed_bars(
+    bars: list[dict[str, object]], *, now: datetime | None = None,
+) -> list[dict[str, object]]:
+    return [bar for bar in bars if is_completed_daily_bar(bar.get("t"), now=now)]
+
+
 def fetch_bars(symbols: list[str], start: str, end: str) -> dict[str, list[dict[str, object]]]:
     collected: dict[str, list[dict[str, object]]] = {symbol: [] for symbol in symbols}
     page_token: str | None = None
@@ -165,20 +200,22 @@ def fetch_bars(symbols: list[str], start: str, end: str) -> dict[str, list[dict[
     return collected
 
 
-def refresh() -> dict[str, object]:
+def refresh(*, now: datetime | None = None) -> dict[str, object]:
+    observed_at = (now or datetime.now(tz=NEW_YORK)).astimezone(NEW_YORK)
     raw_assets = api_json(ASSETS_URL, {"status": "active", "asset_class": "us_equity"})
     if not isinstance(raw_assets, list):
         raise RuntimeError("alpaca_assets_invalid_response")
     eligible_assets = [asset for asset in raw_assets if isinstance(asset, dict) and is_common_stock(asset)]
     asset_by_symbol = {str(asset["symbol"]).upper(): asset for asset in eligible_assets}
     symbols = sorted(asset_by_symbol)
-    completed_end = date.today().isoformat()
-    selection_start = (date.today() - timedelta(days=10)).isoformat()
+    completed_end = observed_at.date().isoformat()
+    selection_start = (observed_at.date() - timedelta(days=10)).isoformat()
     dollar_volume: dict[str, float] = {}
     for symbol_batch in batches(symbols):
         for symbol, bars in fetch_bars(symbol_batch, selection_start, completed_end).items():
-            if bars:
-                latest = bars[-1]
+            complete = completed_bars(bars, now=observed_at)
+            if complete:
+                latest = complete[-1]
                 dollar_volume[symbol] = float(latest.get("c", 0)) * float(latest.get("v", 0))
 
     ranked_symbols = sorted(
@@ -186,14 +223,23 @@ def refresh() -> dict[str, object]:
         key=lambda symbol: dollar_volume[symbol],
         reverse=True,
     )[:UNIVERSE_LIMIT]
-    history_start = (date.today() - timedelta(days=HISTORY_CALENDAR_DAYS)).isoformat()
+    history_start = (observed_at.date() - timedelta(days=HISTORY_CALENDAR_DAYS)).isoformat()
     history: dict[str, list[dict[str, object]]] = {}
     for symbol_batch in batches(ranked_symbols):
-        history.update(fetch_bars(symbol_batch, history_start, completed_end))
+        fetched = fetch_bars(symbol_batch, history_start, completed_end)
+        history.update({symbol: completed_bars(bars, now=observed_at) for symbol, bars in fetched.items()})
+
+    stored_days = [completed_bar_date(bar.get("t")) for bars in history.values() for bar in bars]
+    completed_through = max((day for day in stored_days if day is not None), default=None)
+    if completed_through is None:
+        raise RuntimeError("alpaca_completed_history_empty")
 
     refreshed_at = int(time.time() * 1000)
     with connect() as connection:
         connection.execute("DELETE FROM assets")
+        # Rebuild the bar cache atomically so a previously stored partial bar
+        # cannot survive a corrected refresh.
+        connection.execute("DELETE FROM daily_bars")
         for rank, symbol in enumerate(ranked_symbols, start=1):
             asset = asset_by_symbol[symbol]
             connection.execute(
@@ -217,20 +263,32 @@ def refresh() -> dict[str, object]:
             "INSERT INTO cache_meta(key,value) VALUES('data_feed',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (data_feed(),),
         )
+        for key, value in {
+            "completed_through": completed_through.isoformat(),
+            "cache_format_version": CACHE_FORMAT_VERSION,
+        }.items():
+            connection.execute(
+                "INSERT INTO cache_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value),
+            )
     return {
         "ok": True,
         "source": "alpaca",
         "feed": data_feed(),
         "universeSize": len(ranked_symbols),
         "barSymbols": sum(1 for bars in history.values() if bars),
+        "completedThrough": completed_through.isoformat(),
         "refreshedAt": refreshed_at,
     }
 
 
-def load_bars(connection: sqlite3.Connection, symbol: str) -> list[DailyBar]:
+def load_bars(
+    connection: sqlite3.Connection, symbol: str, *, completed_through: str | None = None,
+) -> list[DailyBar]:
+    boundary = completed_through.replace("-", "") if completed_through else "99999999"
     rows = connection.execute(
-        "SELECT trading_day,open,high,low,close,volume FROM daily_bars WHERE symbol=? ORDER BY trading_day",
-        (symbol,),
+        "SELECT trading_day,open,high,low,close,volume FROM daily_bars WHERE symbol=? AND trading_day<=? ORDER BY trading_day",
+        (symbol, boundary),
     ).fetchall()
     return [DailyBar(*row) for row in rows]
 
@@ -245,10 +303,14 @@ def scan() -> dict[str, object]:
         ).fetchall()
         refresh_row = connection.execute("SELECT value FROM cache_meta WHERE key='last_refresh'").fetchone()
         feed_row = connection.execute("SELECT value FROM cache_meta WHERE key='data_feed'").fetchone()
+        completion_row = connection.execute("SELECT value FROM cache_meta WHERE key='completed_through'").fetchone()
+        if not completion_row:
+            raise RuntimeError("alpaca_cache_completion_unknown_refresh_required")
+        completed_through = completion_row[0]
         evaluations = []
         rejection_counts: Counter[str] = Counter()
         for symbol, name in asset_rows:
-            result = evaluate(symbol, load_bars(connection, symbol), [])
+            result = evaluate(symbol, load_bars(connection, symbol, completed_through=completed_through), [])
             result["company"] = name
             evaluations.append(result)
             for check in result.get("checks", []):
@@ -267,6 +329,7 @@ def scan() -> dict[str, object]:
         "rulesetVersion": "liquid-growth-momentum-mvp-v2",
         "generatedAt": int(time.time() * 1000),
         "cacheRefreshedAt": int(refresh_row[0]) if refresh_row else None,
+        "completedThrough": completed_through,
         "universeSize": len(asset_rows),
         "evaluatedCount": len(evaluations),
         "qualifiedCount": len(ranked),
@@ -286,11 +349,14 @@ def status() -> dict[str, object]:
         asset_count = connection.execute("SELECT COUNT(*) FROM assets").fetchone()[0]
         bar_count = connection.execute("SELECT COUNT(*) FROM daily_bars").fetchone()[0]
         refresh_row = connection.execute("SELECT value FROM cache_meta WHERE key='last_refresh'").fetchone()
+        completion_row = connection.execute("SELECT value FROM cache_meta WHERE key='completed_through'").fetchone()
     return {
         "ok": asset_count > 0 and bar_count > 0,
         "universeSize": asset_count,
         "barCount": bar_count,
         "refreshedAt": int(refresh_row[0]) if refresh_row else None,
+        "completedThrough": completion_row[0] if completion_row else None,
+        "refreshRequired": completion_row is None,
         "database": str(DATABASE_PATH),
     }
 

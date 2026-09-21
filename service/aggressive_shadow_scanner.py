@@ -12,13 +12,14 @@ import sqlite3
 import sys
 import time
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from alpaca_market_cache import (
     ASSETS_URL, DATA_DIRECTORY,
-    HISTORY_CALENDAR_DAYS, api_json, batches, data_feed, fetch_bars,
-    is_common_stock, load_bars,
+    CACHE_FORMAT_VERSION, HISTORY_CALENDAR_DAYS, NEW_YORK, api_json, batches,
+    completed_bar_date, completed_bars, data_feed, fetch_bars, is_common_stock,
+    load_bars,
 )
 from ibkr_daily_scanner import DailyBar, average_true_range_percent
 
@@ -34,7 +35,9 @@ WATCHLIST = (
 )
 
 
-def connect(path: Path = DATABASE_PATH) -> sqlite3.Connection:
+def connect(path: Path | None = None) -> sqlite3.Connection:
+    # Resolve the module path at call time so tests can safely replace it.
+    path = path or DATABASE_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path)
     connection.executescript(
@@ -107,27 +110,34 @@ def evaluate(symbol: str, bars: list[DailyBar], *, today: str | None = None) -> 
     }
 
 
-def refresh() -> dict[str, object]:
+def refresh(*, now: datetime | None = None) -> dict[str, object]:
+    observed_at = (now or datetime.now(tz=NEW_YORK)).astimezone(NEW_YORK)
     raw_assets = api_json(ASSETS_URL, {"status": "active", "asset_class": "us_equity"})
     if not isinstance(raw_assets, list):
         raise RuntimeError("alpaca_assets_invalid_response")
     assets = [asset for asset in raw_assets if isinstance(asset, dict) and is_common_stock(asset)]
     by_symbol = {str(asset["symbol"]).upper(): asset for asset in assets}
-    end = date.today().isoformat()
-    start = (date.today() - timedelta(days=10)).isoformat()
+    end = observed_at.date().isoformat()
+    start = (observed_at.date() - timedelta(days=10)).isoformat()
     dollar_volume: dict[str, float] = {}
     for symbol_batch in batches(sorted(by_symbol)):
         for symbol, bars in fetch_bars(symbol_batch, start, end).items():
-            if bars:
-                latest = bars[-1]
+            complete = completed_bars(bars, now=observed_at)
+            if complete:
+                latest = complete[-1]
                 dollar_volume[symbol] = float(latest.get("c", 0)) * float(latest.get("v", 0))
     symbols = selected_symbols(assets, dollar_volume)
-    history_start = (date.today() - timedelta(days=HISTORY_CALENDAR_DAYS)).isoformat()
+    history_start = (observed_at.date() - timedelta(days=HISTORY_CALENDAR_DAYS)).isoformat()
     history: dict[str, list[dict[str, object]]] = {}
     for symbol_batch in batches(symbols):
-        history.update(fetch_bars(symbol_batch, history_start, end))
+        fetched = fetch_bars(symbol_batch, history_start, end)
+        history.update({symbol: completed_bars(bars, now=observed_at) for symbol, bars in fetched.items()})
     if not history or sum(bool(bars) for bars in history.values()) < len(symbols) * 0.8:
         raise RuntimeError("alpaca_history_incomplete")
+    stored_days = [completed_bar_date(bar.get("t")) for bars in history.values() for bar in bars]
+    completed_through = max((day for day in stored_days if day is not None), default=None)
+    if completed_through is None:
+        raise RuntimeError("alpaca_completed_history_empty")
     refreshed_at = int(time.time() * 1000)
     with connect() as connection:
         connection.execute("DELETE FROM assets")
@@ -144,10 +154,15 @@ def refresh() -> dict[str, object]:
                     "INSERT OR REPLACE INTO daily_bars VALUES(?,?,?,?,?,?,?)",
                     (symbol, str(bar["t"])[:10].replace("-", ""), bar["o"], bar["h"], bar["l"], bar["c"], bar["v"]),
                 )
-        for key, value in {"last_refresh": str(refreshed_at), "data_feed": data_feed()}.items():
+        for key, value in {
+            "last_refresh": str(refreshed_at), "data_feed": data_feed(),
+            "completed_through": completed_through.isoformat(),
+            "cache_format_version": CACHE_FORMAT_VERSION,
+        }.items():
             connection.execute("INSERT OR REPLACE INTO cache_meta VALUES(?,?)", (key, value))
     return {"ok": True, "mode": "aggressive_shadow", "feed": data_feed(),
             "universeSize": len(symbols), "watchlistIncluded": sum(symbol in WATCHLIST for symbol in symbols),
+            "completedThrough": completed_through.isoformat(),
             "refreshedAt": refreshed_at}
 
 
@@ -157,10 +172,13 @@ def scan() -> dict[str, object]:
     with connect() as connection:
         assets = connection.execute("SELECT symbol,name,watchlist FROM assets ORDER BY rank").fetchall()
         meta = dict(connection.execute("SELECT key,value FROM cache_meta"))
+        completed_through = meta.get("completed_through")
+        if not completed_through:
+            raise RuntimeError("aggressive_cache_completion_unknown_refresh_required")
         results = []
         rejection_counts: Counter[str] = Counter()
         for symbol, name, watchlist in assets:
-            result = evaluate(symbol, load_bars(connection, symbol))
+            result = evaluate(symbol, load_bars(connection, symbol, completed_through=completed_through), today="99999999")
             result.update({"company": name, "watchlist": bool(watchlist)})
             results.append(result)
             for check in result.get("checks", []):
@@ -173,6 +191,7 @@ def scan() -> dict[str, object]:
         "ok": bool(assets), "mode": "aggressive_shadow", "rulesetVersion": RULESET_VERSION,
         "orderSubmissionAllowed": False, "dataSource": "alpaca", "feed": meta.get("data_feed"),
         "cacheRefreshedAt": int(meta["last_refresh"]) if "last_refresh" in meta else None,
+        "completedThrough": completed_through,
         "generatedAt": int(time.time() * 1000), "universeSize": len(assets),
         "evaluatedCount": len(results), "qualifiedCount": len(ranked),
         "candidates": ranked, "rejectionCounts": dict(rejection_counts),
@@ -186,8 +205,9 @@ def status() -> dict[str, object]:
     with connect() as connection:
         count = connection.execute("SELECT COUNT(*) FROM assets").fetchone()[0]
         meta = dict(connection.execute("SELECT key,value FROM cache_meta"))
-    return {"ok": count > 0, "mode": "aggressive_shadow", "universeSize": count,
-            "feed": meta.get("data_feed"), "refreshedAt": int(meta["last_refresh"]) if "last_refresh" in meta else None}
+    return {"ok": count > 0 and "completed_through" in meta, "mode": "aggressive_shadow", "universeSize": count,
+            "feed": meta.get("data_feed"), "refreshedAt": int(meta["last_refresh"]) if "last_refresh" in meta else None,
+            "completedThrough": meta.get("completed_through"), "refreshRequired": "completed_through" not in meta}
 
 
 def main() -> int:

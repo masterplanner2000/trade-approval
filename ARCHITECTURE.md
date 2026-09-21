@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 3.29
+**Current architecture version:** 4.3
 **Last updated:** 2026-09-20
 **Status:** Living source of truth
 
@@ -141,7 +141,7 @@ flowchart LR
 
 ## Stock news context
 
-The experimental higher-volatility lane lives in `service/aggressive_shadow_scanner.py`, with its own SQLite cache. It ranks active, tradable listed U.S. equities by recent venue dollar volume, retains the top 1,500 and adds eligible watchlist names. Its completed-daily-bar gates are proposed test variables, not a profitability model. The authenticated `GET /shadow/aggressive` route returns research candidates only; it does not feed the recommendation queue, approval flow, portfolio sizing, or broker submission. The current IEX feed is a single-venue observation, not consolidated market liquidity. Verified catalysts, live spread, account and sizing checks are explicitly missing. The existing 500-stock strategy is unchanged.
+The experimental higher-volatility lane lives in `service/aggressive_shadow_scanner.py`, with its own SQLite cache. It ranks active, tradable listed U.S. equities by recent venue dollar volume, retains the top 1,500 and adds eligible watchlist names. Both daily caches now filter incomplete bars before universe selection or persistence, atomically rebuild bar history, record an explicit `completedThrough` boundary and refuse unversioned legacy cache data. A same-day bar is conservatively unavailable until 16:15 ET. Its completed-daily-bar gates are proposed test variables, not a profitability model. The authenticated `GET /shadow/aggressive` route returns research candidates only; it does not feed the recommendation queue, approval flow, portfolio sizing, or broker submission. The current IEX feed is a single-venue observation, not consolidated market liquidity. Verified catalysts, live spread, account and sizing checks are explicitly missing. The existing 500-stock strategy rules are unchanged.
 
 `service/intraday_shadow_evaluator.py` consumes a caller-supplied, timestamped snapshot and evaluates session, freshness, halt state, coherent prices, day movement, opening gap, relative volume, session dollar volume and current spread. It returns every failed check and is hard-coded `research_only` with `orderSubmissionAllowed: false`. `service/intraday_shadow_journal.py` stores exact snapshots and evaluations in an append-only SQLite timeline, deduplicates identical evidence and deterministically replays only a supported versioned ruleset. `service/intraday_shadow_replay.py` validates and imports recorded JSONL evidence, then selects the first eligible observation per symbol/session and measures fixed-horizon, last-observed and excursion outcomes without representing observations as fills. Missing horizons remain incomplete. Its numerical gates and score are proposed test variables. It still has no provider, scheduler, API route, mobile surface, portfolio sizing or broker authority; therefore it cannot discover or recommend a stock in real time yet.
 
@@ -384,6 +384,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added the Stage 13 product/risk promotion boundary with a complete evidence assessment and append-only decision journal.
 - Made bounded approval require attributable sign-off and all rights, evidence, reliability, security, monitoring, rollback, integration and broker/reconciliation gates.
 - Added a release-manifest contract that always defaults the feature off and grants no order authority; no production activation path was connected.
+
+### Version 4.3 — 2026-09-20
+
+- Added explicit daily-session completeness filtering before universe ranking and cache persistence.
+- Added cache completion metadata, atomic bar rebuilds and fail-closed legacy-cache handling.
+- Added historical cutoff regression coverage and a reproducible external-symbol coverage audit; no research lane received proposal or order authority.
 
 ### Version 3.8 — 2026-09-06
 

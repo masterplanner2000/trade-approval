@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import alpaca_market_cache as cache
 from alpaca_market_cache import batches, is_common_stock
@@ -11,6 +13,23 @@ from test_momentum_scanner import momentum_bars
 
 
 class AlpacaMarketCacheTests(unittest.TestCase):
+    def test_current_session_bar_is_excluded_before_completion_grace(self) -> None:
+        now = datetime(2026, 9, 17, 10, 18, tzinfo=ZoneInfo("America/New_York"))
+        bars = [
+            {"t": "2026-09-16T04:00:00Z", "c": 10, "v": 100},
+            {"t": "2026-09-17T04:00:00Z", "c": 20, "v": 999},
+        ]
+        self.assertEqual([bar["t"] for bar in cache.completed_bars(bars, now=now)], ["2026-09-16T04:00:00Z"])
+
+    def test_current_session_bar_is_allowed_after_completion_grace(self) -> None:
+        now = datetime(2026, 9, 17, 16, 15, tzinfo=ZoneInfo("America/New_York"))
+        self.assertTrue(cache.is_completed_daily_bar("2026-09-17T04:00:00Z", now=now))
+
+    def test_weekend_and_future_bars_fail_closed(self) -> None:
+        now = datetime(2026, 9, 19, 18, 0, tzinfo=ZoneInfo("America/New_York"))
+        self.assertFalse(cache.is_completed_daily_bar("2026-09-19T04:00:00Z", now=now))
+        self.assertFalse(cache.is_completed_daily_bar("2026-09-20T04:00:00Z", now=now))
+
     def test_accepts_active_tradable_us_common_stock(self) -> None:
         self.assertTrue(is_common_stock({
             "symbol": "TEST",
@@ -35,6 +54,7 @@ class AlpacaMarketCacheTests(unittest.TestCase):
         with TemporaryDirectory() as directory, patch.object(cache, "DATABASE_PATH", Path(directory) / "cache.sqlite3"):
             with cache.connect() as connection:
                 connection.execute("INSERT INTO cache_meta(key,value) VALUES('data_feed','iex')")
+                connection.execute("INSERT INTO cache_meta(key,value) VALUES('completed_through','2026-08-28')")
                 for rank, (symbol, declining) in enumerate((("PASS", False), ("FAIL", True)), start=1):
                     connection.execute(
                         "INSERT INTO assets VALUES(?,?,?,?,?,?,?)",
@@ -53,6 +73,16 @@ class AlpacaMarketCacheTests(unittest.TestCase):
         self.assertTrue(by_symbol["PASS"]["eligible"])
         self.assertFalse(by_symbol["FAIL"]["eligible"])
         self.assertTrue(any(not check["passed"] for check in by_symbol["FAIL"]["checks"]))
+
+    def test_load_bars_honors_recorded_completion_boundary(self) -> None:
+        with TemporaryDirectory() as directory, patch.object(cache, "DATABASE_PATH", Path(directory) / "cache.sqlite3"):
+            with cache.connect() as connection:
+                connection.executemany(
+                    "INSERT INTO daily_bars VALUES(?,?,?,?,?,?,?)",
+                    [("TEST", "20260918", 10, 11, 9, 10, 100), ("TEST", "20260921", 10, 30, 9, 30, 9_999)],
+                )
+                bars = cache.load_bars(connection, "TEST", completed_through="2026-09-18")
+        self.assertEqual([bar.date for bar in bars], ["20260918"])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-19.1 · **Corresponding architecture:** 3.28
+**Log revision:** 2026-09-20.2 · **Corresponding architecture:** 4.3
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -69,10 +69,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-050 | Pre-register durable forward macro capture windows | Confirmed; provider-neutral scheduler implemented, runtime worker pending | 2026-09-20 |
 | D-051 | Execute forward capture through a supervised read-only worker | Confirmed; injected-adapter worker implemented, real providers pending | 2026-09-20 |
 | D-052 | Bind capture identity and resolve uncertain claims without retry | Confirmed; stage 7 implemented with immutable supervised dispositions | 2026-09-20 |
+| D-053 | Treat daily-bar session completion as explicit cached evidence | Confirmed; both daily caches repaired and audited | 2026-09-20 |
 
 ---
 
 ## Detailed decisions
+
+### D-053 — Daily scans require an explicit completed-session boundary
+
+**Status:** Confirmed; implemented in both Alpaca daily caches with regression tests and a 250-symbol audit.
+
+**Decision:** Filter daily bars before universe ranking and persistence. A bar dated before the current New York date is complete; a same-day weekday bar is accepted only at or after 16:15 ET. Malformed, future and same-day weekend bars fail closed. Rebuild stored bars atomically, record the latest actual `completedThrough` date and refuse a legacy cache that lacks this boundary.
+
+**Reason:** The aggressive cache refreshed at 10:18 ET on September 17 and stored that partial session as a daily bar. A later weekend scan treated it as complete, corrupting relative volume, momentum and ATR. Cache freshness did not prove bar completeness.
+
+**Boundary and evidence:** The conservative 16:15 rule may delay data on early-close sessions but will not prematurely accept it. Exchange-holiday awareness remains pending. A read-only SIP request on September 20 was denied by the provider, so the current account cannot replace IEX with consolidated volume; the application continues to label IEX as single-venue evidence. After repair, both caches completed through September 18; the aggressive lane produced 62 research-only candidates instead of zero. Of the supplied 250-symbol Robinhood list, 28 entered the 1,500-symbol IEX-volume universe, 2 qualified for research, 26 failed technical gates and 222 were outside the universe. Qualification grants no proposal or order authority.
 
 ### D-052 — Captures must bind to task identity; uncertain claims are never reopened
 

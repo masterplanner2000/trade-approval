@@ -320,6 +320,10 @@ Crypto acceptance requires no production credentials or network orders; fresh ex
 
 ### Plan change history — 2026-09-20
 
+- Completed Day 1 data-integrity repair for both daily-bar caches: pre-storage completed-session filtering, explicit completion boundaries, atomic replacement and legacy-cache refusal.
+- Rebuilt the 500- and 1,500-symbol caches through September 18 and added regression coverage for intraday, after-close, weekend, future-bar and historical-cutoff behavior.
+- Added a reproducible audit of the supplied 250-symbol volatility list. Current result: 2 research-qualified, 26 technical rejects and 222 outside the IEX-volume universe. This is coverage evidence, not strategy-performance evidence.
+- Confirmed that IEX remains single-venue volume. A read-only SIP request was denied by the current Alpaca entitlement, so consolidated volume needs a later data-source/subscription decision; no purchase or automatic volatility trade is authorized.
 - Added the Stage 11 deterministic macro outcome report and frozen controls. Only complete real forward observations can enter performance metrics; rehearsals remain excluded.
 - Fixed the initial decision gate at 30 eligible event observations and 30 exact matched no-event controls under one ruleset/map/universe version.
 - Kept macro outcomes research-only and recorded the current result as `CONTINUE_COLLECTING` with zero eligible real pairs.
