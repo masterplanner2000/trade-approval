@@ -73,6 +73,37 @@ class MacroCaptureSchedulerTests(unittest.TestCase):
             self.scheduler.connection.execute("UPDATE macro_capture_audit SET transition='X'")
         self.scheduler.connection.rollback()
 
+    def test_uncertain_claim_requires_one_immutable_supervised_resolution(self):
+        self.register()
+        task = self.scheduler.claim_due(now="2026-10-01T12:25:00Z", worker_id="worker-a")[0]
+        resolved = self.scheduler.resolve_claim(
+            task["taskId"], resolver="operator-a", resolved_at="2026-10-01T12:26:00Z",
+            disposition="ABANDONED_UNKNOWN", reason="Worker terminated after the external read began.")
+        self.assertEqual(resolved["state"], "CLAIMED")
+        self.assertEqual(resolved["effectiveState"], "ABANDONED_UNKNOWN")
+        with self.assertRaisesRegex(ValueError, "macro_capture_resolution_not_allowed"):
+            self.scheduler.resolve_claim(
+                task["taskId"], resolver="operator-b", resolved_at="2026-10-01T12:27:00Z",
+                disposition="FAILED_CONFIRMED", reason="A second resolution must not replace the first.")
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "macro_capture_resolution_is_immutable"):
+            self.scheduler.connection.execute("UPDATE macro_capture_resolutions SET resolver='edited'")
+
+    def test_completed_resolution_requires_durable_in_window_evidence(self):
+        self.register()
+        task = self.scheduler.claim_due(now="2026-10-01T12:25:00Z", worker_id="worker-a")[0]
+        with self.assertRaisesRegex(ValueError, "macro_capture_resolution_evidence_invalid"):
+            self.scheduler.resolve_claim(
+                task["taskId"], resolver="operator-a", resolved_at="2026-10-01T12:26:00Z",
+                disposition="COMPLETED_FROM_DURABLE_EVIDENCE", reason="Evidence timestamp is outside the capture window.",
+                evidence={"observedAt": "2026-10-01T12:30:00Z", "dataSource": "durable fixture"})
+        resolved = self.scheduler.resolve_claim(
+            task["taskId"], resolver="operator-a", resolved_at="2026-10-01T12:26:00Z",
+            disposition="COMPLETED_FROM_DURABLE_EVIDENCE", reason="Durable provider receipt proves the observation.",
+            evidence={"observedAt": "2026-10-01T12:25:10Z", "dataSource": "durable fixture",
+                      "symbol": task["symbol"], "linkVersion": "cpi-link-v1", "mapVersion": "map-v1",
+                      "volumeScope": "consolidated", "quote": {"bid": 1, "ask": 2}})
+        self.assertEqual(resolved["effectiveState"], "COMPLETED_FROM_DURABLE_EVIDENCE")
+
 
 if __name__ == "__main__":
     unittest.main()

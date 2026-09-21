@@ -83,6 +83,12 @@ class MacroCaptureScheduler:
               occurred_at TEXT NOT NULL, transition TEXT NOT NULL, detail_json TEXT NOT NULL,
               FOREIGN KEY(task_id) REFERENCES macro_capture_tasks(task_id)
             ) STRICT;
+            CREATE TABLE IF NOT EXISTS macro_capture_resolutions (
+              task_id TEXT PRIMARY KEY, disposition TEXT NOT NULL,
+              resolver TEXT NOT NULL, resolved_at TEXT NOT NULL,
+              reason TEXT NOT NULL, evidence_json TEXT NOT NULL,
+              FOREIGN KEY(task_id) REFERENCES macro_capture_tasks(task_id)
+            ) STRICT;
             CREATE TRIGGER IF NOT EXISTS macro_capture_plans_no_update
               BEFORE UPDATE ON macro_capture_plans BEGIN
                 SELECT RAISE(ABORT, 'macro_capture_plan_is_immutable');
@@ -98,6 +104,14 @@ class MacroCaptureScheduler:
             CREATE TRIGGER IF NOT EXISTS macro_capture_audit_no_delete
               BEFORE DELETE ON macro_capture_audit BEGIN
                 SELECT RAISE(ABORT, 'macro_capture_audit_is_immutable');
+              END;
+            CREATE TRIGGER IF NOT EXISTS macro_capture_resolutions_no_update
+              BEFORE UPDATE ON macro_capture_resolutions BEGIN
+                SELECT RAISE(ABORT, 'macro_capture_resolution_is_immutable');
+              END;
+            CREATE TRIGGER IF NOT EXISTS macro_capture_resolutions_no_delete
+              BEFORE DELETE ON macro_capture_resolutions BEGIN
+                SELECT RAISE(ABORT, 'macro_capture_resolution_is_immutable');
               END;
         """)
         version = self.connection.execute(
@@ -228,6 +242,57 @@ class MacroCaptureScheduler:
             raise
         return self.get_task(task_id)
 
+    def resolve_claim(self, task_id: str, *, resolver: str, resolved_at: str,
+                      disposition: str, reason: str,
+                      evidence: Mapping[str, object] | None = None) -> dict[str, object]:
+        resolved = _instant(resolved_at)
+        allowed = {"FAILED_CONFIRMED", "COMPLETED_FROM_DURABLE_EVIDENCE", "ABANDONED_UNKNOWN"}
+        if (resolved is None or disposition not in allowed or not resolver.strip()
+                or not isinstance(reason, str) or len(reason.strip()) < 10):
+            raise ValueError("macro_capture_resolution_invalid")
+        task = self.get_task(task_id)
+        if task["state"] != "CLAIMED" or task["resolution"] is not None:
+            raise ValueError("macro_capture_resolution_not_allowed")
+        if resolved < _instant(task["claimedAt"]):
+            raise ValueError("macro_capture_resolution_time_invalid")
+        proof = dict(evidence or {})
+        if disposition == "COMPLETED_FROM_DURABLE_EVIDENCE":
+            observed = _instant(proof.get("observedAt"))
+            plan = self.get_plan(str(task["planId"]))["plan"]
+            if (observed is None or observed < _instant(task["dueAt"])
+                    or observed > _instant(task["lateAfter"])
+                    or not isinstance(proof.get("dataSource"), str)
+                    or not proof["dataSource"].strip()
+                    or proof.get("linkVersion") != plan.get("linkVersion")
+                    or proof.get("mapVersion") != plan.get("mapVersion")):
+                raise ValueError("macro_capture_resolution_evidence_invalid")
+            if task["kind"] == "release":
+                official, consensus = proof.get("official"), proof.get("consensus")
+                if (not isinstance(official, Mapping)
+                        or official.get("eventKey") != plan.get("eventKey")
+                        or official.get("primarySourceVerified") is not True
+                        or not isinstance(consensus, Mapping) or not consensus.get("eventKey")):
+                    raise ValueError("macro_capture_resolution_evidence_invalid")
+            elif (proof.get("symbol") != task["symbol"]
+                  or proof.get("volumeScope") not in {"consolidated", "single_venue", "unknown"}
+                  or not isinstance(proof.get("quote"), Mapping)):
+                raise ValueError("macro_capture_resolution_evidence_invalid")
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            self.connection.execute(
+                """INSERT INTO macro_capture_resolutions
+                   (task_id,disposition,resolver,resolved_at,reason,evidence_json)
+                   VALUES(?,?,?,?,?,?)""",
+                (task_id, disposition, resolver, _iso(resolved), reason.strip(), _canonical(proof)),
+            )
+            self._audit(task_id, _iso(resolved), f"RESOLVED_{disposition}",
+                        {"resolver": resolver, "reason": reason.strip(), "evidence": proof})
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return self.get_task(task_id)
+
     def get_plan(self, plan_id: str) -> dict[str, object]:
         row = self.connection.execute(
             "SELECT * FROM macro_capture_plans WHERE plan_id=?", (plan_id,)
@@ -246,11 +311,22 @@ class MacroCaptureScheduler:
         ).fetchone()
         if row is None:
             raise KeyError("macro_capture_task_not_found")
+        resolution_row = self.connection.execute(
+            "SELECT * FROM macro_capture_resolutions WHERE task_id=?", (task_id,)
+        ).fetchone()
+        resolution = ({"disposition": resolution_row["disposition"],
+                       "resolver": resolution_row["resolver"],
+                       "resolvedAt": resolution_row["resolved_at"],
+                       "reason": resolution_row["reason"],
+                       "evidence": json.loads(resolution_row["evidence_json"])}
+                      if resolution_row else None)
         return {"taskId": row["task_id"], "planId": row["plan_id"], "kind": row["kind"],
                 "symbol": row["symbol"], "dueAt": row["due_at"], "lateAfter": row["late_after"],
                 "state": row["state"], "claimedBy": row["claimed_by"], "claimedAt": row["claimed_at"],
                 "completedAt": row["completed_at"],
-                "result": json.loads(row["result_json"]) if row["result_json"] else None}
+                "result": json.loads(row["result_json"]) if row["result_json"] else None,
+                "resolution": resolution,
+                "effectiveState": resolution["disposition"] if resolution else row["state"]}
 
     def audit(self, task_id: str) -> list[dict[str, object]]:
         rows = self.connection.execute(

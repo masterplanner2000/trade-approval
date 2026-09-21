@@ -52,6 +52,8 @@ This sequence turns the completed research components into a trustworthy forward
 
 **Dependencies and boundaries:** Stage 8 depends on approved provider access and licensing; stage 9 depends on human-reviewed primary evidence; stage 10 depends on a future scheduled release during a supported market session. Stages 7–12 remain research-only and cannot change the current actionable recommendation engine, position management or broker execution behavior.
 
+**Stage 7 implementation update:** Exact market-symbol, official-event and pinned link/map-version matching is implemented. Claimed tasks interrupted by process death now support one immutable supervised disposition without reopening or retrying the capture; durable-evidence completion is accepted only inside the original task window with a named source. Cross-symbol, cross-event, version mismatch, duplicate resolution, mutation and restart tests pass. The comprehensive sequential plan is maintained in `MACRO_RESEARCH_PLAN.md`; stage 8 must not start until the full regression suite and stage-7 commit are complete.
+
 | Priority | User concern and deliverable | Acceptance gate |
 |---|---|---|
 | 1. Position truth and safety | Reconcile each IBKR Paper holding and share quantity against strategy entries, fills, manual/external activity, open exits and stops. Separate `strategy-owned`, `external` and `unknown`; show protection gaps and correct the trading-sleeve budget without guessing ownership. Keep automatic paper sells off. | No unknown share can be included in an automatic exit or in strategy performance; every strategy position has a verifiable protection state; the $5,000 sleeve calculation is explainable share by share. |

@@ -21,6 +21,7 @@ class FixtureAdapter:
         if self.invalid:
             return {"observedAt": task["dueAt"], "dataSource": "fixture"}
         return {"observedAt": task["dueAt"], "dataSource": "fixture release",
+                "linkVersion": plan["linkVersion"], "mapVersion": plan["mapVersion"],
                 "official": {"eventKey": plan["eventKey"], "primarySourceVerified": True},
                 "consensus": {"eventKey": "consensus-1", "status": "RELEASED_WITH_CONSENSUS"}}
 
@@ -32,6 +33,8 @@ class FixtureAdapter:
         if self.invalid:
             return {"observedAt": task["dueAt"], "dataSource": "fixture", "quote": {}}
         return {"observedAt": task["dueAt"], "dataSource": "fixture market",
+                "symbol": task["symbol"], "linkVersion": plan["linkVersion"],
+                "mapVersion": plan["mapVersion"],
                 "volumeScope": "consolidated", "quote": {
                     "bid": 99.9, "ask": 100.1, "last": 100.0, "sessionVolume": 1000,
                     "expectedVolume": 800, "previousClose": 98.0, "atrPercent14": 5.0,
@@ -71,6 +74,31 @@ class MacroCaptureWorkerTests(unittest.TestCase):
         worker = MacroCaptureWorker(self.scheduler, FixtureAdapter(invalid=True), worker_id="worker-a")
         result = worker.run_once(now="2026-10-01T12:25:00Z")
         self.assertEqual(result["failedCount"], 1)
+
+    def test_wrong_symbol_event_or_pinned_version_fails_closed(self):
+        class WrongSymbol(FixtureAdapter):
+            def capture_market(self, task, plan):
+                return {**super().capture_market(task, plan), "symbol": "OTHER"}
+        result = MacroCaptureWorker(self.scheduler, WrongSymbol(), worker_id="worker-a").run_once(
+            now="2026-10-01T12:25:00Z")
+        self.assertEqual(result["failedCount"], 1)
+
+        other_path = Path(self.temp.name) / "other.sqlite3"
+        other = MacroCaptureScheduler(other_path)
+        try:
+            other.register(EVENT, ["TEST"], created_at="2026-09-20T12:00:00Z",
+                           link_version="link-v1", map_version="map-v1")
+            class WrongRelease(FixtureAdapter):
+                def capture_release(self, task, plan):
+                    value = super().capture_release(task, plan)
+                    value["official"]["eventKey"] = "other-event"
+                    value["mapVersion"] = "other-map"
+                    return value
+            failed = MacroCaptureWorker(other, WrongRelease(), worker_id="worker-b").run_once(
+                now="2026-10-01T12:30:00Z")
+            self.assertEqual(failed["failedCount"], 1)
+        finally:
+            other.close()
 
     def test_process_death_leaves_claim_visible_after_restart(self):
         worker = MacroCaptureWorker(self.scheduler, FixtureAdapter(crash=True), worker_id="worker-a")

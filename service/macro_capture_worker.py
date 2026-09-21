@@ -49,10 +49,14 @@ def validate_capture_result(task: Mapping[str, object], result: Mapping[str, obj
         raise ValueError("macro_capture_result_source_invalid")
     normalized = dict(result)
     normalized["workerVersion"] = WORKER_VERSION
+    plan = task.get("plan") if isinstance(task.get("plan"), Mapping) else {}
+    if (result.get("linkVersion") != plan.get("linkVersion")
+            or result.get("mapVersion") != plan.get("mapVersion")):
+        raise ValueError("macro_capture_pinned_version_mismatch")
     kind = task.get("kind")
     if kind == "release":
         official, consensus = result.get("official"), result.get("consensus")
-        if (not isinstance(official, Mapping) or not official.get("eventKey")
+        if (not isinstance(official, Mapping) or official.get("eventKey") != plan.get("eventKey")
                 or official.get("primarySourceVerified") is not True):
             raise ValueError("macro_capture_official_release_invalid")
         if (not isinstance(consensus, Mapping) or not consensus.get("eventKey")
@@ -63,6 +67,8 @@ def validate_capture_result(task: Mapping[str, object], result: Mapping[str, obj
         return normalized
     if kind not in {"baseline", "reaction_1m", "reaction_5m", "reaction_30m"}:
         raise ValueError("macro_capture_task_kind_invalid")
+    if result.get("symbol") != task.get("symbol"):
+        raise ValueError("macro_capture_symbol_mismatch")
     if result.get("volumeScope") not in VOLUME_SCOPES:
         raise ValueError("macro_capture_volume_scope_invalid")
     quote = result.get("quote")
@@ -97,10 +103,11 @@ class MacroCaptureWorker:
         outcomes = []
         for task in claimed:
             plan = self.scheduler.get_plan(str(task["planId"]))["plan"]
+            task_with_plan = {**task, "plan": plan}
             try:
-                raw = (self.adapter.capture_release(task, plan) if task["kind"] == "release"
-                       else self.adapter.capture_market(task, plan))
-                result = validate_capture_result(task, raw)
+                raw = (self.adapter.capture_release(task_with_plan, plan) if task["kind"] == "release"
+                       else self.adapter.capture_market(task_with_plan, plan))
+                result = validate_capture_result(task_with_plan, raw)
                 finished = self.scheduler.finish(
                     str(task["taskId"]), worker_id=self.worker_id, completed_at=now,
                     status="COMPLETED", result=result,

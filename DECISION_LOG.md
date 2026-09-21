@@ -68,10 +68,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-049 | Join macro records only through an explicit reviewed event crosswalk | Confirmed; pure fail-closed joiner implemented, scheduling pending | 2026-09-20 |
 | D-050 | Pre-register durable forward macro capture windows | Confirmed; provider-neutral scheduler implemented, runtime worker pending | 2026-09-20 |
 | D-051 | Execute forward capture through a supervised read-only worker | Confirmed; injected-adapter worker implemented, real providers pending | 2026-09-20 |
+| D-052 | Bind capture identity and resolve uncertain claims without retry | Confirmed; stage 7 implemented with immutable supervised dispositions | 2026-09-20 |
 
 ---
 
 ## Detailed decisions
+
+### D-052 — Captures must bind to task identity; uncertain claims are never reopened
+
+**Status:** Confirmed; stage 7 implementation and fault tests complete.
+
+**Decision:** Market captures must match the claimed symbol. Release captures must match the scheduled official event. Every result must match the plan's pinned event-link and exposure-map versions. A claimed task left unfinished after process termination receives at most one immutable supervised disposition: confirmed failure, completion from durable in-window evidence or abandoned unknown.
+
+**Boundary:** Resolution does not rewrite the original claim, return it to pending or authorize a second provider call. Completion from durable evidence requires an in-window timestamp and named source. Resolver identity, time, rationale and evidence are permanently audited. This hardening does not connect a real provider or affect recommendations or orders.
 
 ### D-051 — Forward capture workers are read-only, single-claim and fail visibly
 
