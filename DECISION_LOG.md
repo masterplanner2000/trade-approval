@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-21.5 · **Corresponding architecture:** 4.8
+**Log revision:** 2026-09-21.6 · **Corresponding architecture:** 4.8
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -75,10 +75,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-056 | Options volatility requires licensed, point-in-time evidence | Confirmed; provider-neutral research contract implemented | 2026-09-21 |
 | D-057 | Historical lane comparisons must preserve timing and universe limitations | Confirmed; first retrospective diagnostic implemented | 2026-09-21 |
 | D-058 | Freeze daily forward evidence before measuring outcomes | Confirmed; append-only capture implemented | 2026-09-21 |
+| D-059 | Treat a successful Paper login as distinct from execution readiness | Confirmed; market-hours evidence recorded | 2026-09-21 |
 
 ---
 
 ## Detailed decisions
+
+### D-059 — Paper connectivity does not imply execution readiness
+
+**Status:** Confirmed from a market-hours read-only test on September 21, 2026.
+
+**Decision:** Report Paper login, API handshake, complete portfolio reconciliation, quote eligibility, position protection and order-lifecycle readiness as separate gates. A green connection state must not imply that an order can safely be submitted.
+
+**Evidence:** After accepting TWS's simulated-trading notice, reconciliation completed for MRK 5, NVDA 25, DE 1 and MSFT 2. MRK and DE had exact broker-visible protective stops; NVDA and MSFT had none. Fresh API requests returned delayed type-3 bid/ask data for NVDA and MSFT and no usable quote for MRK or DE. The funded strategy was approximately $2,939 over its $5,000 sleeve, so no new buy was created. The review layer identified MRK and NVDA as exit-review candidates using the September 18 completed bar, but no order was submitted.
+
+**Boundary:** Delayed or absent quotes cannot authorize price-triggered protection repairs or automatic exits. The broader volatile scan may continue as research-only; its 63 September 18 candidates still lacked verified catalysts, consolidated liquidity, current spread, portfolio sizing and fresh broker validation. Automatic Paper sells remain disabled and no broker order was placed, changed or cancelled during this test.
 
 ### D-058 — Daily lane evidence is immutable and outcomes arrive later
 

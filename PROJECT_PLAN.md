@@ -1,7 +1,18 @@
 # Trade Approval — Project Plan
 
-**Last updated:** 2026-09-19
+**Last updated:** 2026-09-21
 **Current objective:** Establish a trustworthy paper-trading loop—owned positions, protection, execution state and measurable results—before expanding the recommendation strategy or enabling automatic exits.
+
+## Market-hours verification — 2026-09-21
+
+- Restored the local service and TWS Paper session. The first reconciliation timed out because TWS was waiting for acknowledgement of its simulated-trading warning; after acknowledgement, the API handshake and complete broker reconciliation succeeded.
+- Confirmed holdings of MRK 5, NVDA 25, DE 1 and MSFT 2. MRK and DE retain exact protective stops and targets. NVDA and MSFT remain broker-attributed legacy-app holdings without active protection.
+- The funded recommendation queue created no new buys because estimated strategy exposure was $7,938.61 against the $5,000 sleeve. Its completed-bar review marked MRK and NVDA for exit review and treated replacements as contingent on confirmed exit fills.
+- Fresh market-hours Paper API checks returned delayed type-3 quotes for NVDA and MSFT and no usable quote for MRK or DE. Therefore protection repair, order preview and automatic exits remained blocked. No order was submitted, modified or cancelled.
+- The aggressive shadow lane returned 63 September 18 research candidates. They remain non-actionable until catalyst, consolidated-liquidity, current-spread, sizing and fresh broker checks are complete.
+- The weekday 4:30 p.m. evidence scheduler is loaded and its last run exited successfully. Let it capture the September 21 completed session after the configured close buffer; do not treat an intraday bar as a completed daily signal.
+
+**Immediate next work:** ingest and verify the September 21 post-close evidence, compare funded and shadow lanes without hindsight, then resolve the market-data entitlement and implement the Paper-only protected-exit adapter. Do not enable automatic selling until both live quote eligibility and broker-observed protection-preserving order modification pass.
 
 ## Today's work order — 2026-09-18
 
