@@ -693,3 +693,10 @@ Review [CRYPTO_DESIGN.md](./CRYPTO_DESIGN.md): Coinbase Exchange/Gemini sandbox 
 **Decision:** Use the existing Alpaca credentials only for bounded read-only prototype snapshots. Label IEX data `single_venue`; label SIP `consolidated` only when separately entitled and configured; reject delayed SIP for forward observation. Keep Federal Reserve and BLS as primary release sources. Keep Trading Economics disabled until access and data-use rights are reviewed.
 **Fail-closed requirement:** A snapshot cannot supply a defensible expected time-of-day volume, ATR and current halt confirmation by itself. Require a named context source observed within 60 seconds and reject capture if it is missing, stale or future-dated. Do not substitute a daily-volume average or assume `halted=false`.
 **Boundary:** These adapters produce research evidence only. They do not create recommendations, change sizing, submit orders or authorize automated selling.
+
+## D-037 — Freeze a blocked two-study macro universe
+
+**Status:** Source reviewed; activation blocked, 2026-09-20.
+**Decision:** Freeze `macro-universe-2026-09-20-v1` with two initial hypotheses: BLS total nonfarm payrolls (`CES0000000001`) mapped at low strength to JPM employment resilience, and BLS CPI-U all-items year-over-year (`CUUR0000SA0`) mapped negatively to Home Depot inflation pressure. Company relationships use SEC filings; liquidity observations retain Alpaca IEX `single_venue` provenance. Omit the next FOMC study until an exact release time and consensus measure are reviewed.
+**Independent check:** A separately timed source-verification pass reviewed identities, timestamps, evidence, direction and limitations. It confirmed that neither study has an approved exact consensus-series identity.
+**Enforcement:** Both studies are `BLOCKED_CONSENSUS_PROVIDER`, and the validator returns zero active studies. A blocked study cannot contain a guessed ID; activation requires provider approval, an exact series ID and a reviewed crosswalk. Nothing can be registered, ranked or traded from this universe yet.

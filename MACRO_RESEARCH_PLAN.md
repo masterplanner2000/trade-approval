@@ -73,6 +73,8 @@ Non-goals: live trading, Paper order submission, automatic selling, recommendati
 
 **Exit gate:** Every scheduled ticker resolves through an active reviewed map and exact crosswalk; no generated narrative is used as evidence; all reviewers and source timestamps are recorded.
 
+**Progress (2026-09-20):** Version `macro-universe-2026-09-20-v1` freezes two source-reviewed hypotheses: BLS total nonfarm payrolls/JPM and BLS CPI-U all-items year-over-year/Home Depot. Exact official series, dates, filing evidence, IEX liquidity provenance, direction, strength and limitations are recorded and validated. A separately timed source-verification pass is recorded. Both studies remain `BLOCKED_CONSENSUS_PROVIDER`; validation returns zero active studies and makes it invalid to label a study active without an approved exact consensus series and reviewed crosswalk. The Stage 9 exit gate therefore remains open. See `MACRO_RESEARCH_UNIVERSE.md`.
+
 ## Stage 10 — Supervised forward-capture pilot
 
 **Objective:** Demonstrate one complete as-known-at-the-time event lifecycle with real read-only sources.

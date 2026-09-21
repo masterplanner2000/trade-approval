@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "macro-research-universe-v1",
+  "universeVersion": "macro-universe-2026-09-20-v1",
+  "status": "REVIEWED_BLOCKED",
+  "curatedAt": "2026-09-21T01:41:41Z",
+  "curatedBy": "codex-primary-curation-pass",
+  "independentReview": {
+    "status": "APPROVED_WITH_BLOCKERS",
+    "reviewedAt": "2026-09-21T01:42:45Z",
+    "reviewedBy": "codex-source-verification-pass",
+    "findings": [
+      "Official release series, schedules, symbols, filings and directional limitations were checked separately from the initial mapping pass.",
+      "No exact consensus series identifier is available under an approved provider, so every study remains blocked from scheduling.",
+      "The direction fields are test hypotheses and require post-release price and volume confirmation; they are not expected-return claims."
+    ]
+  },
+  "liquidityEvidence": [
+    {
+      "symbol": "JPM",
+      "dataSource": "Alpaca IEX local completed-daily-bar cache",
+      "volumeScope": "single_venue",
+      "observedAt": "2026-09-18T12:37:54.695000Z",
+      "latestCompletedSession": "2026-09-17",
+      "completedSessions": 20,
+      "averageDollarVolume20Day": 73442600.10
+    },
+    {
+      "symbol": "HD",
+      "dataSource": "Alpaca IEX local completed-daily-bar cache",
+      "volumeScope": "single_venue",
+      "observedAt": "2026-09-18T12:37:54.695000Z",
+      "latestCompletedSession": "2026-09-17",
+      "completedSessions": 20,
+      "averageDollarVolume20Day": 39135556.32
+    }
+  ],
+  "studies": [
+    {
+      "studyId": "employment-payrolls-jpm-v1",
+      "status": "BLOCKED_CONSENSUS_PROVIDER",
+      "crosswalkStatus": "BLOCKED",
+      "eventType": "labor",
+      "theme": "employment_resilience",
+      "symbols": ["JPM"],
+      "officialSeries": {
+        "provider": "U.S. Bureau of Labor Statistics",
+        "release": "Employment Situation",
+        "seriesId": "CES0000000001",
+        "measure": "All employees, total nonfarm, seasonally adjusted monthly change",
+        "sourceUrl": "https://www.bls.gov/news.release/empsit.htm",
+        "scheduleUrl": "https://www.bls.gov/schedule/news_release/empsit.htm",
+        "nextScheduledAt": "2026-10-02T12:30:00Z"
+      },
+      "consensusSeries": {
+        "provider": "unselected",
+        "seriesId": null,
+        "accessStatus": "PENDING_APPROVAL"
+      },
+      "rationale": "Total nonfarm payrolls are an exact Employment Situation series, while JPMorgan models unemployment and other macroeconomic conditions in its credit-loss outlook.",
+      "limitations": [
+        "A positive payroll surprise can also change expected interest rates and funding costs, so the stock response is not assumed from the filing relationship alone.",
+        "The evaluator requires a confirming post-release JPM price, volume, spread and volatility response."
+      ],
+      "crosswalkEvidence": [
+        {
+          "publisher": "U.S. Bureau of Labor Statistics",
+          "url": "https://www.bls.gov/news.release/empsit.htm",
+          "retrievedAt": "2026-09-21T01:41:41Z"
+        }
+      ]
+    },
+    {
+      "studyId": "cpi-hd-v1",
+      "status": "BLOCKED_CONSENSUS_PROVIDER",
+      "crosswalkStatus": "BLOCKED",
+      "eventType": "inflation",
+      "theme": "inflation_pressure",
+      "symbols": ["HD"],
+      "officialSeries": {
+        "provider": "U.S. Bureau of Labor Statistics",
+        "release": "Consumer Price Index",
+        "seriesId": "CUUR0000SA0",
+        "measure": "CPI-U all items, U.S. city average, not seasonally adjusted, 12-month change",
+        "sourceUrl": "https://www.bls.gov/cpi/",
+        "scheduleUrl": "https://www.bls.gov/schedule/news_release/cpi.htm",
+        "nextScheduledAt": "2026-10-14T12:30:00Z"
+      },
+      "consensusSeries": {
+        "provider": "unselected",
+        "seriesId": null,
+        "accessStatus": "PENDING_APPROVAL"
+      },
+      "rationale": "The exact CPI-U all-items year-over-year series measures broad inflation, while Home Depot reports that persistent high rates and macroeconomic uncertainty pressure home-improvement demand.",
+      "limitations": [
+        "CPI is not a direct Home Depot revenue series and an inflation surprise can affect rates, costs, wages and nominal sales differently.",
+        "A negative exposure is only a pre-registered hypothesis and still requires confirming market reaction."
+      ],
+      "crosswalkEvidence": [
+        {
+          "publisher": "U.S. Bureau of Labor Statistics",
+          "url": "https://www.bls.gov/cpi/",
+          "retrievedAt": "2026-09-21T01:41:41Z"
+        }
+      ]
+    }
+  ],
+  "exposureMap": {
+    "mapVersion": "macro-exposure-2026-09-20-v1",
+    "status": "REVIEWED",
+    "reviewedAt": "2026-09-21T01:42:45Z",
+    "reviewedBy": "codex-source-verification-pass",
+    "entries": [
+      {
+        "theme": "employment_resilience",
+        "symbol": "JPM",
+        "direction": 1.0,
+        "strength": 0.5,
+        "effectiveFrom": "2026-09-21T01:42:45Z",
+        "effectiveTo": null,
+        "rationale": "JPMorgan uses unemployment and broader macroeconomic scenarios to estimate credit losses; stronger employment is the low-strength positive research hypothesis.",
+        "evidence": [
+          {
+            "kind": "regulatory_filing",
+            "publisher": "U.S. Securities and Exchange Commission",
+            "url": "https://www.sec.gov/Archives/edgar/data/19617/000162828026008131/jpm-20251231.htm",
+            "publishedAt": "2026-02-13T21:20:00Z",
+            "retrievedAt": "2026-09-21T01:41:41Z"
+          }
+        ]
+      },
+      {
+        "theme": "inflation_pressure",
+        "symbol": "HD",
+        "direction": -1.0,
+        "strength": 0.6,
+        "effectiveFrom": "2026-09-21T01:42:45Z",
+        "effectiveTo": null,
+        "rationale": "Home Depot reports macro uncertainty and a persistent high-rate environment as pressure on broader home-improvement demand; an upside inflation surprise is a negative hypothesis.",
+        "evidence": [
+          {
+            "kind": "regulatory_filing",
+            "publisher": "U.S. Securities and Exchange Commission",
+            "url": "https://www.sec.gov/Archives/edgar/data/354950/000162828026019436/hd-20260201.htm",
+            "publishedAt": "2026-03-18T20:23:56Z",
+            "retrievedAt": "2026-09-21T01:41:41Z"
+          }
+        ]
+      }
+    ]
+  }
+}
