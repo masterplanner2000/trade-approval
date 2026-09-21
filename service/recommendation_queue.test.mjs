@@ -51,6 +51,44 @@ test("a fully deployed portfolio produces sequential exit reviews and replacemen
   assert.equal(review.nextStep, "APPROVE_EXIT_SEQUENTIALLY");
 });
 
+test("a fully allocated portfolio proposes one profitable rotation into a stronger candidate", () => {
+  const evaluation = (symbol, score, referenceClose = 110) => ({
+    symbol, company: symbol, eligible: true, recommendationScore: score, referenceClose,
+    marketRisk: { level: "MODERATE" }, signalDate: "2026-09-11",
+  });
+  const review = buildPortfolioReview({ evaluations: [
+    evaluation("WEAK", 55), evaluation("STRONG", 85),
+  ] }, {
+    complete: true, capturedAt: 1000,
+    positions: [{ symbol: "WEAK", quantity: 5, averageCost: 100 }],
+    openOrders: [{ symbol: "WEAK", action: "SELL", orderType: "STP", quantity: 5, status: "Submitted" }],
+  }, { deployed: 500, capitalLimit: 500, ownership: { items: [
+    { symbol: "WEAK", ownership: "strategy_owned", protection: "verified", reasons: [] },
+  ] } });
+
+  assert.equal(review.reductionRequired, 0);
+  assert.equal(review.holdings[0].ordinaryRotationProfitEligible, true);
+  assert.equal(review.holdings[0].recommendedForExit, true);
+  assert.equal(review.replacements[0].symbol, "STRONG");
+  assert.equal(review.nextStep, "APPROVE_EXIT_SEQUENTIALLY");
+});
+
+test("an ordinary rotation is blocked when the holding is below cost", () => {
+  const review = buildPortfolioReview({ evaluations: [
+    { symbol: "LOSER", company: "LOSER", eligible: false, recommendationScore: 20, referenceClose: 90, signalDate: "2026-09-11" },
+    { symbol: "STRONG", company: "STRONG", eligible: true, recommendationScore: 85, referenceClose: 110, signalDate: "2026-09-11" },
+  ] }, {
+    complete: true, capturedAt: 1000,
+    positions: [{ symbol: "LOSER", quantity: 5, averageCost: 100 }], openOrders: [],
+  }, { deployed: 500, capitalLimit: 500, ownership: { items: [
+    { symbol: "LOSER", ownership: "strategy_owned", protection: "missing", reasons: [] },
+  ] } });
+
+  assert.equal(review.holdings[0].ordinaryRotationProfitEligible, false);
+  assert.equal(review.holdings[0].recommendedForExit, false);
+  assert.equal(review.nextStep, "MONITOR_HOLDINGS");
+});
+
 test("unknown position ownership cannot be recommended for an exit", () => {
   const review = buildPortfolioReview({ evaluations: [{ symbol: "NVDA", eligible: false, referenceClose: 100 }] }, {
     positions: [{ symbol: "NVDA", quantity: 25, averageCost: 100 }], openOrders: [],

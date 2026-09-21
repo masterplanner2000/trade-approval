@@ -374,16 +374,25 @@ export function buildPortfolioReview(scan = {}, snapshot = {}, budget = {}) {
     const signal = evaluations.get(position.symbol) ?? null;
     const ownership = ownershipItems.get(position.symbol) ?? null;
     const quantity = Math.abs(Number(position.quantity ?? 0));
-    const estimatedValue = roundPrice(quantity * Number(signal?.referenceClose ?? position.averageCost ?? 0));
-    const protectedPosition = ownership ? ownership.protection === "verified"
-      : Math.abs((protectedQuantities.get(position.symbol) ?? 0) - quantity) < 1e-8;
     const evaluated = Boolean(signal);
     const qualified = signal?.eligible === true;
+    const estimatedValue = roundPrice(quantity * Number(signal?.referenceClose ?? position.averageCost ?? 0));
+    const estimatedCostBasis = roundPrice(quantity * Number(position.averageCost ?? 0));
+    const estimatedGrossPnl = roundPrice(estimatedValue - estimatedCostBasis);
+    // This is only a screening gate. An executable rotation still needs a
+    // fresh quote and estimated costs before a sell can be proposed.
+    const ordinaryRotationProfitEligible = evaluated
+      && Number(signal.referenceClose ?? 0) >= Number(position.averageCost ?? 0);
+    const protectedPosition = ownership ? ownership.protection === "verified"
+      : Math.abs((protectedQuantities.get(position.symbol) ?? 0) - quantity) < 1e-8;
     return {
       symbol: position.symbol,
       quantity,
       averageCost: Number(position.averageCost ?? 0),
       estimatedValue,
+      estimatedCostBasis,
+      estimatedGrossPnl,
+      ordinaryRotationProfitEligible,
       qualified,
       recommendationScore: signal?.recommendationScore ?? null,
       marketRisk: signal?.marketRisk?.level ?? null,
@@ -393,25 +402,15 @@ export function buildPortfolioReview(scan = {}, snapshot = {}, budget = {}) {
         : !evaluated ? "DATA_UNAVAILABLE" : qualified && protectedPosition ? "HOLD" : "EXIT_REVIEW",
       reasons: [
         ...(!evaluated ? ["No current scanner evaluation is available"] : qualified ? ["Still passes the current momentum scan"] : ["Does not pass the current momentum scan"]),
+        ...(evaluated ? [ordinaryRotationProfitEligible
+          ? "Completed-close estimate is at or above average cost"
+          : "Ordinary rotation is blocked below average cost"] : []),
         ...(ownership?.reasons ?? []),
         ...(protectedPosition ? ["Protective stop is visible at the broker"] : ["No verified protective stop is visible at the broker"]),
       ],
     };
   });
   const reductionRequired = Math.max(0, roundPrice(Number(budget.deployed ?? 0) - Number(budget.capitalLimit ?? 0)));
-  let plannedRelease = 0;
-  const rankedExitSymbols = new Set(holdings
-    .filter((item) => item.status === "EXIT_REVIEW" && item.ownership === "strategy_owned")
-    .sort((left, right) => Number(left.qualified) - Number(right.qualified)
-      || Number(left.protected) - Number(right.protected)
-      || (left.recommendationScore ?? -1) - (right.recommendationScore ?? -1))
-    .filter((item) => {
-      if (reductionRequired <= 0) return false;
-      if (plannedRelease >= reductionRequired && reductionRequired > 0) return false;
-      plannedRelease = roundPrice(plannedRelease + item.estimatedValue);
-      return true;
-    })
-    .map((item) => item.symbol));
   const heldSymbols = new Set(holdings.map((item) => item.symbol));
   const replacements = eligibleQueueCandidates(scan, heldSymbols).slice(0, 5).map((item) => ({
     symbol: item.symbol,
@@ -421,6 +420,32 @@ export function buildPortfolioReview(scan = {}, snapshot = {}, budget = {}) {
     marketRisk: item.marketRisk?.level ?? null,
     status: "AWAITING_EXIT_FILL_AND_FRESH_QUOTE",
   }));
+  const strongestReplacementScore = replacements[0]?.recommendationScore ?? null;
+  let plannedRelease = 0;
+  const rankedExitSymbols = new Set(holdings
+    .filter((item) => item.status !== "DATA_UNAVAILABLE"
+      && item.status !== "OWNERSHIP_REVIEW"
+      && item.ownership === "strategy_owned"
+      && item.ordinaryRotationProfitEligible
+      && strongestReplacementScore != null
+      && (item.recommendationScore == null || strongestReplacementScore > item.recommendationScore))
+    .sort((left, right) => Number(left.qualified) - Number(right.qualified)
+      || Number(left.protected) - Number(right.protected)
+      || (left.recommendationScore ?? -1) - (right.recommendationScore ?? -1))
+    .filter((item) => {
+      // When fully allocated, identify the weakest profitable holding that a
+      // stronger current candidate could replace. When over-allocated, keep
+      // selecting profitable ordinary exits until the excess is covered.
+      if (reductionRequired <= 0) {
+        if (plannedRelease > 0) return false;
+        plannedRelease = item.estimatedValue;
+        return true;
+      }
+      if (plannedRelease >= reductionRequired && reductionRequired > 0) return false;
+      plannedRelease = roundPrice(plannedRelease + item.estimatedValue);
+      return true;
+    })
+    .map((item) => item.symbol));
   return {
     asOf: snapshot.capturedAt ?? null,
     signalDate: scan.selected?.signalDate ?? scan.evaluations?.[0]?.signalDate ?? null,
