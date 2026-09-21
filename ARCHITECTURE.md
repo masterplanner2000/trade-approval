@@ -366,6 +366,13 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added idempotent ledger events for reconciled orders and executions.
 - Made truncated decision-reference collisions fail closed instead of guessing order ownership.
 
+### Version 4.0 — 2026-09-20
+
+- Added a research-only Stage 11 outcome analyzer downstream of the supervised macro forward-capture report.
+- Separated eligible real forward evidence from rehearsals, calibration, corrections, missing captures and replay failures.
+- Added exact matched no-event, benchmark, cash and momentum controls with fixed after-cost horizons, excursion, drawdown, volatility, failure and lateness reporting.
+- Kept the analyzer outside recommendation, sizing, approval and broker paths; its output cannot authorize orders.
+
 ### Version 3.8 — 2026-09-06
 
 - Added a dedicated read-only IBKR Paper reconciliation collector for balances, positions, open orders, order status, and executions.

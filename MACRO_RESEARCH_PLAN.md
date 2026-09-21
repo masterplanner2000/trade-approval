@@ -108,6 +108,8 @@ Non-goals: live trading, Paper order submission, automatic selling, recommendati
 
 **Exit gate:** Reproducible report with adequate sample accounting, cost assumptions, drawdown, uncertainty and an explicit conclusion of reject, continue collecting, or proceed to shadow ranking.
 
+**Progress (2026-09-20):** The deterministic `macro-outcomes-v1` analyzer and fixed outcome contract are implemented. It reports every scheduled forward record, exclusions, failures, lateness, 1-/5-/30-minute after-cost outcomes, excursions, cumulative trough, volatility regimes, matched no-event excess, momentum context, and benchmark/cash excess. Rehearsals, incomplete or corrected observations, replay mismatches, mixed versions, duplicate identities and chronological split leakage cannot support promotion. The predeclared gate requires at least 30 eligible real forward events and 30 valid matched controls. There are currently zero because Stages 9 and 10 remain open, so the Stage 11 conclusion is `CONTINUE_COLLECTING` and its exit gate remains open. See `MACRO_OUTCOME_CONTROLS.md`.
+
 ## Stage 12 — Shadow-ranking experiment
 
 **Objective:** Test whether validated macro evidence improves candidate ordering without creating trading authority.
@@ -137,4 +139,5 @@ Non-goals: live trading, Paper order submission, automatic selling, recommendati
 ## Current sequence
 
 - Stage 7: implemented; full regression and documentation completion in progress.
-- Stages 8–13: planned, not started.
+- Stages 8–11: foundations implemented; their real-data exit gates remain open.
+- Stages 12–13: planned, not started.

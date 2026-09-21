@@ -318,6 +318,12 @@ Crypto acceptance requires no production credentials or network orders; fresh ex
 
 - Added the wallet UX/security assessment and staged correctness/economics recommendation; no implementation or data-source expansion approved.
 
+### Plan change history — 2026-09-20
+
+- Added the Stage 11 deterministic macro outcome report and frozen controls. Only complete real forward observations can enter performance metrics; rehearsals remain excluded.
+- Fixed the initial decision gate at 30 eligible event observations and 30 exact matched no-event controls under one ruleset/map/universe version.
+- Kept macro outcomes research-only and recorded the current result as `CONTINUE_COLLECTING` with zero eligible real pairs.
+
 ### Plan change history — 2026-09-07
 
 - Clarified crypto has no IBKR dependency. Evaluate broad token catalog discovery separately from the subset executable on two sandbox exchanges; CoinGecko is proposed, with no connection or dependency added.
