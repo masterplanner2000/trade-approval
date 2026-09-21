@@ -373,6 +373,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added exact matched no-event, benchmark, cash and momentum controls with fixed after-cost horizons, excursion, drawdown, volatility, failure and lateness reporting.
 - Kept the analyzer outside recommendation, sizing, approval and broker paths; its output cannot authorize orders.
 
+### Version 4.1 — 2026-09-20
+
+- Added an isolated Stage 12 baseline-versus-macro shadow ranker downstream of validated research outcomes.
+- Bounded macro influence to five score points and preserved all existing hard eligibility gates.
+- Added identical-input, anti-look-ahead, paired-outcome and rollback controls without connecting the fork to the production queue or broker lifecycle.
+
 ### Version 3.8 — 2026-09-06
 
 - Added a dedicated read-only IBKR Paper reconciliation collector for balances, positions, open orders, order status, and executions.

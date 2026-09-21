@@ -43,6 +43,8 @@ This is the source of truth for verification of the stock paper-trading applicat
    Stage 10 pilot tests additionally cover blocked-universe registration, simultaneous worker/provider/clock/timing preflight failures, a deterministic five-task recorded lifecycle and exclusion of partial or replay-mismatched plans. No real event has passed the pilot exit gate.
 
    Stage 11 outcome tests cover rehearsal exclusion, exact transaction-cost subtraction, matched no-event controls, benchmark/cash comparisons, adverse drawdown, incomplete/corrected visibility, duplicate detection, chronological split leakage, mixed-version blocking, minimum samples and all three possible conclusion paths. These tests validate reporting machinery only; no real forward sample or performance conclusion exists.
+
+   Stage 12 tests cover the Stage 11 entry gate, bounded positive adjustment, hard-gate precedence, future-evidence rejection, identical-input enforcement, chronological session order, rehearsal exclusion, adequate positive paired outcomes and every predeclared rollback path. The production queue and broker path remain untouched.
 4. **P3 — Portfolio sizing integration:** connect the pure sizing model to complete reconciled inputs; invalidate stale approvals when cash, exposure or price changes; test sectors, correlations and sequential rotations.
 5. **P4 — Mobile behavior and accessibility:** automate primary states, gestures, offline/recovery, Dynamic Type, VoiceOver, themes and supported viewport screenshots.
 6. **P5 — Operations and external release:** authentication, encrypted secrets, monitoring, backup/recovery, dependency/security review, data licensing and securities/legal review.

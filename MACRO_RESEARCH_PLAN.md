@@ -124,6 +124,8 @@ Non-goals: live trading, Paper order submission, automatic selling, recommendati
 
 **Exit gate:** Written forward comparison demonstrates improved opportunity quality or rejects the adjustment. No promotion based only on in-sample results.
 
+**Progress (2026-09-20):** The versioned `macro-shadow-ranking-v1` comparison and forward-report machinery are implemented. A macro adjustment is capped at five points and cannot overcome liquidity, spread, freshness, ownership, protection or portfolio gates. Baseline and shadow use the same canonical input digest; future or invalid macro evidence is ignored. Predeclared rollback thresholds cover mean degradation, additional drawdown and operational failures. Recorded fixtures pass, but a real experiment is blocked unless Stage 11 concludes `PROCEED_TO_SHADOW_RANKING`. With Stage 11 still at `CONTINUE_COLLECTING`, there are zero authorized real sessions and the Stage 12 exit gate remains open. See `MACRO_SHADOW_RANKING.md`.
+
 ## Stage 13 — Promotion review
 
 **Objective:** Make an explicit product and risk decision rather than allowing experimental code to drift into production.
@@ -139,5 +141,5 @@ Non-goals: live trading, Paper order submission, automatic selling, recommendati
 ## Current sequence
 
 - Stage 7: implemented; full regression and documentation completion in progress.
-- Stages 8–11: foundations implemented; their real-data exit gates remain open.
-- Stages 12–13: planned, not started.
+- Stages 8–12: foundations implemented; their real-data exit gates remain open.
+- Stage 13: planned, not started.

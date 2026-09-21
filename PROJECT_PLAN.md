@@ -323,6 +323,9 @@ Crypto acceptance requires no production credentials or network orders; fresh ex
 - Added the Stage 11 deterministic macro outcome report and frozen controls. Only complete real forward observations can enter performance metrics; rehearsals remain excluded.
 - Fixed the initial decision gate at 30 eligible event observations and 30 exact matched no-event controls under one ruleset/map/universe version.
 - Kept macro outcomes research-only and recorded the current result as `CONTINUE_COLLECTING` with zero eligible real pairs.
+- Added the isolated Stage 12 shadow-ranking fork with a maximum five-point macro adjustment and hard-gate precedence.
+- Froze identical-input, anti-look-ahead, 30-session minimum and rollback rules before any real forward comparison.
+- Blocked real Stage 12 registration until Stage 11 explicitly proceeds; fixtures cannot become promotion evidence.
 
 ### Plan change history — 2026-09-07
 
