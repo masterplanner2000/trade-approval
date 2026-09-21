@@ -30,6 +30,28 @@ class AlpacaMarketCacheTests(unittest.TestCase):
         self.assertFalse(cache.is_completed_daily_bar("2026-09-19T04:00:00Z", now=now))
         self.assertFalse(cache.is_completed_daily_bar("2026-09-20T04:00:00Z", now=now))
 
+    def test_refresh_requests_through_exclusive_next_day_boundary(self) -> None:
+        now = datetime(2026, 9, 21, 16, 30, tzinfo=ZoneInfo("America/New_York"))
+        asset = {"symbol": "TEST", "name": "Test Corp Common Stock", "class": "us_equity",
+                 "exchange": "NASDAQ", "status": "active", "tradable": True}
+        requested_ends: list[str] = []
+
+        def fake_api(url: str, params: dict[str, object] | None = None) -> object:
+            if url == cache.ASSETS_URL:
+                return [asset]
+            requested_ends.append(str((params or {}).get("end")))
+            return {"bars": {"TEST": [{"t": "2026-09-21T04:00:00Z", "o": 10, "h": 11,
+                                          "l": 9, "c": 10.5, "v": 1_000_000}]}}
+
+        with TemporaryDirectory() as directory, \
+                patch.object(cache, "DATABASE_PATH", Path(directory) / "cache.sqlite3"), \
+                patch.object(cache, "api_json", side_effect=fake_api), \
+                patch.object(cache, "credentials", return_value=("key", "secret")):
+            result = cache.refresh(now=now)
+        self.assertEqual(result["completedThrough"], "2026-09-21")
+        self.assertTrue(requested_ends)
+        self.assertEqual(set(requested_ends), {"2026-09-22"})
+
     def test_accepts_active_tradable_us_common_stock(self) -> None:
         self.assertTrue(is_common_stock({
             "symbol": "TEST",

@@ -179,7 +179,10 @@ def refresh(*, now: datetime | None = None, requested: tuple[str, ...] | None = 
         raise RuntimeError("alpaca_assets_invalid_response")
     assets = [asset for asset in raw_assets if isinstance(asset, dict) and is_common_stock(asset)]
     by_symbol = {str(asset["symbol"]).upper(): asset for asset in assets}
-    end = observed_at.date().isoformat()
+    # Alpaca treats end as exclusive. Include the following calendar boundary
+    # and rely on completed_bars to reject today's still-forming bar before
+    # the conservative 16:15 ET completion grace.
+    end = (observed_at.date() + timedelta(days=1)).isoformat()
     start = (observed_at.date() - timedelta(days=10)).isoformat()
     dollar_volume: dict[str, float] = {}
     for symbol_batch in batches(sorted(by_symbol)):

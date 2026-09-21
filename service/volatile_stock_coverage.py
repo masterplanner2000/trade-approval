@@ -48,7 +48,8 @@ def evaluations_for(database_path: Path, lane: str) -> tuple[dict[str, dict[str,
         output = {}
         for symbol, name in names.items():
             bars = core.load_bars(connection, symbol, completed_through=completed_through)
-            result = aggressive.evaluate(symbol, bars, today="99999999") if lane == "aggressive" else core.evaluate(symbol, bars, [])
+            result = (aggressive.evaluate(symbol, bars, today="99999999") if lane == "aggressive"
+                      else core.evaluate(symbol, bars, [], today="99999999"))
             output[symbol] = {**result, "company": name}
     return output, meta
 

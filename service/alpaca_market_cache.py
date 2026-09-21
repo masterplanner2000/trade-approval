@@ -208,7 +208,10 @@ def refresh(*, now: datetime | None = None) -> dict[str, object]:
     eligible_assets = [asset for asset in raw_assets if isinstance(asset, dict) and is_common_stock(asset)]
     asset_by_symbol = {str(asset["symbol"]).upper(): asset for asset in eligible_assets}
     symbols = sorted(asset_by_symbol)
-    completed_end = observed_at.date().isoformat()
+    # Alpaca's end boundary is exclusive. Request through the next calendar
+    # day so the current session can be returned after the close; the
+    # completed_bars filter below still rejects it before the 16:15 ET grace.
+    completed_end = (observed_at.date() + timedelta(days=1)).isoformat()
     selection_start = (observed_at.date() - timedelta(days=10)).isoformat()
     dollar_volume: dict[str, float] = {}
     for symbol_batch in batches(symbols):
@@ -310,7 +313,12 @@ def scan() -> dict[str, object]:
         evaluations = []
         rejection_counts: Counter[str] = Counter()
         for symbol, name in asset_rows:
-            result = evaluate(symbol, load_bars(connection, symbol, completed_through=completed_through), [])
+            result = evaluate(
+                symbol,
+                load_bars(connection, symbol, completed_through=completed_through),
+                [],
+                today="99999999",
+            )
             result["company"] = name
             evaluations.append(result)
             for check in result.get("checks", []):

@@ -123,7 +123,8 @@ def average_true_range_percent(bars: list[DailyBar], length: int = 14) -> float 
     return (sum(true_ranges[-length:]) / length / bars[-1].close) * 100
 
 
-def evaluate(symbol: str, bars: list[DailyBar], errors: list[dict[str, object]]) -> dict[str, object]:
+def evaluate(symbol: str, bars: list[DailyBar], errors: list[dict[str, object]], *,
+             today: str | None = None) -> dict[str, object]:
     if len(bars) < MINIMUM_BARS:
         return {
             "symbol": symbol,
@@ -133,7 +134,8 @@ def evaluate(symbol: str, bars: list[DailyBar], errors: list[dict[str, object]])
             "warnings": errors,
         }
 
-    completed = bars[:-1] if bars[-1].date == datetime.now().strftime("%Y%m%d") else bars
+    current_day = today or datetime.now().strftime("%Y%m%d")
+    completed = bars[:-1] if bars[-1].date == current_day else bars
     if len(completed) < MINIMUM_BARS:
         return {
             "symbol": symbol,

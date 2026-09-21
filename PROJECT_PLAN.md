@@ -14,6 +14,8 @@
 
 **Immediate next work:** ingest and verify the September 21 post-close evidence, compare funded and shadow lanes without hindsight, then resolve the market-data entitlement and implement the Paper-only protected-exit adapter. Do not enable automatic selling until both live quote eligibility and broker-observed protection-preserving order modification pass.
 
+**Post-close correction:** The 4:30 p.m. evidence job exposed an exclusive-end-date bug and duplicate same-day filtering in the baseline evaluator. The corrected caches now cover September 21 exactly (baseline 100%; shadow 99.48%), and focused tests pass. A corrected scan yields 19 baseline and 73 shadow candidates. The initial immutable September 21 snapshot recorded zero baseline candidates and is explicitly invalid for performance comparison; preserve it as audit evidence rather than rewriting it. Future captures require at least 80% exact-session coverage and record isolated missing bars as ineligible instead of aborting the market day. Next add a durable invalidation/supersession record so automated reports can exclude known-bad immutable runs without relying only on documentation.
+
 ## Today's work order — 2026-09-18
 
 1. **Completed:** Verify current IBKR Paper holdings and open orders read-only; establish why NVDA/MSFT lack stops from broker trade evidence and historical app code. Keep these positions visibly unprotected and new buying capacity at zero.

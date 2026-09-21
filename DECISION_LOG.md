@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-21.6 · **Corresponding architecture:** 4.8
+**Log revision:** 2026-09-21.7 · **Corresponding architecture:** 4.8
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -102,6 +102,8 @@ This is the living record of product, design, trading-safety, data, and technica
 **Boundary:** The store is local and excluded from Git because it will grow and may include licensed evidence. The combined `market:daily` command refreshes both caches and captures evidence. The repository carries a host-specific timer definition but does not silently install it on other machines. Catalyst evidence is empty until a compliant market-wide, as-known-at-the-time collector is connected. The capture path has no recommendation or broker authority.
 
 **Operational update:** A user LaunchAgent is installed for weekdays at 4:30 PM local Mac time. If a later refresh for the same completed session differs, the immutable store retains the first snapshot, the scheduled command emits an explicit warning, outcome attachment still runs and the job completes without treating preservation as a system failure. Overlapping runs are skipped through a local lock.
+
+**September 21 correction:** The first scheduled September 21 capture is preserved but must be excluded from lane-performance interpretation. Two defects were found: Alpaca's exclusive `end` boundary omitted most current-session bars, and the baseline evaluator stripped a same-date bar even after the cache's 4:15 p.m. completion gate certified it. Both refreshers now request through the following calendar boundary while retaining the completion gate, and certified-cache evaluation no longer reapplies the raw intraday exclusion. A lane must have at least 80% exact-session coverage; individual missing bars are retained as explicit ineligible observations with their last available date. The corrected read-only scan found 19 baseline and 73 shadow candidates for September 21. It cannot replace the immutable erroneous snapshot, so September 21 is an operational test day, not valid comparative evidence.
 
 ### D-057 — The volatile lane requires matched, forward comparisons before promotion
 

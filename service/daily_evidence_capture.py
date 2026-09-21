@@ -17,6 +17,7 @@ from shadow_strategy_comparison import load_cache
 SCHEMA_VERSION = 1
 CAPTURE_VERSION = "daily-forward-evidence-v1"
 HORIZONS = (1, 5, 10)
+MINIMUM_SESSION_COVERAGE = 0.8
 
 
 def _canonical(value: object) -> str:
@@ -37,6 +38,21 @@ def _ranked_symbols(path: Path) -> list[str]:
         return [row[0] for row in connection.execute(
             "SELECT symbol FROM assets ORDER BY rank,symbol"
         )]
+
+
+def _align_evaluation(evaluation: dict[str, Any], signal_date: str) -> dict[str, Any]:
+    expected = signal_date.replace("-", "")
+    observed = evaluation.get("signalDate")
+    if observed in {expected, None}:
+        return evaluation
+    return {
+        **evaluation,
+        "signalDate": expected,
+        "eligible": False,
+        "reason": "completed_session_bar_missing",
+        "lastAvailableSignalDate": observed,
+        "researchScore": None,
+    }
 
 
 class DailyEvidenceStore:
@@ -99,20 +115,31 @@ class DailyEvidenceStore:
         baseline_symbols, baseline_history = load_cache(baseline_cache)
         shadow_symbols, shadow_history = load_cache(shadow_cache)
         lanes: dict[str, list[dict[str, Any]]] = {"baseline": [], "shadow": []}
+        expected = signal_date.replace("-", "")
+        baseline_current = sum(bool(baseline_history.get(symbol)) and baseline_history[symbol][-1].date == expected
+                               for symbol in _ranked_symbols(baseline_cache))
+        shadow_current = sum(bool(shadow_history.get(symbol)) and shadow_history[symbol][-1].date == expected
+                             for symbol in _ranked_symbols(shadow_cache))
+        if baseline_current < len(baseline_symbols) * MINIMUM_SESSION_COVERAGE or \
+                shadow_current < len(shadow_symbols) * MINIMUM_SESSION_COVERAGE:
+            raise ValueError("daily_evidence_signal_coverage_incomplete")
         for rank, symbol in enumerate(_ranked_symbols(baseline_cache), 1):
-            evaluation = baseline_evaluate(symbol, baseline_history[symbol], [])
+            evaluation = _align_evaluation(
+                baseline_evaluate(symbol, baseline_history[symbol], [], today="99999999"), signal_date
+            )
             lanes["baseline"].append({"symbol": symbol, "rank": rank, "evaluation": evaluation})
         for rank, symbol in enumerate(_ranked_symbols(shadow_cache), 1):
-            evaluation = shadow_evaluate(symbol, shadow_history[symbol], today="99999999")
+            evaluation = _align_evaluation(
+                shadow_evaluate(symbol, shadow_history[symbol], today="99999999"), signal_date
+            )
             lanes["shadow"].append({"symbol": symbol, "rank": rank, "evaluation": evaluation})
-        for lane in lanes.values():
-            if any(item["evaluation"].get("signalDate") not in {signal_date.replace("-", ""), None} for item in lane):
-                raise ValueError("daily_evidence_signal_boundary_mismatch")
         summary = {
             "signalDate": signal_date, "baselineUniverseSize": len(lanes["baseline"]),
             "shadowUniverseSize": len(lanes["shadow"]),
             "baselineEligible": sum(bool(row["evaluation"].get("eligible")) for row in lanes["baseline"]),
             "shadowEligible": sum(bool(row["evaluation"].get("eligible")) for row in lanes["shadow"]),
+            "baselineSessionCoverage": round(baseline_current / len(baseline_symbols), 6),
+            "shadowSessionCoverage": round(shadow_current / len(shadow_symbols), 6),
             "catalystSymbols": sorted((catalysts or {}).keys()),
             "orderSubmissionAllowed": False, "recommendationAuthority": False,
         }

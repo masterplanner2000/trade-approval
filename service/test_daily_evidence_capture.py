@@ -71,6 +71,28 @@ class DailyEvidenceCaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "daily_evidence_completion_boundary_mismatch"):
             self.store.capture(self.baseline, self.shadow, captured_at="2026-09-21T21:00:00Z")
 
+    def test_missing_symbol_bar_is_preserved_as_explicit_rejection(self) -> None:
+        with sqlite3.connect(self.shadow) as connection:
+            latest = connection.execute("SELECT max(trading_day) FROM daily_bars WHERE symbol='TEST'").fetchone()[0]
+            rows = connection.execute(
+                "SELECT trading_day,open,high,low,close,volume FROM daily_bars WHERE symbol='TEST'"
+            ).fetchall()
+            connection.execute("DELETE FROM daily_bars WHERE symbol='TEST' AND trading_day=?", (latest,))
+            for rank in range(2, 6):
+                symbol = f"CURRENT{rank}"
+                connection.execute("INSERT INTO assets VALUES(?,?)", (symbol, rank))
+                connection.executemany("INSERT INTO daily_bars VALUES(?,?,?,?,?,?,?)",
+                                       [(symbol, *row) for row in rows])
+        result = self.store.capture(self.baseline, self.shadow, captured_at="2026-09-21T21:00:00Z")
+        row = self.store.connection.execute(
+            "SELECT evaluation_json FROM evidence_symbols WHERE run_id=? AND lane='shadow' AND symbol='TEST'",
+            (result["runId"],),
+        ).fetchone()
+        evaluation = __import__("json").loads(row[0])
+        self.assertFalse(evaluation["eligible"])
+        self.assertEqual(evaluation["reason"], "completed_session_bar_missing")
+        self.assertIn("lastAvailableSignalDate", evaluation)
+
 
 if __name__ == "__main__":
     unittest.main()
