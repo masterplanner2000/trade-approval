@@ -1,0 +1,4792 @@
+{
+  "analysisVersion": "daily-shadow-comparison-v1",
+  "classification": "research_only",
+  "generatedAt": "2026-09-21T16:38:24.032007Z",
+  "baselineRuleset": "liquid-growth-momentum-mvp-v2",
+  "shadowRuleset": "volatile-growth-shadow-v2",
+  "calibrationEnd": "2026-08-06",
+  "signalDateCount": 80,
+  "forwardSessionCount": 20,
+  "baselineUniverseSize": 500,
+  "shadowUniverseSize": 1721,
+  "topK": 5,
+  "horizonsSessions": [
+    1,
+    5,
+    10
+  ],
+  "roundTripCostBps": 20,
+  "benchmarkSymbol": "QQQ",
+  "universeProvenance": "current_universe_retrospective",
+  "promotionEvidenceAllowed": false,
+  "recommendationAuthority": false,
+  "orderSubmissionAllowed": false,
+  "metrics": {
+    "1": {
+      "baseline": {
+        "count": 20,
+        "meanBps": -50.553532,
+        "medianBps": -65.196808,
+        "winRate": 0.25,
+        "lower95Bps": -98.974711,
+        "upper95Bps": -2.132352
+      },
+      "shadow": {
+        "count": 20,
+        "meanBps": 23.082502,
+        "medianBps": -93.167349,
+        "winRate": 0.4,
+        "lower95Bps": -89.765167,
+        "upper95Bps": 135.930171
+      },
+      "shadowMinusBaseline": {
+        "count": 20,
+        "meanBps": 73.636034,
+        "medianBps": 3.953692,
+        "winRate": 0.5,
+        "lower95Bps": -40.536759,
+        "upper95Bps": 187.808826
+      },
+      "shadowMinusBenchmark": {
+        "count": 20,
+        "meanBps": 27.342337,
+        "medianBps": -72.35205,
+        "winRate": 0.3,
+        "lower95Bps": -88.44449,
+        "upper95Bps": 143.129164
+      },
+      "baselineMaxDrawdownBps": 1084.852003,
+      "shadowMaxDrawdownBps": 871.854813,
+      "missingForwardSessions": 0
+    },
+    "5": {
+      "baseline": {
+        "count": 20,
+        "meanBps": -193.16173,
+        "medianBps": -145.270078,
+        "winRate": 0.15,
+        "lower95Bps": -287.41858,
+        "upper95Bps": -98.904881
+      },
+      "shadow": {
+        "count": 20,
+        "meanBps": -104.070649,
+        "medianBps": -171.282062,
+        "winRate": 0.35,
+        "lower95Bps": -359.207697,
+        "upper95Bps": 151.066399
+      },
+      "shadowMinusBaseline": {
+        "count": 20,
+        "meanBps": 89.091081,
+        "medianBps": 34.071944,
+        "winRate": 0.55,
+        "lower95Bps": -149.249723,
+        "upper95Bps": 327.431886
+      },
+      "shadowMinusBenchmark": {
+        "count": 20,
+        "meanBps": -75.298686,
+        "medianBps": -132.373559,
+        "winRate": 0.3,
+        "lower95Bps": -321.571,
+        "upper95Bps": 170.973627
+      },
+      "baselineMaxDrawdownBps": 3261.229717,
+      "shadowMaxDrawdownBps": 2360.8182,
+      "missingForwardSessions": 0
+    },
+    "10": {
+      "baseline": {
+        "count": 20,
+        "meanBps": -172.861141,
+        "medianBps": -188.390188,
+        "winRate": 0.25,
+        "lower95Bps": -266.57217,
+        "upper95Bps": -79.150113
+      },
+      "shadow": {
+        "count": 20,
+        "meanBps": -314.546925,
+        "medianBps": -371.730663,
+        "winRate": 0.3,
+        "lower95Bps": -639.114087,
+        "upper95Bps": 10.020237
+      },
+      "shadowMinusBaseline": {
+        "count": 20,
+        "meanBps": -141.685784,
+        "medianBps": -59.003536,
+        "winRate": 0.45,
+        "lower95Bps": -490.610508,
+        "upper95Bps": 207.238941
+      },
+      "shadowMinusBenchmark": {
+        "count": 20,
+        "meanBps": -251.643429,
+        "medianBps": -294.166478,
+        "winRate": 0.3,
+        "lower95Bps": -554.755851,
+        "upper95Bps": 51.468993
+      },
+      "baselineMaxDrawdownBps": 3164.25945,
+      "shadowMaxDrawdownBps": 5001.925513,
+      "missingForwardSessions": 0
+    }
+  },
+  "sessions": [
+    {
+      "signalDate": "20260512",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "RAL",
+            "score": 100
+          },
+          {
+            "symbol": "WEN",
+            "score": 100
+          },
+          {
+            "symbol": "BLLN",
+            "score": 96.4
+          },
+          {
+            "symbol": "ACMR",
+            "score": 91.9
+          },
+          {
+            "symbol": "AG",
+            "score": 91.3
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 54.38189,
+          "5": -620.066624,
+          "10": 318.416153
+        },
+        "benchmark": {
+          "1": 64.931399,
+          "5": -118.85269,
+          "10": 274.970357
+        }
+      }
+    },
+    {
+      "signalDate": "20260513",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "SLS",
+            "score": 100
+          },
+          {
+            "symbol": "EOSE",
+            "score": 95.5
+          },
+          {
+            "symbol": "F",
+            "score": 90.0
+          },
+          {
+            "symbol": "MBLY",
+            "score": 87.7
+          },
+          {
+            "symbol": "AAOI",
+            "score": 87.3
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 395.816982,
+          "5": -50.227976,
+          "10": 1155.183293
+        },
+        "benchmark": {
+          "1": 71.517718,
+          "5": -22.016239,
+          "10": 293.923799
+        }
+      }
+    },
+    {
+      "signalDate": "20260514",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "F",
+            "score": 100
+          },
+          {
+            "symbol": "CSCO",
+            "score": 96.2
+          },
+          {
+            "symbol": "UTI",
+            "score": 93.8
+          },
+          {
+            "symbol": "ONDS",
+            "score": 93.7
+          },
+          {
+            "symbol": "EQPT",
+            "score": 91.2
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -77.270859,
+          "5": -818.856305,
+          "10": 615.908429
+        },
+        "benchmark": {
+          "1": -17.639422,
+          "5": 59.832919,
+          "10": 394.981937
+        }
+      }
+    },
+    {
+      "signalDate": "20260515",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "ONDS",
+            "score": 91.0
+          },
+          {
+            "symbol": "LQDA",
+            "score": 89.0
+          },
+          {
+            "symbol": "NBIS",
+            "score": 88.1
+          },
+          {
+            "symbol": "RDW",
+            "score": 85.8
+          },
+          {
+            "symbol": "FIG",
+            "score": 82.0
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -345.507212,
+          "5": 117.687142,
+          "10": 2139.387179
+        },
+        "benchmark": {
+          "1": -82.530562,
+          "5": 83.375584,
+          "10": 436.17261
+        }
+      }
+    },
+    {
+      "signalDate": "20260518",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "RAMP",
+            "score": 100
+          },
+          {
+            "symbol": "TE",
+            "score": 99.6
+          },
+          {
+            "symbol": "STUB",
+            "score": 88.9
+          },
+          {
+            "symbol": "SEDG",
+            "score": 88.6
+          },
+          {
+            "symbol": "ENPH",
+            "score": 86.8
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -25.526423,
+          "5": 2532.579958,
+          "10": 3558.819089
+        },
+        "benchmark": {
+          "1": 22.621843,
+          "5": 431.103602,
+          "10": 659.469675
+        }
+      }
+    },
+    {
+      "signalDate": "20260519",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "PURR",
+            "score": 100
+          },
+          {
+            "symbol": "RAMP",
+            "score": 100
+          },
+          {
+            "symbol": "TE",
+            "score": 95.0
+          },
+          {
+            "symbol": "TENB",
+            "score": 86.4
+          },
+          {
+            "symbol": "ALAB",
+            "score": 86.0
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 741.102662,
+          "5": 1649.837106,
+          "10": 2998.57727
+        },
+        "benchmark": {
+          "1": 108.538145,
+          "5": 341.241654,
+          "10": 549.93607
+        }
+      }
+    },
+    {
+      "signalDate": "20260520",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "IMVT",
+            "score": 100
+          },
+          {
+            "symbol": "RAMP",
+            "score": 100
+          },
+          {
+            "symbol": "PURR",
+            "score": 96.2
+          },
+          {
+            "symbol": "STUB",
+            "score": 92.7
+          },
+          {
+            "symbol": "ALAB",
+            "score": 87.7
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -58.213138,
+          "5": 261.096392,
+          "10": 400.532468
+        },
+        "benchmark": {
+          "1": 77.46678,
+          "5": 377.014419,
+          "10": 445.575346
+        }
+      }
+    },
+    {
+      "signalDate": "20260521",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "RAMP",
+            "score": 100
+          },
+          {
+            "symbol": "RGTI",
+            "score": 97.6
+          },
+          {
+            "symbol": "PURR",
+            "score": 93.7
+          },
+          {
+            "symbol": "FCEL",
+            "score": 93.4
+          },
+          {
+            "symbol": "BIRK",
+            "score": 89.1
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 103.143175,
+          "5": 477.257597,
+          "10": -767.297981
+        },
+        "benchmark": {
+          "1": -7.815553,
+          "5": 280.662089,
+          "10": -176.547759
+        }
+      }
+    },
+    {
+      "signalDate": "20260522",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "HPQ",
+            "score": 100
+          },
+          {
+            "symbol": "INFQ",
+            "score": 100
+          },
+          {
+            "symbol": "LION",
+            "score": 94.3
+          },
+          {
+            "symbol": "NTAP",
+            "score": 92.8
+          },
+          {
+            "symbol": "SHAZ",
+            "score": 90.3
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -213.732379,
+          "5": 1289.11659,
+          "10": -145.637831
+        },
+        "benchmark": {
+          "1": 56.733477,
+          "5": 228.728397,
+          "10": -136.933355
+        }
+      }
+    },
+    {
+      "signalDate": "20260526",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "SMTC",
+            "score": 91.5
+          },
+          {
+            "symbol": "MOD",
+            "score": 90.8
+          },
+          {
+            "symbol": "PURR",
+            "score": 89.5
+          },
+          {
+            "symbol": "SEDG",
+            "score": 87.9
+          },
+          {
+            "symbol": "BB",
+            "score": 87.7
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -183.65321,
+          "5": 1267.106083,
+          "10": -614.018032
+        },
+        "benchmark": {
+          "1": -47.579984,
+          "5": 179.108559,
+          "10": -342.493847
+        }
+      }
+    },
+    {
+      "signalDate": "20260527",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "DY",
+            "score": 100
+          },
+          {
+            "symbol": "GFS",
+            "score": 100
+          },
+          {
+            "symbol": "BHVN",
+            "score": 97.9
+          },
+          {
+            "symbol": "CLF",
+            "score": 93.4
+          },
+          {
+            "symbol": "LUNR",
+            "score": 92.6
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 147.961946,
+          "5": -255.102323,
+          "10": -1255.592607
+        },
+        "benchmark": {
+          "1": 81.578839,
+          "5": 198.865587,
+          "10": -493.181163
+        }
+      }
+    },
+    {
+      "signalDate": "20260528",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "BTU",
+            "score": 100
+          },
+          {
+            "symbol": "ICLR",
+            "score": 99.8
+          },
+          {
+            "symbol": "DLTR",
+            "score": 97.2
+          },
+          {
+            "symbol": "AVAV",
+            "score": 96.6
+          },
+          {
+            "symbol": "FLY",
+            "score": 96.6
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -109.647108,
+          "5": 48.511425,
+          "10": -499.580182
+        },
+        "benchmark": {
+          "1": 6.112635,
+          "5": 37.219158,
+          "10": -286.343014
+        }
+      }
+    },
+    {
+      "signalDate": "20260529",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "SLS",
+            "score": 100
+          },
+          {
+            "symbol": "HPE",
+            "score": 99.0
+          },
+          {
+            "symbol": "ESTC",
+            "score": 96.2
+          },
+          {
+            "symbol": "BRKR",
+            "score": 93.2
+          },
+          {
+            "symbol": "FPS",
+            "score": 93.2
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 340.509546,
+          "5": 92.510104,
+          "10": -161.552299
+        },
+        "benchmark": {
+          "1": 71.902354,
+          "5": -432.909259,
+          "10": -216.794433
+        }
+      }
+    },
+    {
+      "signalDate": "20260601",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "MGM",
+            "score": 100
+          },
+          {
+            "symbol": "IBM",
+            "score": 97.0
+          },
+          {
+            "symbol": "FLNC",
+            "score": 93.7
+          },
+          {
+            "symbol": "EWTX",
+            "score": 93.2
+          },
+          {
+            "symbol": "NUAI",
+            "score": 91.6
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 124.305842,
+          "5": -1021.962034,
+          "10": -764.328007
+        },
+        "benchmark": {
+          "1": 48.99645,
+          "5": -355.662937,
+          "10": 18.22182
+        }
+      }
+    },
+    {
+      "signalDate": "20260602",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "GTLB",
+            "score": 97.4
+          },
+          {
+            "symbol": "PURR",
+            "score": 96.8
+          },
+          {
+            "symbol": "INFQ",
+            "score": 89.3
+          },
+          {
+            "symbol": "FLNC",
+            "score": 88.2
+          },
+          {
+            "symbol": "CDW",
+            "score": 87.4
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -479.107001,
+          "5": -1437.027916,
+          "10": -1327.668882
+        },
+        "benchmark": {
+          "1": -43.44037,
+          "5": -529.597104,
+          "10": -235.167929
+        }
+      }
+    },
+    {
+      "signalDate": "20260603",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "BRUN",
+            "score": 90.0
+          },
+          {
+            "symbol": "BTDR",
+            "score": 89.4
+          },
+          {
+            "symbol": "SAIL",
+            "score": 89.0
+          },
+          {
+            "symbol": "RIVN",
+            "score": 88.0
+          },
+          {
+            "symbol": "TENB",
+            "score": 85.4
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 249.219626,
+          "5": -1439.730105,
+          "10": -921.723943
+        },
+        "benchmark": {
+          "1": 70.734466,
+          "5": -565.739441,
+          "10": -174.451092
+        }
+      }
+    },
+    {
+      "signalDate": "20260604",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "ADPT",
+            "score": 94.8
+          },
+          {
+            "symbol": "BB",
+            "score": 87.6
+          },
+          {
+            "symbol": "AAOI",
+            "score": 86.5
+          },
+          {
+            "symbol": "CADL",
+            "score": 84.7
+          },
+          {
+            "symbol": "VSXY",
+            "score": 84.5
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -573.584684,
+          "5": -399.061374,
+          "10": -700.829252
+        },
+        "benchmark": {
+          "1": -333.713281,
+          "5": -179.491053,
+          "10": 138.291882
+        }
+      }
+    },
+    {
+      "signalDate": "20260605",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "MRVL",
+            "score": 89.4
+          },
+          {
+            "symbol": "TTAN",
+            "score": 80.7
+          },
+          {
+            "symbol": "TWLO",
+            "score": 80.1
+          },
+          {
+            "symbol": "AAOI",
+            "score": 76.6
+          },
+          {
+            "symbol": "AGX",
+            "score": 73.2
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -338.397314,
+          "5": -867.028343,
+          "10": -503.618315
+        },
+        "benchmark": {
+          "1": -24.571397,
+          "5": 48.723963,
+          "10": 293.879488
+        }
+      }
+    },
+    {
+      "signalDate": "20260608",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "TNGX",
+            "score": 100
+          },
+          {
+            "symbol": "MRVL",
+            "score": 91.8
+          },
+          {
+            "symbol": "OSCR",
+            "score": 80.1
+          },
+          {
+            "symbol": "HRI",
+            "score": 80.0
+          },
+          {
+            "symbol": "GEO",
+            "score": 72.8
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -286.944325,
+          "5": 352.103759,
+          "10": -69.70012
+        },
+        "benchmark": {
+          "1": -209.165003,
+          "5": 288.035041,
+          "10": -119.206032
+        }
+      }
+    },
+    {
+      "signalDate": "20260609",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "ZVRA",
+            "score": 92.6
+          },
+          {
+            "symbol": "CECO",
+            "score": 87.8
+          },
+          {
+            "symbol": "SRAD",
+            "score": 83.5
+          },
+          {
+            "symbol": "ORKA",
+            "score": 82.2
+          },
+          {
+            "symbol": "SQQQ",
+            "score": 81.7
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -62.203208,
+          "5": -502.087889,
+          "10": 48.67096
+        },
+        "benchmark": {
+          "1": -107.609861,
+          "5": 408.145766,
+          "10": 144.480171
+        }
+      }
+    },
+    {
+      "signalDate": "20260610",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "CBRL",
+            "score": 100
+          },
+          {
+            "symbol": "CASY",
+            "score": 96.9
+          },
+          {
+            "symbol": "TNGX",
+            "score": 93.0
+          },
+          {
+            "symbol": "CXW",
+            "score": 91.5
+          },
+          {
+            "symbol": "AMRX",
+            "score": 90.7
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 238.636827,
+          "5": 284.776887,
+          "10": 409.424786
+        },
+        "benchmark": {
+          "1": 252.035784,
+          "5": 335.617617,
+          "10": 258.773942
+        }
+      }
+    },
+    {
+      "signalDate": "20260611",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "ELVN",
+            "score": 93.4
+          },
+          {
+            "symbol": "TNGX",
+            "score": 92.5
+          },
+          {
+            "symbol": "AMRX",
+            "score": 85.8
+          },
+          {
+            "symbol": "CAKE",
+            "score": 80.4
+          },
+          {
+            "symbol": "DKNG",
+            "score": 79.9
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 287.861121,
+          "5": -89.586332,
+          "10": 564.427016
+        },
+        "benchmark": {
+          "1": 51.109466,
+          "5": 309.030736,
+          "10": -156.67984
+        }
+      }
+    },
+    {
+      "signalDate": "20260612",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "ELVN",
+            "score": 100
+          },
+          {
+            "symbol": "ROKU",
+            "score": 97.6
+          },
+          {
+            "symbol": "WBI",
+            "score": 86.8
+          },
+          {
+            "symbol": "AMKR",
+            "score": 86.3
+          },
+          {
+            "symbol": "INTC",
+            "score": 85.8
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -246.810696,
+          "5": 73.210792,
+          "10": 113.603771
+        },
+        "benchmark": {
+          "1": 78.075142,
+          "5": 11.677326,
+          "10": -180.18385
+        }
+      }
+    },
+    {
+      "signalDate": "20260615",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "ELVN",
+            "score": 100
+          },
+          {
+            "symbol": "ROKU",
+            "score": 92.9
+          },
+          {
+            "symbol": "ENTG",
+            "score": 87.8
+          },
+          {
+            "symbol": "MGNI",
+            "score": 85.8
+          },
+          {
+            "symbol": "SEZL",
+            "score": 85.4
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 5.144823,
+          "5": 482.36681,
+          "10": 1160.927787
+        },
+        "benchmark": {
+          "1": -167.008695,
+          "5": -375.870821,
+          "10": -72.635956
+        }
+      }
+    },
+    {
+      "signalDate": "20260616",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "LION",
+            "score": 100
+          },
+          {
+            "symbol": "AMKR",
+            "score": 97.0
+          },
+          {
+            "symbol": "MGNI",
+            "score": 89.4
+          },
+          {
+            "symbol": "WDC",
+            "score": 88.6
+          },
+          {
+            "symbol": "ELVN",
+            "score": 86.6
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 10.993603,
+          "5": -121.38838,
+          "10": -93.418988
+        },
+        "benchmark": {
+          "1": -174.049339,
+          "5": -324.928445,
+          "10": -124.574077
+        }
+      }
+    },
+    {
+      "signalDate": "20260617",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "SHAZ",
+            "score": 100
+          },
+          {
+            "symbol": "ALGM",
+            "score": 98.8
+          },
+          {
+            "symbol": "BHVN",
+            "score": 93.7
+          },
+          {
+            "symbol": "EOSE",
+            "score": 92.3
+          },
+          {
+            "symbol": "FRMI",
+            "score": 90.7
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 142.238757,
+          "5": -359.721781,
+          "10": -1117.475314
+        },
+        "benchmark": {
+          "1": 41.895642,
+          "5": -266.472605,
+          "10": -317.889983
+        }
+      }
+    },
+    {
+      "signalDate": "20260618",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "CIFR",
+            "score": 92.9
+          },
+          {
+            "symbol": "MRNA",
+            "score": 91.8
+          },
+          {
+            "symbol": "SHAZ",
+            "score": 91.8
+          },
+          {
+            "symbol": "SMR",
+            "score": 88.9
+          },
+          {
+            "symbol": "ESAB",
+            "score": 88.4
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -313.19409,
+          "5": -682.628288,
+          "10": -705.242532
+        },
+        "benchmark": {
+          "1": -53.554566,
+          "5": -491.164171,
+          "10": -261.29772
+        }
+      }
+    },
+    {
+      "signalDate": "20260622",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "BWIN",
+            "score": 100
+          },
+          {
+            "symbol": "ORKA",
+            "score": 100
+          },
+          {
+            "symbol": "KYMR",
+            "score": 94.4
+          },
+          {
+            "symbol": "SYRE",
+            "score": 93.2
+          },
+          {
+            "symbol": "NUAI",
+            "score": 92.0
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -4.066101,
+          "5": 447.50305,
+          "10": 54.783732
+        },
+        "benchmark": {
+          "1": -26.024906,
+          "5": 118.93102,
+          "10": -83.391633
+        }
+      }
+    },
+    {
+      "signalDate": "20260623",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "CGEM",
+            "score": 100
+          },
+          {
+            "symbol": "SHAZ",
+            "score": 87.5
+          },
+          {
+            "symbol": "VKTX",
+            "score": 85.6
+          },
+          {
+            "symbol": "SYRE",
+            "score": 85.1
+          },
+          {
+            "symbol": "BWIN",
+            "score": 84.8
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 142.499746,
+          "5": 439.287289,
+          "10": 506.82394
+        },
+        "benchmark": {
+          "1": -62.854343,
+          "5": 293.273605,
+          "10": -52.075313
+        }
+      }
+    },
+    {
+      "signalDate": "20260624",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "WEN",
+            "score": 96.9
+          },
+          {
+            "symbol": "RUN",
+            "score": 95.5
+          },
+          {
+            "symbol": "NEO",
+            "score": 92.9
+          },
+          {
+            "symbol": "VKTX",
+            "score": 92.4
+          },
+          {
+            "symbol": "GLUE",
+            "score": 92.3
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -297.967795,
+          "5": 460.736371,
+          "10": 250.72839
+        },
+        "benchmark": {
+          "1": -131.157941,
+          "5": -7.171622,
+          "10": -36.133944
+        }
+      }
+    },
+    {
+      "signalDate": "20260625",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "KYMR",
+            "score": 100
+          },
+          {
+            "symbol": "TECH",
+            "score": 100
+          },
+          {
+            "symbol": "AYI",
+            "score": 97.9
+          },
+          {
+            "symbol": "MANE",
+            "score": 91.0
+          },
+          {
+            "symbol": "ASND",
+            "score": 90.5
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": -42.669952,
+          "5": 192.340584,
+          "10": -38.974007
+        },
+        "benchmark": {
+          "1": -21.093462,
+          "5": 76.587672,
+          "10": 261.332427
+        }
+      }
+    },
+    {
+      "signalDate": "20260626",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "IBRX",
+            "score": 94.5
+          },
+          {
+            "symbol": "ACAD",
+            "score": 91.1
+          },
+          {
+            "symbol": "KYMR",
+            "score": 89.8
+          },
+          {
+            "symbol": "TECH",
+            "score": 87.7
+          },
+          {
+            "symbol": "ABCL",
+            "score": 87.2
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 250.302402,
+          "5": 371.853816,
+          "10": -342.225311
+        },
+        "benchmark": {
+          "1": 138.791532,
+          "5": 120.986962,
+          "10": -30.702369
+        }
+      }
+    },
+    {
+      "signalDate": "20260629",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "IRDM",
+            "score": 100
+          },
+          {
+            "symbol": "OC",
+            "score": 100
+          },
+          {
+            "symbol": "PRG",
+            "score": 98.4
+          },
+          {
+            "symbol": "CHTR",
+            "score": 93.8
+          },
+          {
+            "symbol": "FBIN",
+            "score": 93.7
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 153.571992,
+          "5": -532.015801,
+          "10": -690.037382
+        },
+        "benchmark": {
+          "1": 161.410685,
+          "5": -205.632791,
+          "10": -64.398441
+        }
+      }
+    },
+    {
+      "signalDate": "20260630",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [],
+        "shadow": [
+          {
+            "symbol": "AMBA",
+            "score": 100
+          },
+          {
+            "symbol": "CHYM",
+            "score": 90.4
+          },
+          {
+            "symbol": "IRDM",
+            "score": 88.4
+          },
+          {
+            "symbol": "OC",
+            "score": 87.8
+          },
+          {
+            "symbol": "ONTO",
+            "score": 87.3
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": null,
+          "5": null,
+          "10": null
+        },
+        "shadow": {
+          "1": 54.622031,
+          "5": -973.544558,
+          "10": -929.934275
+        },
+        "benchmark": {
+          "1": -53.26451,
+          "5": -244.495085,
+          "10": -157.734336
+        }
+      }
+    },
+    {
+      "signalDate": "20260701",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "LLY",
+            "score": 90.3
+          },
+          {
+            "symbol": "UNH",
+            "score": 88.7
+          },
+          {
+            "symbol": "JNJ",
+            "score": 86.8
+          },
+          {
+            "symbol": "APH",
+            "score": 86.7
+          },
+          {
+            "symbol": "GEV",
+            "score": 85.2
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "VSAT",
+            "score": 96.3
+          },
+          {
+            "symbol": "GH",
+            "score": 93.9
+          },
+          {
+            "symbol": "RDDT",
+            "score": 87.4
+          },
+          {
+            "symbol": "DAVE",
+            "score": 86.2
+          },
+          {
+            "symbol": "CHYM",
+            "score": 85.2
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -24.518676,
+          "5": -112.988882,
+          "10": -478.384087
+        },
+        "shadow": {
+          "1": -11.842662,
+          "5": -245.353138,
+          "10": -217.855288
+        },
+        "benchmark": {
+          "1": -178.820283,
+          "5": -31.597102,
+          "10": -269.886168
+        }
+      }
+    },
+    {
+      "signalDate": "20260702",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "UNH",
+            "score": 88.6
+          },
+          {
+            "symbol": "MRK",
+            "score": 88.5
+          },
+          {
+            "symbol": "LLY",
+            "score": 87.5
+          },
+          {
+            "symbol": "APH",
+            "score": 86.2
+          },
+          {
+            "symbol": "BAC",
+            "score": 84.2
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "WAY",
+            "score": 92.5
+          },
+          {
+            "symbol": "RIVN",
+            "score": 89.7
+          },
+          {
+            "symbol": "QLYS",
+            "score": 85.2
+          },
+          {
+            "symbol": "LMND",
+            "score": 84.5
+          },
+          {
+            "symbol": "KTOS",
+            "score": 84.4
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -61.051396,
+          "5": -204.738975,
+          "10": -191.182789
+        },
+        "shadow": {
+          "1": 350.328373,
+          "5": -550.301636,
+          "10": -646.340879
+        },
+        "benchmark": {
+          "1": 42.147726,
+          "5": 82.626235,
+          "10": -338.155515
+        }
+      }
+    },
+    {
+      "signalDate": "20260706",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "APH",
+            "score": 88.5
+          },
+          {
+            "symbol": "GEV",
+            "score": 87.1
+          },
+          {
+            "symbol": "JNJ",
+            "score": 86.9
+          },
+          {
+            "symbol": "HWM",
+            "score": 84.3
+          },
+          {
+            "symbol": "LLY",
+            "score": 79.8
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "LMND",
+            "score": 99.1
+          },
+          {
+            "symbol": "OPEN",
+            "score": 86.2
+          },
+          {
+            "symbol": "FIGR",
+            "score": 82.6
+          },
+          {
+            "symbol": "RDDT",
+            "score": 81.9
+          },
+          {
+            "symbol": "MT",
+            "score": 78.1
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -88.555156,
+          "5": -369.401009,
+          "10": -491.180579
+        },
+        "shadow": {
+          "1": -371.021114,
+          "5": -653.104186,
+          "10": -897.772327
+        },
+        "benchmark": {
+          "1": -65.042474,
+          "5": -31.820348,
+          "10": -254.142252
+        }
+      }
+    },
+    {
+      "signalDate": "20260707",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "GE",
+            "score": 91.4
+          },
+          {
+            "symbol": "ABBV",
+            "score": 86.2
+          },
+          {
+            "symbol": "MRK",
+            "score": 82.5
+          },
+          {
+            "symbol": "CRWD",
+            "score": 82.4
+          },
+          {
+            "symbol": "DDOG",
+            "score": 81.1
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "BCRX",
+            "score": 84.8
+          },
+          {
+            "symbol": "AXON",
+            "score": 84.4
+          },
+          {
+            "symbol": "RARE",
+            "score": 82.8
+          },
+          {
+            "symbol": "LMND",
+            "score": 82.4
+          },
+          {
+            "symbol": "PTGX",
+            "score": 79.6
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -36.491581,
+          "5": 85.883859,
+          "10": -126.32472
+        },
+        "shadow": {
+          "1": -155.993649,
+          "5": -874.084917,
+          "10": -1182.834998
+        },
+        "benchmark": {
+          "1": 91.165987,
+          "5": 209.454566,
+          "10": 54.387186
+        }
+      }
+    },
+    {
+      "signalDate": "20260708",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ABBV",
+            "score": 88.7
+          },
+          {
+            "symbol": "JNJ",
+            "score": 87.5
+          },
+          {
+            "symbol": "CRWD",
+            "score": 86.3
+          },
+          {
+            "symbol": "ANET",
+            "score": 84.7
+          },
+          {
+            "symbol": "GE",
+            "score": 84.5
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "XENE",
+            "score": 87.6
+          },
+          {
+            "symbol": "PBF",
+            "score": 84.3
+          },
+          {
+            "symbol": "VG",
+            "score": 73.7
+          },
+          {
+            "symbol": "IMNM",
+            "score": 71.9
+          },
+          {
+            "symbol": "MANH",
+            "score": 71.9
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 26.575877,
+          "5": -136.185346,
+          "10": -263.710448
+        },
+        "shadow": {
+          "1": 135.207306,
+          "5": 206.007206,
+          "10": 576.447101
+        },
+        "benchmark": {
+          "1": 67.024315,
+          "5": -9.754058,
+          "10": -183.794329
+        }
+      }
+    },
+    {
+      "signalDate": "20260709",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ABBV",
+            "score": 90.1
+          },
+          {
+            "symbol": "JNJ",
+            "score": 87.2
+          },
+          {
+            "symbol": "BAC",
+            "score": 82.8
+          },
+          {
+            "symbol": "GE",
+            "score": 82.7
+          },
+          {
+            "symbol": "DDOG",
+            "score": 80.8
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "BBIO",
+            "score": 100
+          },
+          {
+            "symbol": "QGEN",
+            "score": 82.2
+          },
+          {
+            "symbol": "ALNY",
+            "score": 76.7
+          },
+          {
+            "symbol": "XENE",
+            "score": 75.6
+          },
+          {
+            "symbol": "AKAM",
+            "score": 72.9
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -166.146166,
+          "5": -135.419219,
+          "10": -158.578215
+        },
+        "shadow": {
+          "1": -367.400524,
+          "5": -756.372432,
+          "10": -860.399807
+        },
+        "benchmark": {
+          "1": 62.610193,
+          "5": -210.181445,
+          "10": -403.565033
+        }
+      }
+    },
+    {
+      "signalDate": "20260710",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ABBV",
+            "score": 89.8
+          },
+          {
+            "symbol": "GE",
+            "score": 89.4
+          },
+          {
+            "symbol": "DDOG",
+            "score": 88.8
+          },
+          {
+            "symbol": "CRWD",
+            "score": 84.1
+          },
+          {
+            "symbol": "BAC",
+            "score": 83.0
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "META",
+            "score": 83.6
+          },
+          {
+            "symbol": "JXN",
+            "score": 76.1
+          },
+          {
+            "symbol": "INSP",
+            "score": 68.8
+          },
+          {
+            "symbol": "ALM",
+            "score": 68.1
+          },
+          {
+            "symbol": "BBIO",
+            "score": 67.8
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -18.953326,
+          "5": 231.221269,
+          "10": 17.656634
+        },
+        "shadow": {
+          "1": -174.640347,
+          "5": -353.415944,
+          "10": -660.665876
+        },
+        "benchmark": {
+          "1": -83.530888,
+          "5": -313.903221,
+          "10": -466.880491
+        }
+      }
+    },
+    {
+      "signalDate": "20260713",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ABBV",
+            "score": 90.2
+          },
+          {
+            "symbol": "PANW",
+            "score": 86.5
+          },
+          {
+            "symbol": "DDOG",
+            "score": 85.9
+          },
+          {
+            "symbol": "V",
+            "score": 84.5
+          },
+          {
+            "symbol": "JNJ",
+            "score": 84.3
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "VG",
+            "score": 82.2
+          },
+          {
+            "symbol": "WHD",
+            "score": 75.7
+          },
+          {
+            "symbol": "FIG",
+            "score": 74.0
+          },
+          {
+            "symbol": "PSNL",
+            "score": 72.7
+          },
+          {
+            "symbol": "SHAK",
+            "score": 72.2
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 212.15366,
+          "5": 203.471432,
+          "10": 93.02819
+        },
+        "shadow": {
+          "1": -7.24178,
+          "5": -120.355203,
+          "10": -463.084454
+        },
+        "benchmark": {
+          "1": -5.004727,
+          "5": -334.621587,
+          "10": -526.886504
+        }
+      }
+    },
+    {
+      "signalDate": "20260714",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ANET",
+            "score": 84.1
+          },
+          {
+            "symbol": "DDOG",
+            "score": 82.8
+          },
+          {
+            "symbol": "V",
+            "score": 82.0
+          },
+          {
+            "symbol": "SNOW",
+            "score": 79.4
+          },
+          {
+            "symbol": "MS",
+            "score": 78.9
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "TSEM",
+            "score": 87.4
+          },
+          {
+            "symbol": "PBF",
+            "score": 82.4
+          },
+          {
+            "symbol": "NTSK",
+            "score": 82.1
+          },
+          {
+            "symbol": "S",
+            "score": 76.9
+          },
+          {
+            "symbol": "MEOH",
+            "score": 75.5
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -209.986766,
+          "5": -358.961648,
+          "10": -428.658922
+        },
+        "shadow": {
+          "1": -356.687808,
+          "5": -149.987911,
+          "10": -996.355773
+        },
+        "benchmark": {
+          "1": -89.299291,
+          "5": -212.46596,
+          "10": -673.338771
+        }
+      }
+    },
+    {
+      "signalDate": "20260715",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "DDOG",
+            "score": 86.6
+          },
+          {
+            "symbol": "ABBV",
+            "score": 85.9
+          },
+          {
+            "symbol": "SNOW",
+            "score": 82.7
+          },
+          {
+            "symbol": "CRWD",
+            "score": 82.1
+          },
+          {
+            "symbol": "JPM",
+            "score": 81.1
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "PYPL",
+            "score": 100
+          },
+          {
+            "symbol": "MRVI",
+            "score": 88.4
+          },
+          {
+            "symbol": "RH",
+            "score": 88.1
+          },
+          {
+            "symbol": "SHLS",
+            "score": 79.6
+          },
+          {
+            "symbol": "ADPT",
+            "score": 75.8
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -50.983393,
+          "5": -316.440868,
+          "10": -87.206339
+        },
+        "shadow": {
+          "1": -160.707571,
+          "5": -381.81967,
+          "10": -806.43224
+        },
+        "benchmark": {
+          "1": -89.103762,
+          "5": -99.363344,
+          "10": -711.424676
+        }
+      }
+    },
+    {
+      "signalDate": "20260716",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ABBV",
+            "score": 89.2
+          },
+          {
+            "symbol": "DDOG",
+            "score": 86.7
+          },
+          {
+            "symbol": "SNOW",
+            "score": 84.6
+          },
+          {
+            "symbol": "CRWD",
+            "score": 84.3
+          },
+          {
+            "symbol": "V",
+            "score": 79.5
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "RHI",
+            "score": 85.8
+          },
+          {
+            "symbol": "PYPL",
+            "score": 85.7
+          },
+          {
+            "symbol": "MRVI",
+            "score": 84.0
+          },
+          {
+            "symbol": "ABT",
+            "score": 78.4
+          },
+          {
+            "symbol": "XRAY",
+            "score": 75.5
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 38.412627,
+          "5": -317.652196,
+          "10": 225.739413
+        },
+        "shadow": {
+          "1": 123.622958,
+          "5": -330.950936,
+          "10": -148.816442
+        },
+        "benchmark": {
+          "1": 52.535603,
+          "5": 4.341785,
+          "10": -116.794026
+        }
+      }
+    },
+    {
+      "signalDate": "20260717",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ABBV",
+            "score": 89.1
+          },
+          {
+            "symbol": "SNOW",
+            "score": 87.0
+          },
+          {
+            "symbol": "CRWD",
+            "score": 84.6
+          },
+          {
+            "symbol": "DDOG",
+            "score": 84.5
+          },
+          {
+            "symbol": "MRK",
+            "score": 82.0
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "PYPL",
+            "score": 79.9
+          },
+          {
+            "symbol": "CLMT",
+            "score": 77.9
+          },
+          {
+            "symbol": "VG",
+            "score": 74.7
+          },
+          {
+            "symbol": "SION",
+            "score": 72.7
+          },
+          {
+            "symbol": "MMED",
+            "score": 72.1
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -16.481543,
+          "5": -191.016707,
+          "10": 155.252116
+        },
+        "shadow": {
+          "1": -144.971158,
+          "5": -279.534367,
+          "10": -63.660685
+        },
+        "benchmark": {
+          "1": -90.789886,
+          "5": -256.549129,
+          "10": -205.95194
+        }
+      }
+    },
+    {
+      "signalDate": "20260720",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ABBV",
+            "score": 90.6
+          },
+          {
+            "symbol": "DDOG",
+            "score": 87.3
+          },
+          {
+            "symbol": "SNOW",
+            "score": 84.2
+          },
+          {
+            "symbol": "CRWD",
+            "score": 84.1
+          },
+          {
+            "symbol": "V",
+            "score": 83.6
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "ACHR",
+            "score": 89.3
+          },
+          {
+            "symbol": "PYPL",
+            "score": 81.8
+          },
+          {
+            "symbol": "BETA",
+            "score": 73.1
+          },
+          {
+            "symbol": "HOG",
+            "score": 68.5
+          },
+          {
+            "symbol": "VSXY",
+            "score": 68.5
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -114.252331,
+          "5": -196.889753,
+          "10": 379.47901
+        },
+        "shadow": {
+          "1": -70.329315,
+          "5": -666.58244,
+          "10": -361.321139
+        },
+        "benchmark": {
+          "1": 30.884311,
+          "5": -346.244298,
+          "10": -91.944578
+        }
+      }
+    },
+    {
+      "signalDate": "20260721",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ABBV",
+            "score": 88.5
+          },
+          {
+            "symbol": "SNOW",
+            "score": 86.7
+          },
+          {
+            "symbol": "PANW",
+            "score": 84.7
+          },
+          {
+            "symbol": "AAPL",
+            "score": 82.3
+          },
+          {
+            "symbol": "UNH",
+            "score": 79.0
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "HAS",
+            "score": 84.2
+          },
+          {
+            "symbol": "HOG",
+            "score": 75.5
+          },
+          {
+            "symbol": "EFX",
+            "score": 72.0
+          },
+          {
+            "symbol": "COIN",
+            "score": 71.5
+          },
+          {
+            "symbol": "HRMY",
+            "score": 69.9
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -139.721138,
+          "5": -67.823546,
+          "10": 113.377611
+        },
+        "shadow": {
+          "1": -249.524966,
+          "5": 14.09446,
+          "10": -161.841772
+        },
+        "benchmark": {
+          "1": 22.193769,
+          "5": -401.195049,
+          "10": 285.104567
+        }
+      }
+    },
+    {
+      "signalDate": "20260722",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "SNOW",
+            "score": 89.7
+          },
+          {
+            "symbol": "ABBV",
+            "score": 85.9
+          },
+          {
+            "symbol": "AAPL",
+            "score": 83.4
+          },
+          {
+            "symbol": "PANW",
+            "score": 81.5
+          },
+          {
+            "symbol": "BAC",
+            "score": 75.4
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "ARWR",
+            "score": 91.2
+          },
+          {
+            "symbol": "SMCI",
+            "score": 87.1
+          },
+          {
+            "symbol": "DOCN",
+            "score": 85.0
+          },
+          {
+            "symbol": "VG",
+            "score": 74.6
+          },
+          {
+            "symbol": "ONDS",
+            "score": 74.4
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -121.06643,
+          "5": 90.73675,
+          "10": 385.959402
+        },
+        "shadow": {
+          "1": -136.427243,
+          "5": -1414.774478,
+          "10": -411.84291
+        },
+        "benchmark": {
+          "1": -36.753578,
+          "5": -474.193223,
+          "10": 324.872804
+        }
+      }
+    },
+    {
+      "signalDate": "20260723",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "SNOW",
+            "score": 86.6
+          },
+          {
+            "symbol": "ABBV",
+            "score": 85.9
+          },
+          {
+            "symbol": "JNJ",
+            "score": 79.3
+          },
+          {
+            "symbol": "BAC",
+            "score": 77.6
+          },
+          {
+            "symbol": "CVX",
+            "score": 77.2
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "MXL",
+            "score": 90.5
+          },
+          {
+            "symbol": "IMAX",
+            "score": 90.3
+          },
+          {
+            "symbol": "SMCI",
+            "score": 87.8
+          },
+          {
+            "symbol": "MEDP",
+            "score": 86.2
+          },
+          {
+            "symbol": "CLF",
+            "score": 85.8
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 13.643819,
+          "5": 132.666792,
+          "10": 191.527141
+        },
+        "shadow": {
+          "1": -263.906966,
+          "5": -468.218625,
+          "10": -53.572689
+        },
+        "benchmark": {
+          "1": -87.004437,
+          "5": -97.589977,
+          "10": 352.948
+        }
+      }
+    },
+    {
+      "signalDate": "20260724",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "SNOW",
+            "score": 89.1
+          },
+          {
+            "symbol": "JNJ",
+            "score": 81.4
+          },
+          {
+            "symbol": "ABBV",
+            "score": 78.5
+          },
+          {
+            "symbol": "CVX",
+            "score": 76.9
+          },
+          {
+            "symbol": "BAC",
+            "score": 75.7
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "THC",
+            "score": 98.4
+          },
+          {
+            "symbol": "CLF",
+            "score": 92.9
+          },
+          {
+            "symbol": "RNG",
+            "score": 92.9
+          },
+          {
+            "symbol": "ORIC",
+            "score": 79.0
+          },
+          {
+            "symbol": "IP",
+            "score": 77.4
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -66.585542,
+          "5": 27.910764,
+          "10": 209.167967
+        },
+        "shadow": {
+          "1": 193.672389,
+          "5": 13.722853,
+          "10": 941.390628
+        },
+        "benchmark": {
+          "1": -139.495847,
+          "5": -56.290337,
+          "10": 449.743872
+        }
+      }
+    },
+    {
+      "signalDate": "20260727",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "UNP",
+            "score": 89.1
+          },
+          {
+            "symbol": "AAPL",
+            "score": 86.9
+          },
+          {
+            "symbol": "SNOW",
+            "score": 82.9
+          },
+          {
+            "symbol": "CVX",
+            "score": 80.0
+          },
+          {
+            "symbol": "XOM",
+            "score": 79.8
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "TRAX",
+            "score": 96.2
+          },
+          {
+            "symbol": "RNG",
+            "score": 85.9
+          },
+          {
+            "symbol": "THC",
+            "score": 83.0
+          },
+          {
+            "symbol": "SW",
+            "score": 80.5
+          },
+          {
+            "symbol": "GENI",
+            "score": 75.0
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -102.90622,
+          "5": 21.777564,
+          "10": 334.602702
+        },
+        "shadow": {
+          "1": 235.259309,
+          "5": 137.841547,
+          "10": 714.50362
+        },
+        "benchmark": {
+          "1": -9.476708,
+          "5": 355.820772,
+          "10": 662.0369
+        }
+      }
+    },
+    {
+      "signalDate": "20260728",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "XOM",
+            "score": 81.8
+          },
+          {
+            "symbol": "SNOW",
+            "score": 79.0
+          },
+          {
+            "symbol": "JPM",
+            "score": 78.0
+          },
+          {
+            "symbol": "VZ",
+            "score": 77.4
+          },
+          {
+            "symbol": "V",
+            "score": 77.2
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "IQV",
+            "score": 100
+          },
+          {
+            "symbol": "KNSA",
+            "score": 99.8
+          },
+          {
+            "symbol": "SW",
+            "score": 85.1
+          },
+          {
+            "symbol": "ARX",
+            "score": 84.9
+          },
+          {
+            "symbol": "WDAY",
+            "score": 82.6
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -47.915071,
+          "5": 214.603577,
+          "10": 422.140761
+        },
+        "shadow": {
+          "1": -125.021875,
+          "5": -386.790506,
+          "10": 8.432948
+        },
+        "benchmark": {
+          "1": -201.627848,
+          "5": 718.002698,
+          "10": 638.092838
+        }
+      }
+    },
+    {
+      "signalDate": "20260729",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "AAPL",
+            "score": 87.1
+          },
+          {
+            "symbol": "CVX",
+            "score": 83.1
+          },
+          {
+            "symbol": "XOM",
+            "score": 81.8
+          },
+          {
+            "symbol": "VZ",
+            "score": 81.3
+          },
+          {
+            "symbol": "KO",
+            "score": 80.5
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "AVTR",
+            "score": 100
+          },
+          {
+            "symbol": "EXLS",
+            "score": 100
+          },
+          {
+            "symbol": "LAD",
+            "score": 100
+          },
+          {
+            "symbol": "VRRM",
+            "score": 100
+          },
+          {
+            "symbol": "GRMN",
+            "score": 99.1
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 37.481912,
+          "5": -254.802128,
+          "10": -72.594439
+        },
+        "shadow": {
+          "1": -222.424527,
+          "5": -281.166254,
+          "10": -408.037591
+        },
+        "benchmark": {
+          "1": 132.049437,
+          "5": 628.495972,
+          "10": 725.084942
+        }
+      }
+    },
+    {
+      "signalDate": "20260730",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "AAPL",
+            "score": 88.9
+          },
+          {
+            "symbol": "CVX",
+            "score": 83.1
+          },
+          {
+            "symbol": "XOM",
+            "score": 81.9
+          },
+          {
+            "symbol": "KO",
+            "score": 79.3
+          },
+          {
+            "symbol": "BAC",
+            "score": 77.8
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "BAX",
+            "score": 100
+          },
+          {
+            "symbol": "PCOR",
+            "score": 100
+          },
+          {
+            "symbol": "NEOG",
+            "score": 98.8
+          },
+          {
+            "symbol": "IDCC",
+            "score": 98.6
+          },
+          {
+            "symbol": "MSFT",
+            "score": 96.9
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 17.095504,
+          "5": -26.841336,
+          "10": 112.436614
+        },
+        "shadow": {
+          "1": 66.119929,
+          "5": 345.974149,
+          "10": 784.011957
+        },
+        "benchmark": {
+          "1": -61.036463,
+          "5": 326.443831,
+          "10": 577.966126
+        }
+      }
+    },
+    {
+      "signalDate": "20260731",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "AMZN",
+            "score": 86.0
+          },
+          {
+            "symbol": "XOM",
+            "score": 84.2
+          },
+          {
+            "symbol": "CVX",
+            "score": 83.1
+          },
+          {
+            "symbol": "SCHW",
+            "score": 82.4
+          },
+          {
+            "symbol": "VZ",
+            "score": 81.2
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "AMBA",
+            "score": 100
+          },
+          {
+            "symbol": "AXTI",
+            "score": 100
+          },
+          {
+            "symbol": "ITGR",
+            "score": 100
+          },
+          {
+            "symbol": "REPL",
+            "score": 100
+          },
+          {
+            "symbol": "DXCM",
+            "score": 95.8
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 20.110507,
+          "5": -125.478042,
+          "10": 154.226684
+        },
+        "shadow": {
+          "1": 522.840533,
+          "5": 1303.900681,
+          "10": 1575.277618
+        },
+        "benchmark": {
+          "1": 171.61889,
+          "5": 502.785171,
+          "10": 621.173117
+        }
+      }
+    },
+    {
+      "signalDate": "20260803",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "CVX",
+            "score": 84.7
+          },
+          {
+            "symbol": "XOM",
+            "score": 84.7
+          },
+          {
+            "symbol": "VZ",
+            "score": 83.5
+          },
+          {
+            "symbol": "BMY",
+            "score": 83.2
+          },
+          {
+            "symbol": "HPE",
+            "score": 81.1
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "ATKR",
+            "score": 100
+          },
+          {
+            "symbol": "ITGR",
+            "score": 100
+          },
+          {
+            "symbol": "NEOG",
+            "score": 91.6
+          },
+          {
+            "symbol": "OWL",
+            "score": 89.3
+          },
+          {
+            "symbol": "VRRM",
+            "score": 89.3
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 45.94347,
+          "5": 231.480852,
+          "10": 500.931135
+        },
+        "shadow": {
+          "1": 93.816174,
+          "5": -272.830639,
+          "10": -196.989726
+        },
+        "benchmark": {
+          "1": 214.768135,
+          "5": 173.933931,
+          "10": 302.936106
+        }
+      }
+    },
+    {
+      "signalDate": "20260804",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ETN",
+            "score": 87.8
+          },
+          {
+            "symbol": "ANET",
+            "score": 86.4
+          },
+          {
+            "symbol": "AMZN",
+            "score": 86.3
+          },
+          {
+            "symbol": "AVGO",
+            "score": 81.8
+          },
+          {
+            "symbol": "FCX",
+            "score": 81.5
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "ATKR",
+            "score": 100
+          },
+          {
+            "symbol": "PLTR",
+            "score": 100
+          },
+          {
+            "symbol": "VOYG",
+            "score": 100
+          },
+          {
+            "symbol": "W",
+            "score": 98.3
+          },
+          {
+            "symbol": "TSEM",
+            "score": 95.2
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -214.556209,
+          "5": -178.709683,
+          "10": -684.111261
+        },
+        "shadow": {
+          "1": -177.747188,
+          "5": 794.299812,
+          "10": 598.887486
+        },
+        "benchmark": {
+          "1": -126.528193,
+          "5": -109.98856,
+          "10": -117.431395
+        }
+      }
+    },
+    {
+      "signalDate": "20260805",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "AMZN",
+            "score": 89.3
+          },
+          {
+            "symbol": "BMY",
+            "score": 89.1
+          },
+          {
+            "symbol": "ETN",
+            "score": 88.2
+          },
+          {
+            "symbol": "PANW",
+            "score": 86.9
+          },
+          {
+            "symbol": "HPE",
+            "score": 83.0
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "WTTR",
+            "score": 100
+          },
+          {
+            "symbol": "ZETA",
+            "score": 100
+          },
+          {
+            "symbol": "CMPS",
+            "score": 95.5
+          },
+          {
+            "symbol": "ATKR",
+            "score": 94.9
+          },
+          {
+            "symbol": "FSLY",
+            "score": 94.9
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 66.050888,
+          "5": 479.165487,
+          "10": 52.316044
+        },
+        "shadow": {
+          "1": -178.461698,
+          "5": 717.304224,
+          "10": 208.988725
+        },
+        "benchmark": {
+          "1": 59.174932,
+          "5": 184.569432,
+          "10": 77.772768
+        }
+      }
+    },
+    {
+      "signalDate": "20260806",
+      "split": "CALIBRATION",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "BMY",
+            "score": 90.6
+          },
+          {
+            "symbol": "AMZN",
+            "score": 86.4
+          },
+          {
+            "symbol": "ETN",
+            "score": 85.2
+          },
+          {
+            "symbol": "FCX",
+            "score": 84.2
+          },
+          {
+            "symbol": "XOM",
+            "score": 84.0
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "CACI",
+            "score": 100
+          },
+          {
+            "symbol": "INSM",
+            "score": 100
+          },
+          {
+            "symbol": "MGNI",
+            "score": 100
+          },
+          {
+            "symbol": "PAYC",
+            "score": 100
+          },
+          {
+            "symbol": "PRAX",
+            "score": 100
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -5.205705,
+          "5": -58.412294,
+          "10": 1.765869
+        },
+        "shadow": {
+          "1": -115.400266,
+          "5": 8.63258,
+          "10": -181.888146
+        },
+        "benchmark": {
+          "1": 37.25016,
+          "5": 165.262836,
+          "10": -128.846635
+        }
+      }
+    },
+    {
+      "signalDate": "20260807",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "BMY",
+            "score": 91.5
+          },
+          {
+            "symbol": "AMZN",
+            "score": 88.6
+          },
+          {
+            "symbol": "PANW",
+            "score": 87.4
+          },
+          {
+            "symbol": "FCX",
+            "score": 85.6
+          },
+          {
+            "symbol": "ETN",
+            "score": 85.4
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "BTG",
+            "score": 100
+          },
+          {
+            "symbol": "DOCS",
+            "score": 100
+          },
+          {
+            "symbol": "HALO",
+            "score": 100
+          },
+          {
+            "symbol": "TWLO",
+            "score": 100
+          },
+          {
+            "symbol": "VAC",
+            "score": 100
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 123.775822,
+          "5": -112.214742,
+          "10": -38.238229
+        },
+        "shadow": {
+          "1": -171.108013,
+          "5": -260.107854,
+          "10": -116.501122
+        },
+        "benchmark": {
+          "1": -24.659546,
+          "5": 117.063575,
+          "10": -126.899686
+        }
+      }
+    },
+    {
+      "signalDate": "20260810",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "AMZN",
+            "score": 87.2
+          },
+          {
+            "symbol": "FCX",
+            "score": 87.2
+          },
+          {
+            "symbol": "BMY",
+            "score": 85.6
+          },
+          {
+            "symbol": "ETN",
+            "score": 85.6
+          },
+          {
+            "symbol": "XOM",
+            "score": 84.9
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "ACHR",
+            "score": 100
+          },
+          {
+            "symbol": "NESR",
+            "score": 100
+          },
+          {
+            "symbol": "RCAT",
+            "score": 91.6
+          },
+          {
+            "symbol": "RBRK",
+            "score": 89.3
+          },
+          {
+            "symbol": "AAOI",
+            "score": 87.5
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -89.336765,
+          "5": -129.243407,
+          "10": 45.319844
+        },
+        "shadow": {
+          "1": 348.552513,
+          "5": 559.570846,
+          "10": -744.135901
+        },
+        "benchmark": {
+          "1": -65.211974,
+          "5": 95.810373,
+          "10": -230.11104
+        }
+      }
+    },
+    {
+      "signalDate": "20260811",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "AMZN",
+            "score": 87.6
+          },
+          {
+            "symbol": "BMY",
+            "score": 86.1
+          },
+          {
+            "symbol": "ETN",
+            "score": 84.1
+          },
+          {
+            "symbol": "XOM",
+            "score": 83.7
+          },
+          {
+            "symbol": "FCX",
+            "score": 83.4
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "FRMI",
+            "score": 96.5
+          },
+          {
+            "symbol": "NN",
+            "score": 89.1
+          },
+          {
+            "symbol": "P",
+            "score": 88.3
+          },
+          {
+            "symbol": "ACHR",
+            "score": 86.1
+          },
+          {
+            "symbol": "RCAT",
+            "score": 84.2
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -136.979297,
+          "5": -235.233779,
+          "10": 65.719394
+        },
+        "shadow": {
+          "1": -119.828012,
+          "5": -537.446282,
+          "10": -1415.68192
+        },
+        "benchmark": {
+          "1": -46.404032,
+          "5": -126.957025,
+          "10": -224.584498
+        }
+      }
+    },
+    {
+      "signalDate": "20260812",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "FCX",
+            "score": 87.0
+          },
+          {
+            "symbol": "ETN",
+            "score": 85.4
+          },
+          {
+            "symbol": "XOM",
+            "score": 84.3
+          },
+          {
+            "symbol": "CVX",
+            "score": 80.7
+          },
+          {
+            "symbol": "CSCO",
+            "score": 80.1
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "HRB",
+            "score": 98.8
+          },
+          {
+            "symbol": "CRWV",
+            "score": 95.9
+          },
+          {
+            "symbol": "NBIS",
+            "score": 95.9
+          },
+          {
+            "symbol": "SHAZ",
+            "score": 91.8
+          },
+          {
+            "symbol": "SMCI",
+            "score": 90.5
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -40.962294,
+          "5": 41.309913,
+          "10": 201.286529
+        },
+        "shadow": {
+          "1": 81.619314,
+          "5": -813.090615,
+          "10": -1061.509497
+        },
+        "benchmark": {
+          "1": 98.450747,
+          "5": -123.443153,
+          "10": -188.892878
+        }
+      }
+    },
+    {
+      "signalDate": "20260813",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ETN",
+            "score": 89.8
+          },
+          {
+            "symbol": "NVDA",
+            "score": 82.6
+          },
+          {
+            "symbol": "BMY",
+            "score": 82.0
+          },
+          {
+            "symbol": "AVGO",
+            "score": 81.8
+          },
+          {
+            "symbol": "XOM",
+            "score": 81.5
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "AVAH",
+            "score": 100
+          },
+          {
+            "symbol": "RUM",
+            "score": 100
+          },
+          {
+            "symbol": "WIX",
+            "score": 95.9
+          },
+          {
+            "symbol": "ESTC",
+            "score": 94.5
+          },
+          {
+            "symbol": "WDAY",
+            "score": 94.1
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -124.149327,
+          "5": -356.112052,
+          "10": -297.065303
+        },
+        "shadow": {
+          "1": -160.969543,
+          "5": 397.657968,
+          "10": 801.202649
+        },
+        "benchmark": {
+          "1": -29.082072,
+          "5": -303.381985,
+          "10": -163.296514
+        }
+      }
+    },
+    {
+      "signalDate": "20260814",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ETN",
+            "score": 90.0
+          },
+          {
+            "symbol": "NVDA",
+            "score": 88.1
+          },
+          {
+            "symbol": "ANET",
+            "score": 84.6
+          },
+          {
+            "symbol": "VZ",
+            "score": 83.4
+          },
+          {
+            "symbol": "NET",
+            "score": 82.7
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "BRUN",
+            "score": 95.0
+          },
+          {
+            "symbol": "AVAH",
+            "score": 91.6
+          },
+          {
+            "symbol": "RCAT",
+            "score": 86.5
+          },
+          {
+            "symbol": "WIX",
+            "score": 83.4
+          },
+          {
+            "symbol": "RDDT",
+            "score": 83.3
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -63.802587,
+          "5": -478.652984,
+          "10": -392.61653
+        },
+        "shadow": {
+          "1": -151.472767,
+          "5": -396.051449,
+          "10": -653.912038
+        },
+        "benchmark": {
+          "1": -41.109548,
+          "5": -266.597468,
+          "10": -225.351343
+        }
+      }
+    },
+    {
+      "signalDate": "20260817",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "ETN",
+            "score": 90.6
+          },
+          {
+            "symbol": "NVDA",
+            "score": 87.4
+          },
+          {
+            "symbol": "ANET",
+            "score": 86.9
+          },
+          {
+            "symbol": "APH",
+            "score": 83.7
+          },
+          {
+            "symbol": "NET",
+            "score": 83.7
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "SMTC",
+            "score": 86.2
+          },
+          {
+            "symbol": "ONTO",
+            "score": 85.3
+          },
+          {
+            "symbol": "FIGR",
+            "score": 85.2
+          },
+          {
+            "symbol": "WDC",
+            "score": 84.8
+          },
+          {
+            "symbol": "LUNR",
+            "score": 83.9
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -186.048369,
+          "5": -625.55644,
+          "10": -266.099959
+        },
+        "shadow": {
+          "1": -208.851419,
+          "5": -935.262445,
+          "10": -1050.848158
+        },
+        "benchmark": {
+          "1": -35.438323,
+          "5": -193.451554,
+          "10": -50.308522
+        }
+      }
+    },
+    {
+      "signalDate": "20260818",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "TMO",
+            "score": 92.6
+          },
+          {
+            "symbol": "BKNG",
+            "score": 92.1
+          },
+          {
+            "symbol": "CRWD",
+            "score": 86.7
+          },
+          {
+            "symbol": "PANW",
+            "score": 85.4
+          },
+          {
+            "symbol": "VZ",
+            "score": 83.5
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "HAE",
+            "score": 94.8
+          },
+          {
+            "symbol": "SHAZ",
+            "score": 86.5
+          },
+          {
+            "symbol": "FIGR",
+            "score": 84.4
+          },
+          {
+            "symbol": "XNCR",
+            "score": 81.5
+          },
+          {
+            "symbol": "VICR",
+            "score": 78.6
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -66.591028,
+          "5": -235.253157,
+          "10": -98.795313
+        },
+        "shadow": {
+          "1": -75.834929,
+          "5": -9.711204,
+          "10": -1043.505256
+        },
+        "benchmark": {
+          "1": -60.862074,
+          "5": -135.341689,
+          "10": -177.166996
+        }
+      }
+    },
+    {
+      "signalDate": "20260819",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "BKNG",
+            "score": 88.8
+          },
+          {
+            "symbol": "BMY",
+            "score": 84.6
+          },
+          {
+            "symbol": "TMO",
+            "score": 84.2
+          },
+          {
+            "symbol": "VZ",
+            "score": 84.1
+          },
+          {
+            "symbol": "LLY",
+            "score": 83.1
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "MRVI",
+            "score": 100
+          },
+          {
+            "symbol": "TEM",
+            "score": 91.4
+          },
+          {
+            "symbol": "SBET",
+            "score": 91.1
+          },
+          {
+            "symbol": "EL",
+            "score": 87.9
+          },
+          {
+            "symbol": "AMR",
+            "score": 87.6
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -77.563102,
+          "5": -53.478925,
+          "10": -268.234562
+        },
+        "shadow": {
+          "1": 436.356033,
+          "5": 1278.805158,
+          "10": 693.044532
+        },
+        "benchmark": {
+          "1": -18.131219,
+          "5": -13.211896,
+          "10": -40.760106
+        }
+      }
+    },
+    {
+      "signalDate": "20260820",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "FCX",
+            "score": 91.3
+          },
+          {
+            "symbol": "VZ",
+            "score": 85.4
+          },
+          {
+            "symbol": "KO",
+            "score": 80.3
+          },
+          {
+            "symbol": "MA",
+            "score": 79.6
+          },
+          {
+            "symbol": "BMY",
+            "score": 78.1
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "TEM",
+            "score": 98.8
+          },
+          {
+            "symbol": "PSNL",
+            "score": 97.0
+          },
+          {
+            "symbol": "ASST",
+            "score": 90.9
+          },
+          {
+            "symbol": "AUGO",
+            "score": 86.9
+          },
+          {
+            "symbol": "MSTR",
+            "score": 86.2
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 103.942284,
+          "5": 141.168555,
+          "10": 39.881492
+        },
+        "shadow": {
+          "1": 412.470593,
+          "5": 1054.609759,
+          "10": 1389.819952
+        },
+        "benchmark": {
+          "1": -25.891508,
+          "5": 82.992778,
+          "10": 33.728937
+        }
+      }
+    },
+    {
+      "signalDate": "20260821",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "BKNG",
+            "score": 93.1
+          },
+          {
+            "symbol": "BMY",
+            "score": 84.0
+          },
+          {
+            "symbol": "HOOD",
+            "score": 82.9
+          },
+          {
+            "symbol": "KO",
+            "score": 77.9
+          },
+          {
+            "symbol": "MA",
+            "score": 76.5
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "MSTR",
+            "score": 91.8
+          },
+          {
+            "symbol": "COIN",
+            "score": 91.7
+          },
+          {
+            "symbol": "AU",
+            "score": 89.8
+          },
+          {
+            "symbol": "VIRT",
+            "score": 89.4
+          },
+          {
+            "symbol": "PSNL",
+            "score": 88.7
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -10.444993,
+          "5": -161.296748,
+          "10": -23.761923
+        },
+        "shadow": {
+          "1": -117.126443,
+          "5": -163.384229,
+          "10": 49.732715
+        },
+        "benchmark": {
+          "1": -45.846323,
+          "5": 95.924615,
+          "10": 133.448067
+        }
+      }
+    },
+    {
+      "signalDate": "20260824",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "SNOW",
+            "score": 92.1
+          },
+          {
+            "symbol": "BKNG",
+            "score": 90.4
+          },
+          {
+            "symbol": "BMY",
+            "score": 82.5
+          },
+          {
+            "symbol": "CVX",
+            "score": 81.4
+          },
+          {
+            "symbol": "XOM",
+            "score": 78.4
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "BMNR",
+            "score": 87.8
+          },
+          {
+            "symbol": "MSTR",
+            "score": 85.4
+          },
+          {
+            "symbol": "NG",
+            "score": 85.1
+          },
+          {
+            "symbol": "TEM",
+            "score": 84.4
+          },
+          {
+            "symbol": "PSNL",
+            "score": 82.4
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -50.425821,
+          "5": -63.417458,
+          "10": -241.629853
+        },
+        "shadow": {
+          "1": 397.872,
+          "5": 69.985861,
+          "10": -56.868141
+        },
+        "benchmark": {
+          "1": -6.334727,
+          "5": 78.409843,
+          "10": 102.90412
+        }
+      }
+    },
+    {
+      "signalDate": "20260825",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "SNOW",
+            "score": 86.9
+          },
+          {
+            "symbol": "BKNG",
+            "score": 81.4
+          },
+          {
+            "symbol": "BMY",
+            "score": 79.2
+          },
+          {
+            "symbol": "CVX",
+            "score": 79.2
+          },
+          {
+            "symbol": "ANET",
+            "score": 77.3
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "CRML",
+            "score": 95.4
+          },
+          {
+            "symbol": "CAPR",
+            "score": 93.4
+          },
+          {
+            "symbol": "SBET",
+            "score": 87.6
+          },
+          {
+            "symbol": "BLSH",
+            "score": 83.8
+          },
+          {
+            "symbol": "HOOD",
+            "score": 81.6
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 112.041996,
+          "5": -29.375366,
+          "10": -172.183238
+        },
+        "shadow": {
+          "1": 383.377598,
+          "5": 144.527926,
+          "10": 244.982865
+        },
+        "benchmark": {
+          "1": 38.569673,
+          "5": -12.715277,
+          "10": 110.057784
+        }
+      }
+    },
+    {
+      "signalDate": "20260826",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "SNOW",
+            "score": 85.1
+          },
+          {
+            "symbol": "MRK",
+            "score": 83.9
+          },
+          {
+            "symbol": "CVX",
+            "score": 74.8
+          },
+          {
+            "symbol": "BKNG",
+            "score": 73.1
+          },
+          {
+            "symbol": "VZ",
+            "score": 72.5
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "BHVN",
+            "score": 100
+          },
+          {
+            "symbol": "BZ",
+            "score": 97.2
+          },
+          {
+            "symbol": "SMTC",
+            "score": 90.5
+          },
+          {
+            "symbol": "URBN",
+            "score": 87.6
+          },
+          {
+            "symbol": "CRML",
+            "score": 86.4
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -21.877573,
+          "5": -8.438816,
+          "10": -204.597138
+        },
+        "shadow": {
+          "1": -386.087107,
+          "5": -807.505643,
+          "10": -1128.836066
+        },
+        "benchmark": {
+          "1": 60.745706,
+          "5": -105.013266,
+          "10": -113.252339
+        }
+      }
+    },
+    {
+      "signalDate": "20260827",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "NVDA",
+            "score": 92.8
+          },
+          {
+            "symbol": "MRK",
+            "score": 89.7
+          },
+          {
+            "symbol": "ANET",
+            "score": 89.6
+          },
+          {
+            "symbol": "PFE",
+            "score": 89.6
+          },
+          {
+            "symbol": "PANW",
+            "score": 89.1
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "CRM",
+            "score": 100
+          },
+          {
+            "symbol": "OKTA",
+            "score": 100
+          },
+          {
+            "symbol": "BHVN",
+            "score": 95.9
+          },
+          {
+            "symbol": "CRWD",
+            "score": 91.9
+          },
+          {
+            "symbol": "NEO",
+            "score": 89.7
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -146.128537,
+          "5": -183.012277,
+          "10": -391.348697
+        },
+        "shadow": {
+          "1": -217.969751,
+          "5": -143.712109,
+          "10": -803.565123
+        },
+        "benchmark": {
+          "1": -46.313037,
+          "5": -29.067342,
+          "10": -67.731078
+        }
+      }
+    },
+    {
+      "signalDate": "20260828",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "SNOW",
+            "score": 92.2
+          },
+          {
+            "symbol": "MRK",
+            "score": 91.8
+          },
+          {
+            "symbol": "PFE",
+            "score": 89.8
+          },
+          {
+            "symbol": "CRWD",
+            "score": 84.3
+          },
+          {
+            "symbol": "TMO",
+            "score": 81.6
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "CRM",
+            "score": 94.3
+          },
+          {
+            "symbol": "SOLS",
+            "score": 90.8
+          },
+          {
+            "symbol": "ESTC",
+            "score": 85.8
+          },
+          {
+            "symbol": "GAP",
+            "score": 84.9
+          },
+          {
+            "symbol": "TENB",
+            "score": 77.3
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 163.066077,
+          "5": 56.912432,
+          "10": 95.245814
+        },
+        "shadow": {
+          "1": -88.371922,
+          "5": -375.641754,
+          "10": -784.627293
+        },
+        "benchmark": {
+          "1": 26.609154,
+          "5": 60.360764,
+          "10": -77.58669
+        }
+      }
+    },
+    {
+      "signalDate": "20260831",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "MRK",
+            "score": 92.8
+          },
+          {
+            "symbol": "FCX",
+            "score": 91.8
+          },
+          {
+            "symbol": "DASH",
+            "score": 88.9
+          },
+          {
+            "symbol": "PFE",
+            "score": 86.3
+          },
+          {
+            "symbol": "CRWD",
+            "score": 85.1
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "ASST",
+            "score": 94.9
+          },
+          {
+            "symbol": "PURR",
+            "score": 88.8
+          },
+          {
+            "symbol": "WFRD",
+            "score": 84.5
+          },
+          {
+            "symbol": "CRM",
+            "score": 80.2
+          },
+          {
+            "symbol": "CNXC",
+            "score": 78.8
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -234.572243,
+          "5": -457.012697,
+          "10": -458.120055
+        },
+        "shadow": {
+          "1": 1.023457,
+          "5": 21.226634,
+          "10": -132.075233
+        },
+        "benchmark": {
+          "1": 4.104045,
+          "5": 156.51977,
+          "10": -38.917664
+        }
+      }
+    },
+    {
+      "signalDate": "20260901",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "MRK",
+            "score": 90.7
+          },
+          {
+            "symbol": "DASH",
+            "score": 90.4
+          },
+          {
+            "symbol": "PFE",
+            "score": 85.6
+          },
+          {
+            "symbol": "CVX",
+            "score": 82.9
+          },
+          {
+            "symbol": "XOM",
+            "score": 82.0
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "MMED",
+            "score": 95.9
+          },
+          {
+            "symbol": "CNXC",
+            "score": 91.0
+          },
+          {
+            "symbol": "OKTA",
+            "score": 84.4
+          },
+          {
+            "symbol": "CRM",
+            "score": 81.8
+          },
+          {
+            "symbol": "CRWD",
+            "score": 76.1
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": 22.098472,
+          "5": -356.19118,
+          "10": -436.045493
+        },
+        "shadow": {
+          "1": -111.296464,
+          "5": -462.712526,
+          "10": 177.959433
+        },
+        "benchmark": {
+          "1": 35.406753,
+          "5": 134.828915,
+          "10": -29.883299
+        }
+      }
+    },
+    {
+      "signalDate": "20260902",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "MRK",
+            "score": 89.1
+          },
+          {
+            "symbol": "DASH",
+            "score": 86.6
+          },
+          {
+            "symbol": "XOM",
+            "score": 84.5
+          },
+          {
+            "symbol": "FCX",
+            "score": 75.4
+          },
+          {
+            "symbol": "JNJ",
+            "score": 74.8
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "GTLB",
+            "score": 97.5
+          },
+          {
+            "symbol": "CNH",
+            "score": 89.6
+          },
+          {
+            "symbol": "MMED",
+            "score": 88.1
+          },
+          {
+            "symbol": "FMC",
+            "score": 87.9
+          },
+          {
+            "symbol": "VRNS",
+            "score": 84.7
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -185.881837,
+          "5": -552.834845,
+          "10": -571.641913
+        },
+        "shadow": {
+          "1": -97.962775,
+          "5": -523.991125,
+          "10": -611.386093
+        },
+        "benchmark": {
+          "1": 97.036787,
+          "5": -28.871613,
+          "10": 85.910653
+        }
+      }
+    },
+    {
+      "signalDate": "20260903",
+      "split": "FORWARD",
+      "selected": {
+        "baseline": [
+          {
+            "symbol": "MRK",
+            "score": 88.2
+          },
+          {
+            "symbol": "DELL",
+            "score": 84.9
+          },
+          {
+            "symbol": "CVX",
+            "score": 83.9
+          },
+          {
+            "symbol": "SNOW",
+            "score": 83.6
+          },
+          {
+            "symbol": "PFE",
+            "score": 82.0
+          }
+        ],
+        "shadow": [
+          {
+            "symbol": "SMMT",
+            "score": 96.0
+          },
+          {
+            "symbol": "FMC",
+            "score": 87.1
+          },
+          {
+            "symbol": "ASST",
+            "score": 85.7
+          },
+          {
+            "symbol": "HOOD",
+            "score": 84.7
+          },
+          {
+            "symbol": "CNH",
+            "score": 81.7
+          }
+        ]
+      },
+      "outcomesNetBps": {
+        "baseline": {
+          "1": -101.231514,
+          "5": -65.300635,
+          "10": -44.29769
+        },
+        "shadow": {
+          "1": 307.257674,
+          "5": -179.179896,
+          "10": -44.228798
+        },
+        "benchmark": {
+          "1": -0.835178,
+          "5": -59.297616,
+          "10": 30.623182
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Daily bars do not model intraday path, fills, market impact, halts or borrow constraints.",
+    "Drawdown chains overlapping horizon observations and is a stress diagnostic, not a realized portfolio path.",
+    "Headline catalysts are excluded unless an immutable as-known-at-the-time archive is supplied.",
+    "The present-day universe creates survivorship and selection bias; results are diagnostic only."
+  ],
+  "reportDigest": "4293c862d8466c97c7af9bea853c44f35a1e51bfe059d99eb85c0b9968e4d71a"
+}

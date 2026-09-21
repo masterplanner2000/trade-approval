@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 4.6
+**Current architecture version:** 4.7
 **Last updated:** 2026-09-21
 **Status:** Living source of truth
 
@@ -412,6 +412,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a provider-neutral options-volatility research boundary beside the higher-volatility shadow scanner.
 - Required fresh consolidated OPRA evidence, point-in-time IV history, term structure, skew and liquidity inputs before an evaluation can be complete.
 - Kept this data outside production ranking, proposals and orders; current Alpaca access supplies only incomplete indicative evidence.
+
+### Version 4.7 — 2026-09-21
+
+- Added a research-only matched daily comparison between the baseline and higher-volatility lanes.
+- Enforced signal-date information boundaries, next-session entry, chronological calibration/forward separation, visible costs and benchmark comparison.
+- Recorded the first current-universe retrospective diagnostic while explicitly blocking promotion because point-in-time universe and catalyst evidence are absent.
 
 ### Version 3.8 — 2026-09-06
 

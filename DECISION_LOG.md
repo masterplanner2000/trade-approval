@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-21.3 · **Corresponding architecture:** 4.6
+**Log revision:** 2026-09-21.4 · **Corresponding architecture:** 4.7
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -73,10 +73,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-054 | Imported discovery lists extend observation, never trading authority | Confirmed; Day 2 coverage lane implemented | 2026-09-21 |
 | D-055 | Headline catalysts are classified context, not predictive evidence | Confirmed; Day 2 research classifier implemented | 2026-09-21 |
 | D-056 | Options volatility requires licensed, point-in-time evidence | Confirmed; provider-neutral research contract implemented | 2026-09-21 |
+| D-057 | Historical lane comparisons must preserve timing and universe limitations | Confirmed; first retrospective diagnostic implemented | 2026-09-21 |
 
 ---
 
 ## Detailed decisions
+
+### D-057 — The volatile lane requires matched, forward comparisons before promotion
+
+**Status:** Confirmed; deterministic comparator, cache runner, tests and first retrospective report implemented.
+
+**Decision:** Compare the baseline and volatile-growth lanes on identical signal dates. Each lane selects its equal-weight top five using only bars available through that date, enters at the following session's open, deducts a visible 20-basis-point round-trip cost assumption and measures 1-, 5- and 10-session outcomes against each other and QQQ. Preserve calibration and later forward periods, missing outcomes, ruleset identities, current universe membership and a content digest.
+
+**Initial diagnostic:** The first run used 80 dates, including 20 held-out forward dates, the current 500-symbol baseline universe and current 1,721-symbol shadow universe. Shadow-minus-baseline means were +73.64, +89.09 and -141.69 basis points over 1, 5 and 10 sessions respectively. Every descriptive 95% interval crossed zero. The shadow lane's 10-session mean was -314.55 basis points after assumed costs and its QQQ-relative mean was -251.64 basis points. This does not establish an advantage.
+
+**Boundary:** Current universe membership introduces survivorship and selection bias, so this report is a retrospective diagnostic and `promotionEvidenceAllowed` is false. Daily bars omit intraday path, real fills, market impact, halts and catalysts. Overlapping horizon observations are not an independently realized portfolio. A clean decision requires point-in-time universes, immutable as-known catalyst evidence and a larger chronological forward sample.
 
 ### D-056 — Options volatility remains research-only until its data is complete
 
