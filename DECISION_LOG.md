@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-21.2 · **Corresponding architecture:** 4.5
+**Log revision:** 2026-09-21.3 · **Corresponding architecture:** 4.6
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -72,10 +72,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-053 | Treat daily-bar session completion as explicit cached evidence | Confirmed; both daily caches repaired and audited | 2026-09-20 |
 | D-054 | Imported discovery lists extend observation, never trading authority | Confirmed; Day 2 coverage lane implemented | 2026-09-21 |
 | D-055 | Headline catalysts are classified context, not predictive evidence | Confirmed; Day 2 research classifier implemented | 2026-09-21 |
+| D-056 | Options volatility requires licensed, point-in-time evidence | Confirmed; provider-neutral research contract implemented | 2026-09-21 |
 
 ---
 
 ## Detailed decisions
+
+### D-056 — Options volatility remains research-only until its data is complete
+
+**Status:** Confirmed; provider-neutral evaluator and deterministic tests implemented. A production data source and historical collection are not approved.
+
+**Decision:** Evaluate options volatility only from a fresh consolidated OPRA snapshot with coherent contracts, two expiration slices, implied volatility and Greeks, quoted spreads, volume, open interest, the underlying's 20-session realized volatility, a known-event distance and at least 60 point-in-time underlying-IV observations. The evaluator reports ATM IV, IV percentile, IV-versus-realized spread, term structure, 25-delta skew and liquidity diagnostics.
+
+**Current evidence:** A read-only entitlement check found that the current Alpaca account can request indicative option-chain quotes but cannot request OPRA. The sampled indicative response did not contain usable Greeks or implied volatility. Even current OPRA access would not by itself create the historical point-in-time IV series needed for a valid percentile.
+
+**Boundary:** Incomplete, stale, future-dated or indicative data fails closed. Every evaluation is `research_only`, with ranking adjustment, proposal creation and order submission disabled. No subscription purchase is authorized, and the engine must not infer volatility edge or expected return from raw IV alone.
 
 ### D-055 — Headline-only catalyst classification remains separate from ranking
 

@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 4.5
+**Current architecture version:** 4.6
 **Last updated:** 2026-09-21
 **Status:** Living source of truth
 
@@ -26,6 +26,8 @@ flowchart LR
         sources ==> normalize
         normalize ==> scan
         normalize -.-> experimental["Higher-volatility shadow scanner<br/>Broader listed-stock universe"]
+        sources -.-> optionsVol["Options-volatility research<br/>OPRA · IV history · liquidity"]
+        optionsVol -.-> experimental
         scan ==> recommend
         risk --> recommend
         rules --> recommend
@@ -404,6 +406,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added deterministic headline-only catalyst categories to the existing stock-news research response.
 - Preserved source links, timestamps, affected symbols, lexical direction, bounded classification confidence and window-relative novelty.
 - Kept predictive confidence null and prohibited catalyst-driven ranking or order submission.
+
+### Version 4.6 — 2026-09-21
+
+- Added a provider-neutral options-volatility research boundary beside the higher-volatility shadow scanner.
+- Required fresh consolidated OPRA evidence, point-in-time IV history, term structure, skew and liquidity inputs before an evaluation can be complete.
+- Kept this data outside production ranking, proposals and orders; current Alpaca access supplies only incomplete indicative evidence.
 
 ### Version 3.8 — 2026-09-06
 

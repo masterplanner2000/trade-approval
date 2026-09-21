@@ -348,3 +348,6 @@ Crypto acceptance requires no production credentials or network orders; fresh ex
 - Next Day 2 stages are catalyst provenance/classification, licensed options-volatility inputs and matched historical shadow comparisons. None is authorized to create an order.
 - Implemented the first catalyst-classification layer on normalized Alpaca/Benzinga headlines with eight event categories, evidence links, timing, lexical direction, bounded classification confidence and window-relative novelty.
 - Kept catalyst output separate from ranking and orders. Primary-source verification, correction handling, broader market-wide discovery and outcome testing remain required before any promotion decision.
+- Implemented the provider-neutral options-volatility input evaluator with fail-closed freshness, OPRA, history, term-structure, skew and liquidity requirements.
+- Verified that current Alpaca credentials permit indicative option-chain quotes but not OPRA; the sample contained no usable IV or Greeks. A licensed source and prospective point-in-time IV history remain prerequisites, so this layer cannot affect ranking or orders.
+- Next Day 2 stage: run matched historical shadow comparisons using only contemporaneously available technical and catalyst evidence. Options-volatility comparisons remain deferred until the required licensed history exists.
