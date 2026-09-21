@@ -23,10 +23,12 @@ test("keeps newest corrections, deduplicates links and excludes unrelated, unsaf
   assert.equal(news.status, "partial");
   assert.equal(news.researchOnly, true);
   assert.equal(news.latency, "unverified");
+  assert.equal(news.catalystResearch.orderSubmissionAllowed, false);
 });
 
 test("distinguishes empty, partial and malformed provider responses", () => {
   assert.equal(normalizeStockNews("AAPL", { news: [] }, now).status, "empty");
+  assert.equal(normalizeStockNews("AAPL", { news: [] }, now).catalystResearch.catalystCount, 0);
   assert.equal(normalizeStockNews("AAPL", { news: [], next_page_token: "more" }, now).status, "partial");
   assert.throws(() => normalizeStockNews("AAPL", {}, now));
   assert.throws(() => stockNewsSymbol("AAPL&symbols=MSFT"));

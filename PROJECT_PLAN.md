@@ -346,3 +346,5 @@ Crypto acceptance requires no production credentials or network orders; fresh ex
 - Re-audited all 250 supplied volatile stocks: 248 observed, 2 absent from the provider's active asset master, 3 research-qualified and 245 technical rejects.
 - Added realized volatility, recent maximum drawdown and opening gap to shadow v2 as descriptive factors. They remain non-ranking until historical and forward comparisons justify a frozen rule change.
 - Next Day 2 stages are catalyst provenance/classification, licensed options-volatility inputs and matched historical shadow comparisons. None is authorized to create an order.
+- Implemented the first catalyst-classification layer on normalized Alpaca/Benzinga headlines with eight event categories, evidence links, timing, lexical direction, bounded classification confidence and window-relative novelty.
+- Kept catalyst output separate from ranking and orders. Primary-source verification, correction handling, broader market-wide discovery and outcome testing remain required before any promotion decision.

@@ -1,3 +1,5 @@
+import { classifyStockCatalysts } from "./stock_catalyst.mjs";
+
 const ENDPOINT = "https://data.alpaca.markets/v1beta1/news";
 const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const TTL_MS = 60_000;
@@ -36,7 +38,8 @@ export function normalizeStockNews(symbolInput, payload, now = Date.now()) {
     const headline = plainText(raw?.headline, 600);
     const source = plainText(raw?.source, 100);
     const url = articleUrl(raw?.url);
-    const symbols = Array.isArray(raw?.symbols) ? raw.symbols.filter(s => typeof s === "string").map(s => s.toUpperCase()) : [];
+    const symbols = Array.isArray(raw?.symbols) ? [...new Set(raw.symbols.filter(s => typeof s === "string")
+      .map(s => s.trim().toUpperCase()).filter(s => /^[A-Z][A-Z0-9.-]{0,14}$/.test(s)))].slice(0, 25) : [];
     const id = typeof raw?.id === "string" || Number.isSafeInteger(raw?.id) ? String(raw.id) : "";
     if (!id || !headline || !source || !url || !symbols.includes(symbol)
       || !Number.isFinite(published) || !Number.isFinite(updated)
@@ -44,7 +47,7 @@ export function normalizeStockNews(symbolInput, payload, now = Date.now()) {
       rejectedCount++;
       continue;
     }
-    const article = { id, headline, source, url, symbols: [symbol], publishedAt: new Date(published).toISOString(), updatedAt: new Date(updated).toISOString() };
+    const article = { id, headline, source, url, symbols, publishedAt: new Date(published).toISOString(), updatedAt: new Date(updated).toISOString() };
     const previous = articlesById.get(id);
     if (!previous || previous.updatedAt < article.updatedAt) articlesById.set(id, article);
   }
@@ -53,12 +56,13 @@ export function normalizeStockNews(symbolInput, payload, now = Date.now()) {
     .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
     .filter(article => { if (seenUrls.has(article.url)) return false; seenUrls.add(article.url); return true; });
   const partial = Boolean(payload.next_page_token) || rejectedCount > 0 || payload.news.length > 50;
-  return {
+  const result = {
     status: partial ? "partial" : articles.length ? "available" : "empty",
     provider: "Alpaca", publisher: "Benzinga", symbol, researchOnly: true,
     retrievedAt: new Date(now).toISOString(), windowStart: new Date(now - WINDOW_MS).toISOString(),
     latency: "unverified", partial, articles: articles.slice(0, 10),
   };
+  return { ...result, catalystResearch: classifyStockCatalysts(result, now) };
 }
 
 // In-memory context cache only: no article bodies, secrets or trading-ledger writes.
@@ -68,8 +72,11 @@ export function createStockNewsService({ fetchImpl = fetch, clock = Date.now, cr
   const cache = new Map();
   const inFlight = new Map();
   let retryAfter = 0;
-  const unavailable = (symbol, error) => ({ status: "unavailable", provider: "Alpaca", publisher: "Benzinga", symbol,
-    researchOnly: true, retrievedAt: null, latency: "unverified", partial: false, articles: [], error });
+  const unavailable = (symbol, error) => {
+    const result = { status: "unavailable", provider: "Alpaca", publisher: "Benzinga", symbol,
+      researchOnly: true, retrievedAt: null, latency: "unverified", partial: false, articles: [], error };
+    return { ...result, catalystResearch: classifyStockCatalysts(result, clock()) };
+  };
 
   async function load(symbol) {
     const { key, secret } = credentials();

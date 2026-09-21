@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-21.1 · **Corresponding architecture:** 4.4
+**Log revision:** 2026-09-21.2 · **Corresponding architecture:** 4.5
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -71,10 +71,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-052 | Bind capture identity and resolve uncertain claims without retry | Confirmed; stage 7 implemented with immutable supervised dispositions | 2026-09-20 |
 | D-053 | Treat daily-bar session completion as explicit cached evidence | Confirmed; both daily caches repaired and audited | 2026-09-20 |
 | D-054 | Imported discovery lists extend observation, never trading authority | Confirmed; Day 2 coverage lane implemented | 2026-09-21 |
+| D-055 | Headline catalysts are classified context, not predictive evidence | Confirmed; Day 2 research classifier implemented | 2026-09-21 |
 
 ---
 
 ## Detailed decisions
+
+### D-055 — Headline-only catalyst classification remains separate from ranking
+
+**Status:** Confirmed; implemented in the existing Alpaca/Benzinga research response with deterministic tests.
+
+**Decision:** Classify recent normalized headlines into earnings/guidance, FDA/clinical, financing/dilution, M&A, contracts/partnerships, regulation/legal, analyst actions and macro/industry themes. Preserve the evidence URL, publication/update times, publisher source, affected symbols, freshness, lexical direction, classification confidence and novelty within the returned seven-day window.
+
+**Boundary:** Benzinga through Alpaca is secondary evidence. Headline matching does not verify the underlying event, establish causation or estimate returns. Predictive confidence is explicitly null. Every result is `researchOnly`, `rankingAdjustmentAllowed: false` and `orderSubmissionAllowed: false`; it cannot rescue a failed liquidity or technical gate.
+
+**Initial observation:** A September 21 check of the three imported-list technical candidates found no returned CLDX articles, one unmatched TRAX article and three GRAL articles. Only the GRAL earnings-call transcript matched a category, with unclear direction and no predictive confidence. This is a pipeline check, not evidence that the catalyst has trading value.
 
 ### D-054 — External discovery lists extend the shadow universe without bypassing gates
 

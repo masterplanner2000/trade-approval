@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 4.4
+**Current architecture version:** 4.5
 **Last updated:** 2026-09-21
 **Status:** Living source of truth
 
@@ -144,6 +144,8 @@ flowchart LR
 The experimental higher-volatility lane lives in `service/aggressive_shadow_scanner.py`, with its own SQLite cache. It ranks active, tradable listed U.S. equities by recent venue dollar volume, retains the top 1,500 and adds eligible watchlist or imported discovery-list names. Imported symbols extend observation only and cannot bypass the same security, completed-history, price, venue-liquidity, ATR, momentum or relative-volume checks. Missing and unsupported imports are recorded explicitly. Both daily caches filter incomplete bars before universe selection or persistence, atomically rebuild bar history, record an explicit `completedThrough` boundary and refuse unversioned legacy cache data. A same-day bar is conservatively unavailable until 16:15 ET. Shadow v2 additionally reports realized volatility, recent maximum drawdown and opening gap as non-ranking diagnostics. Its gates are proposed test variables, not a profitability model. The authenticated `GET /shadow/aggressive` route returns research candidates only; it does not feed the recommendation queue, approval flow, portfolio sizing, or broker submission. The current IEX feed is a single-venue observation, not consolidated market liquidity. Verified catalysts, live spread, account and sizing checks are explicitly missing. The existing 500-stock strategy rules are unchanged.
 
 `service/intraday_shadow_evaluator.py` consumes a caller-supplied, timestamped snapshot and evaluates session, freshness, halt state, coherent prices, day movement, opening gap, relative volume, session dollar volume and current spread. It returns every failed check and is hard-coded `research_only` with `orderSubmissionAllowed: false`. `service/intraday_shadow_journal.py` stores exact snapshots and evaluations in an append-only SQLite timeline, deduplicates identical evidence and deterministically replays only a supported versioned ruleset. `service/intraday_shadow_replay.py` validates and imports recorded JSONL evidence, then selects the first eligible observation per symbol/session and measures fixed-horizon, last-observed and excursion outcomes without representing observations as fills. Missing horizons remain incomplete. Its numerical gates and score are proposed test variables. It still has no provider, scheduler, API route, mobile surface, portfolio sizing or broker authority; therefore it cannot discover or recommend a stock in real time yet.
+
+`service/stock_catalyst.mjs` classifies normalized Alpaca/Benzinga headlines into bounded research categories and returns evidence, timing, affected symbols, lexical direction, classification confidence, window-relative novelty and secondary-source quality. It is included in the existing stock-news response. Predictive confidence is null, and the component has no ranking, proposal, sizing or order authority. Primary-source verification, source conflict handling, event identity/corrections and outcome testing remain pending.
 
 The stock research API now includes authenticated `GET /research/news?symbol=...`, implemented in `service/stock_news.mjs`. It requests up to 50 Alpaca/Benzinga headline records from the past seven days, validates exact ticker matches, source/time/link fields, deduplicates corrected articles and returns up to ten. A bounded 60-second memory cache coalesces requests; rate limits, access failures, empty and partial results remain distinct. No article bodies or secrets enter client responses or durable storage. Provider latency remains explicitly unverified.
 
@@ -396,6 +398,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a CSV discovery-list extension to the isolated aggressive cache, with explicit inclusion and rejection provenance.
 - Expanded coverage of the supplied volatile-stock list from 28 to 248 observed names without changing any eligibility gate.
 - Added descriptive realized-volatility, maximum-drawdown and opening-gap outputs to shadow ruleset v2. They do not affect orders or core recommendations.
+
+### Version 4.5 — 2026-09-21
+
+- Added deterministic headline-only catalyst categories to the existing stock-news research response.
+- Preserved source links, timestamps, affected symbols, lexical direction, bounded classification confidence and window-relative novelty.
+- Kept predictive confidence null and prohibited catalyst-driven ranking or order submission.
 
 ### Version 3.8 — 2026-09-06
 
