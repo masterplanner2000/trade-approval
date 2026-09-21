@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-20.2 · **Corresponding architecture:** 4.3
+**Log revision:** 2026-09-21.1 · **Corresponding architecture:** 4.4
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -70,10 +70,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-051 | Execute forward capture through a supervised read-only worker | Confirmed; injected-adapter worker implemented, real providers pending | 2026-09-20 |
 | D-052 | Bind capture identity and resolve uncertain claims without retry | Confirmed; stage 7 implemented with immutable supervised dispositions | 2026-09-20 |
 | D-053 | Treat daily-bar session completion as explicit cached evidence | Confirmed; both daily caches repaired and audited | 2026-09-20 |
+| D-054 | Imported discovery lists extend observation, never trading authority | Confirmed; Day 2 coverage lane implemented | 2026-09-21 |
 
 ---
 
 ## Detailed decisions
+
+### D-054 — External discovery lists extend the shadow universe without bypassing gates
+
+**Status:** Confirmed; implemented for CSV symbol lists in volatile-growth shadow ruleset v2.
+
+**Decision:** A supplied symbol list may add active, supported common stocks to the isolated aggressive cache after the ranked top-1,500 selection. The imported set is durable across ordinary refreshes and is replaced only by an explicit later import. Imported names receive the same completed-history, price, venue-liquidity, ATR, momentum and relative-volume evaluation as ranked names. Missing or unsupported symbols are stored with explicit reasons. Import status, failed checks and provenance are reportable.
+
+**Research additions:** Shadow v2 reports 20-day realized volatility, 60-day maximum drawdown and latest opening gap. These fields are descriptive diagnostics and do not yet change eligibility or ranking. Raw implied volatility supplied by an external list remains unverified, directionless context.
+
+**Boundary and evidence:** Imported symbols do not enter the core recommendation queue, portfolio sizing, approval cards, IBKR validation or order submission. In the September 21 audit, 248 of 250 supplied names were observed, RGC and WIMI were absent from Alpaca's active asset master, 3 names passed the shadow technical gates and 245 failed at least one gate. This establishes coverage and explainability, not predictive value or expected profit.
 
 ### D-053 — Daily scans require an explicit completed-session boundary
 

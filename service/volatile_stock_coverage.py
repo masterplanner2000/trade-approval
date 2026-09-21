@@ -53,10 +53,17 @@ def evaluations_for(database_path: Path, lane: str) -> tuple[dict[str, dict[str,
     return output, meta
 
 
+def requested_symbol_statuses() -> dict[str, dict[str, str | None]]:
+    with aggressive.connect() as connection:
+        rows = connection.execute("SELECT symbol,status,reason FROM requested_symbols").fetchall()
+    return {symbol: {"status": status, "reason": reason} for symbol, status, reason in rows}
+
+
 def audit(source_csv: Path) -> dict[str, object]:
     rows = symbols_from_csv(source_csv)
     core_results, core_meta = evaluations_for(core.DATABASE_PATH, "core")
     aggressive_results, aggressive_meta = evaluations_for(aggressive.DATABASE_PATH, "aggressive")
+    requested_statuses = requested_symbol_statuses()
     details = []
     counts: Counter[str] = Counter()
     failed_checks: Counter[str] = Counter()
@@ -70,6 +77,8 @@ def audit(source_csv: Path) -> dict[str, object]:
             category = "insufficient_history"
         elif aggressive_result:
             category = "technical_reject"
+        elif requested_statuses.get(symbol, {}).get("status") == "rejected":
+            category = str(requested_statuses[symbol]["reason"])
         elif core_result:
             category = "core_only_observed"
         else:
@@ -83,11 +92,13 @@ def audit(source_csv: Path) -> dict[str, object]:
             "listedOneDayChange": row["1D % Chg"], "listedVolume": row["Volume (shares)"],
             "listedMarketCap": row["Market cap (USD)"], "classification": category,
             "inCoreUniverse": core_result is not None, "inAggressiveUniverse": aggressive_result is not None,
+            "requestedSymbolStatus": requested_statuses.get(symbol),
             "failedAggressiveChecks": failures,
             "aggressiveMetrics": None if not aggressive_result else {
                 key: aggressive_result.get(key) for key in (
                     "signalDate", "barCount", "referenceClose", "atrPercent14",
                     "momentum5Percent", "momentum20Percent", "relativeVolume", "venueDollarVolume20",
+                    "realizedVolatilityPercent20", "maximumDrawdownPercent60", "openingGapPercent",
                 )
             },
         })
@@ -118,7 +129,11 @@ def markdown(report: dict[str, object]) -> str:
         f"Completed daily data through: {report['aggressiveCompletedThrough']}", "",
         "## Coverage", "",
     ]
-    for category in ("qualified_research", "technical_reject", "insufficient_history", "core_only_observed", "not_observed"):
+    for category in (
+        "qualified_research", "technical_reject", "insufficient_history",
+        "completed_history_unavailable", "unsupported_or_non_common_instrument",
+        "not_in_active_asset_master", "core_only_observed", "not_observed",
+    ):
         lines.append(f"- {category.replace('_', ' ').title()}: {coverage.get(category, 0)}")
     lines.extend(["", "## Most common aggressive-lane rejections", ""])
     for check, count in report["failedAggressiveChecks"].items():

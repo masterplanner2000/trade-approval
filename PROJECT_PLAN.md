@@ -339,3 +339,10 @@ Crypto acceptance requires no production credentials or network orders; fresh ex
 - Clarified crypto has no IBKR dependency. Evaluate broad token catalog discovery separately from the subset executable on two sandbox exchanges; CoinGecko is proposed, with no connection or dependency added.
 - Added the gated crypto design workstream without changing the stock delivery sequence.
 - All crypto runtime, tests and frontend implementation remain pending design review.
+
+### Plan change history — 2026-09-21
+
+- Started Day 2 by extending the aggressive shadow cache with a source-list import that preserves all existing safety and technical gates.
+- Re-audited all 250 supplied volatile stocks: 248 observed, 2 absent from the provider's active asset master, 3 research-qualified and 245 technical rejects.
+- Added realized volatility, recent maximum drawdown and opening gap to shadow v2 as descriptive factors. They remain non-ranking until historical and forward comparisons justify a frozen rule change.
+- Next Day 2 stages are catalyst provenance/classification, licensed options-volatility inputs and matched historical shadow comparisons. None is authorized to create an order.

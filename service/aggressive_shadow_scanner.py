@@ -8,6 +8,8 @@ refresh from changing the existing 500-stock recommendation strategy.
 from __future__ import annotations
 
 import json
+import csv
+import math
 import sqlite3
 import sys
 import time
@@ -25,7 +27,7 @@ from ibkr_daily_scanner import DailyBar, average_true_range_percent
 
 
 DATABASE_PATH = DATA_DIRECTORY / "aggressive-market-cache.sqlite3"
-RULESET_VERSION = "volatile-growth-shadow-v1"
+RULESET_VERSION = "volatile-growth-shadow-v2"
 UNIVERSE_LIMIT = 1500
 MINIMUM_BARS = 60
 MINIMUM_AVERAGE_DOLLAR_VOLUME = 1_000_000  # IEX venue volume, not consolidated liquidity.
@@ -53,6 +55,10 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
           volume REAL NOT NULL, PRIMARY KEY (symbol, trading_day)
         );
         CREATE TABLE IF NOT EXISTS cache_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS requested_symbols (
+          symbol TEXT PRIMARY KEY, source TEXT NOT NULL, status TEXT NOT NULL,
+          reason TEXT, refreshed_at INTEGER NOT NULL
+        );
         """
     )
     return connection
@@ -61,11 +67,58 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
 def selected_symbols(
     assets: list[dict[str, object]], dollar_volume: dict[str, float],
     watchlist: tuple[str, ...] = WATCHLIST, limit: int = UNIVERSE_LIMIT,
+    requested: tuple[str, ...] = (),
 ) -> list[str]:
     eligible = {str(asset["symbol"]).upper() for asset in assets if is_common_stock(asset)}
     ranked = sorted(eligible & dollar_volume.keys(), key=lambda symbol: (-dollar_volume[symbol], symbol))
     selected = ranked[:limit]
-    return selected + [symbol for symbol in watchlist if symbol in eligible and symbol not in selected]
+    priority = (*watchlist, *requested)
+    return selected + [symbol for symbol in priority if symbol in eligible and symbol not in selected]
+
+
+def symbols_from_csv(path: Path) -> tuple[str, ...]:
+    with path.open(newline="", encoding="utf-8-sig") as source:
+        reader = csv.DictReader(source)
+        if not reader.fieldnames or "Symbol" not in reader.fieldnames:
+            raise RuntimeError("requested_symbol_file_invalid")
+        symbols = []
+        seen: set[str] = set()
+        for row in reader:
+            symbol = str(row.get("Symbol") or "").strip().upper()
+            if symbol and symbol not in seen:
+                seen.add(symbol)
+                symbols.append(symbol)
+    if not symbols:
+        raise RuntimeError("requested_symbol_file_empty")
+    return tuple(symbols)
+
+
+def stored_requested_symbols() -> tuple[str, ...]:
+    if not DATABASE_PATH.exists():
+        return ()
+    with connect() as connection:
+        return tuple(row[0] for row in connection.execute("SELECT symbol FROM requested_symbols ORDER BY symbol"))
+
+
+def realized_volatility_percent(closes: list[float], window: int = 20) -> float | None:
+    if len(closes) <= window or min(closes[-(window + 1):]) <= 0:
+        return None
+    returns = [math.log(closes[index] / closes[index - 1]) for index in range(len(closes) - window, len(closes))]
+    mean = sum(returns) / len(returns)
+    variance = sum((value - mean) ** 2 for value in returns) / max(1, len(returns) - 1)
+    return math.sqrt(variance) * math.sqrt(252) * 100
+
+
+def maximum_drawdown_percent(closes: list[float], window: int = 60) -> float | None:
+    sample = closes[-window:]
+    if not sample or min(sample) <= 0:
+        return None
+    peak = sample[0]
+    maximum = 0.0
+    for close in sample:
+        peak = max(peak, close)
+        maximum = max(maximum, (peak - close) / peak * 100)
+    return maximum
 
 
 def evaluate(symbol: str, bars: list[DailyBar], *, today: str | None = None) -> dict[str, object]:
@@ -89,6 +142,10 @@ def evaluate(symbol: str, bars: list[DailyBar], *, today: str | None = None) -> 
     volume20 = sum(bar.close * bar.volume for bar in completed[-20:]) / 20
     prior_volume20 = sum(bar.volume for bar in completed[-21:-1]) / 20
     relative_volume = latest.volume / prior_volume20 if prior_volume20 > 0 else 0
+    realized_volatility = realized_volatility_percent(closes)
+    drawdown60 = maximum_drawdown_percent(closes)
+    prior_close = completed[-2].close
+    opening_gap = (latest.open / prior_close - 1) * 100 if prior_close > 0 else None
     checks = [
         {"id": "price", "passed": latest.close >= 5, "actual": round(latest.close, 4)},
         {"id": "venue_liquidity", "passed": volume20 >= MINIMUM_AVERAGE_DOLLAR_VOLUME, "actual": round(volume20, 2)},
@@ -105,13 +162,18 @@ def evaluate(symbol: str, bars: list[DailyBar], *, today: str | None = None) -> 
         "referenceClose": round(latest.close, 4), "momentum5Percent": round(momentum5, 2),
         "momentum20Percent": round(momentum20, 2), "atrPercent14": round(atr, 2) if atr is not None else None,
         "relativeVolume": round(relative_volume, 2), "venueDollarVolume20": round(volume20, 2),
+        "realizedVolatilityPercent20": round(realized_volatility, 2) if realized_volatility is not None else None,
+        "maximumDrawdownPercent60": round(drawdown60, 2) if drawdown60 is not None else None,
+        "openingGapPercent": round(opening_gap, 2) if opening_gap is not None else None,
         "researchScore": round(score, 1) if eligible else None, "checks": checks,
         "missingBeforeProposal": ["verified_catalyst", "consolidated_liquidity", "current_bid_ask_spread", "portfolio_sizing", "fresh_broker_validation"],
     }
 
 
-def refresh(*, now: datetime | None = None) -> dict[str, object]:
+def refresh(*, now: datetime | None = None, requested: tuple[str, ...] | None = None) -> dict[str, object]:
     observed_at = (now or datetime.now(tz=NEW_YORK)).astimezone(NEW_YORK)
+    if requested is None:
+        requested = stored_requested_symbols()
     raw_assets = api_json(ASSETS_URL, {"status": "active", "asset_class": "us_equity"})
     if not isinstance(raw_assets, list):
         raise RuntimeError("alpaca_assets_invalid_response")
@@ -126,7 +188,8 @@ def refresh(*, now: datetime | None = None) -> dict[str, object]:
             if complete:
                 latest = complete[-1]
                 dollar_volume[symbol] = float(latest.get("c", 0)) * float(latest.get("v", 0))
-    symbols = selected_symbols(assets, dollar_volume)
+    normalized_requested = tuple(dict.fromkeys(symbol.strip().upper() for symbol in requested if symbol.strip()))
+    symbols = selected_symbols(assets, dollar_volume, requested=normalized_requested)
     history_start = (observed_at.date() - timedelta(days=HISTORY_CALENDAR_DAYS)).isoformat()
     history: dict[str, list[dict[str, object]]] = {}
     for symbol_batch in batches(symbols):
@@ -142,6 +205,7 @@ def refresh(*, now: datetime | None = None) -> dict[str, object]:
     with connect() as connection:
         connection.execute("DELETE FROM assets")
         connection.execute("DELETE FROM daily_bars")
+        connection.execute("DELETE FROM requested_symbols")
         for rank, symbol in enumerate(symbols, start=1):
             asset = by_symbol[symbol]
             connection.execute(
@@ -154,6 +218,20 @@ def refresh(*, now: datetime | None = None) -> dict[str, object]:
                     "INSERT OR REPLACE INTO daily_bars VALUES(?,?,?,?,?,?,?)",
                     (symbol, str(bar["t"])[:10].replace("-", ""), bar["o"], bar["h"], bar["l"], bar["c"], bar["v"]),
                 )
+        for symbol in normalized_requested:
+            asset = by_symbol.get(symbol)
+            if asset is None:
+                status, reason = "rejected", "not_in_active_asset_master"
+            elif not is_common_stock(asset):
+                status, reason = "rejected", "unsupported_or_non_common_instrument"
+            elif not history.get(symbol):
+                status, reason = "rejected", "completed_history_unavailable"
+            else:
+                status, reason = "included", None
+            connection.execute(
+                "INSERT INTO requested_symbols VALUES(?,?,?,?,?)",
+                (symbol, "csv_import", status, reason, refreshed_at),
+            )
         for key, value in {
             "last_refresh": str(refreshed_at), "data_feed": data_feed(),
             "completed_through": completed_through.isoformat(),
@@ -162,6 +240,8 @@ def refresh(*, now: datetime | None = None) -> dict[str, object]:
             connection.execute("INSERT OR REPLACE INTO cache_meta VALUES(?,?)", (key, value))
     return {"ok": True, "mode": "aggressive_shadow", "feed": data_feed(),
             "universeSize": len(symbols), "watchlistIncluded": sum(symbol in WATCHLIST for symbol in symbols),
+            "requestedCount": len(normalized_requested),
+            "requestedIncluded": sum(symbol in symbols and bool(history.get(symbol)) for symbol in normalized_requested),
             "completedThrough": completed_through.isoformat(),
             "refreshedAt": refreshed_at}
 
@@ -175,6 +255,11 @@ def scan() -> dict[str, object]:
         completed_through = meta.get("completed_through")
         if not completed_through:
             raise RuntimeError("aggressive_cache_completion_unknown_refresh_required")
+        requested_coverage = {
+            status: count for status, count in connection.execute(
+                "SELECT status,COUNT(*) FROM requested_symbols GROUP BY status"
+            )
+        }
         results = []
         rejection_counts: Counter[str] = Counter()
         for symbol, name, watchlist in assets:
@@ -192,6 +277,7 @@ def scan() -> dict[str, object]:
         "orderSubmissionAllowed": False, "dataSource": "alpaca", "feed": meta.get("data_feed"),
         "cacheRefreshedAt": int(meta["last_refresh"]) if "last_refresh" in meta else None,
         "completedThrough": completed_through,
+        "requestedCoverage": requested_coverage,
         "generatedAt": int(time.time() * 1000), "universeSize": len(assets),
         "evaluatedCount": len(results), "qualifiedCount": len(ranked),
         "candidates": ranked, "rejectionCounts": dict(rejection_counts),
@@ -205,15 +291,29 @@ def status() -> dict[str, object]:
     with connect() as connection:
         count = connection.execute("SELECT COUNT(*) FROM assets").fetchone()[0]
         meta = dict(connection.execute("SELECT key,value FROM cache_meta"))
+        requested_coverage = {
+            status: total for status, total in connection.execute(
+                "SELECT status,COUNT(*) FROM requested_symbols GROUP BY status"
+            )
+        }
     return {"ok": count > 0 and "completed_through" in meta, "mode": "aggressive_shadow", "universeSize": count,
             "feed": meta.get("data_feed"), "refreshedAt": int(meta["last_refresh"]) if "last_refresh" in meta else None,
-            "completedThrough": meta.get("completed_through"), "refreshRequired": "completed_through" not in meta}
+            "completedThrough": meta.get("completed_through"), "refreshRequired": "completed_through" not in meta,
+            "requestedCoverage": requested_coverage}
 
 
 def main() -> int:
     command = sys.argv[1] if len(sys.argv) > 1 else "status"
     try:
-        result = {"refresh": refresh, "scan": scan, "status": status}[command]()
+        if command == "refresh":
+            requested = None
+            if len(sys.argv) == 4 and sys.argv[2] == "--symbols-csv":
+                requested = symbols_from_csv(Path(sys.argv[3]))
+            elif len(sys.argv) != 2:
+                raise RuntimeError("usage: refresh [--symbols-csv PATH]")
+            result = refresh(requested=requested)
+        else:
+            result = {"scan": scan, "status": status}[command]()
         print(json.dumps(result))
         return 0 if result.get("ok") else 1
     except KeyError:

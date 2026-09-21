@@ -6,7 +6,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import aggressive_shadow_scanner as scanner
-from aggressive_shadow_scanner import evaluate, selected_symbols
+from aggressive_shadow_scanner import evaluate, maximum_drawdown_percent, realized_volatility_percent, selected_symbols, symbols_from_csv
 from ibkr_daily_scanner import DailyBar
 
 
@@ -22,6 +22,27 @@ class AggressiveShadowScannerTests(unittest.TestCase):
         selected = selected_symbols(assets, {"AAA": 100, "BE": 10, "OKLO": 5, "SPY": 500}, ("BE", "OKLO", "SPY"), 1)
         self.assertEqual(selected, ["AAA", "BE", "OKLO"])
 
+    def test_requested_symbols_extend_universe_without_bypassing_asset_rules(self):
+        assets = [asset("AAA"), asset("CSV"), asset("SPY")]
+        assets[-1]["name"] = "SPY ETF"
+        selected = selected_symbols(assets, {"AAA": 100}, (), 1, ("CSV", "SPY", "MISSING"))
+        self.assertEqual(selected, ["AAA", "CSV"])
+
+    def test_symbol_csv_is_normalized_and_deduplicated(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "symbols.csv"
+            path.write_text("Symbol,Name\n abc ,One\nABC,Duplicate\nxyz,Two\n")
+            self.assertEqual(symbols_from_csv(path), ("ABC", "XYZ"))
+
+    def test_normal_refresh_preserves_stored_requested_symbols(self):
+        with TemporaryDirectory() as directory, patch.object(scanner, "DATABASE_PATH", Path(directory) / "cache.sqlite3"):
+            with scanner.connect() as connection:
+                connection.execute(
+                    "INSERT INTO requested_symbols VALUES(?,?,?,?,?)",
+                    ("KEEP", "csv_import", "included", None, 1),
+                )
+            self.assertEqual(scanner.stored_requested_symbols(), ("KEEP",))
+
     def test_volatile_candidate_is_research_only(self):
         first = date(2026, 5, 1)
         bars = []
@@ -35,6 +56,14 @@ class AggressiveShadowScannerTests(unittest.TestCase):
         self.assertTrue(result["eligible"])
         self.assertFalse(result["orderSubmissionAllowed"])
         self.assertIn("verified_catalyst", result["missingBeforeProposal"])
+        self.assertIsNotNone(result["realizedVolatilityPercent20"])
+        self.assertIsNotNone(result["maximumDrawdownPercent60"])
+        self.assertIsNotNone(result["openingGapPercent"])
+
+    def test_volatility_and_drawdown_diagnostics_are_deterministic(self):
+        closes = [100, 110, 90, 95, 120] * 5
+        self.assertEqual(realized_volatility_percent(closes), realized_volatility_percent(closes))
+        self.assertAlmostEqual(maximum_drawdown_percent(closes), 25.0, places=5)
 
     def test_current_incomplete_bar_cannot_trigger_signal(self):
         bars = [DailyBar((date(2026, 6, 1) + timedelta(days=index)).strftime("%Y%m%d"), 20, 21, 19, 20, 500_000) for index in range(59)]
@@ -72,13 +101,17 @@ class AggressiveShadowScannerTests(unittest.TestCase):
                 patch.object(scanner, "api_json", return_value=assets), \
                 patch.object(scanner, "fetch_bars", side_effect=fake_fetch), \
                 patch.object(scanner, "data_feed", return_value="iex"):
-            report = scanner.refresh(now=now)
+            report = scanner.refresh(now=now, requested=("AAA", "MISSING"))
             with scanner.connect() as connection:
                 days = [row[0] for row in connection.execute("SELECT trading_day FROM daily_bars")]
                 selection_volume = connection.execute("SELECT selection_dollar_volume FROM assets").fetchone()[0]
+                requested = connection.execute("SELECT symbol,status,reason FROM requested_symbols ORDER BY symbol").fetchall()
         self.assertEqual(report["completedThrough"], "2026-09-16")
+        self.assertEqual(report["requestedCount"], 2)
+        self.assertEqual(report["requestedIncluded"], 1)
         self.assertEqual(days, ["20260916"])
         self.assertEqual(selection_volume, 1_000)
+        self.assertEqual(requested, [("AAA", "included", None), ("MISSING", "rejected", "not_in_active_asset_master")])
 
 
 if __name__ == "__main__":
