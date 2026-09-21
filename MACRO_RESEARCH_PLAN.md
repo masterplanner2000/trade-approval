@@ -54,6 +54,8 @@ Non-goals: live trading, Paper order submission, automatic selling, recommendati
 
 **Exit gate:** Recorded provider samples normalize deterministically; provenance is explicit; rights are documented; no secret or raw upstream error escapes.
 
+**Progress (2026-09-20):** Alpaca snapshot normalization and provider composition are implemented with fixed-host, redirect, timeout, size, rate-limit, secret-redaction and volume-scope controls. Official Fed/BLS adapters remain approved primary-source readers. Trading Economics remains provisional and disabled pending access/data-rights review. Expected intraday volume, ATR and verified halt status still require an approved context source, so the live forward-capture exit gate remains open. See `MACRO_PROVIDER_REVIEW.md`.
+
 ## Stage 9 — Reviewed initial research universe
 
 **Objective:** Establish a narrow, defensible set of real economic-event and company-exposure relationships.
