@@ -379,6 +379,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Bounded macro influence to five score points and preserved all existing hard eligibility gates.
 - Added identical-input, anti-look-ahead, paired-outcome and rollback controls without connecting the fork to the production queue or broker lifecycle.
 
+### Version 4.2 — 2026-09-20
+
+- Added the Stage 13 product/risk promotion boundary with a complete evidence assessment and append-only decision journal.
+- Made bounded approval require attributable sign-off and all rights, evidence, reliability, security, monitoring, rollback, integration and broker/reconciliation gates.
+- Added a release-manifest contract that always defaults the feature off and grants no order authority; no production activation path was connected.
+
 ### Version 3.8 — 2026-09-06
 
 - Added a dedicated read-only IBKR Paper reconciliation collector for balances, positions, open orders, order status, and executions.

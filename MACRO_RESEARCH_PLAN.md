@@ -138,8 +138,9 @@ Non-goals: live trading, Paper order submission, automatic selling, recommendati
 
 **Exit gate:** Signed-off recorded decision and complete rollback plan. Absence of approval means the feature remains research-only.
 
+**Progress (2026-09-20):** The `macro-promotion-review-v1` dossier assessment, attributable decision record, append-only decision journal and default-off bounded-release manifest are implemented. Approval requires the Stage 12 improvement conclusion plus timestamped rights/security review, reproduced performance, acceptable identified failure report, versioned policy/explanation, tested monitoring and rollback, passing integration review, and identified broker/reconciliation gate evidence. A manifest can be produced only from an immutable approved decision and still defaults disabled with no order authority. Current upstream evidence is insufficient; no product decision or manifest was created, so the Stage 13 exit gate remains open. See `MACRO_PROMOTION_REVIEW.md`.
+
 ## Current sequence
 
 - Stage 7: implemented; full regression and documentation completion in progress.
-- Stages 8–12: foundations implemented; their real-data exit gates remain open.
-- Stage 13: planned, not started.
+- Stages 8–13: foundations implemented; all real-evidence and promotion exit gates remain open.

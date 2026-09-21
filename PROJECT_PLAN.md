@@ -326,6 +326,9 @@ Crypto acceptance requires no production credentials or network orders; fresh ex
 - Added the isolated Stage 12 shadow-ranking fork with a maximum five-point macro adjustment and hard-gate precedence.
 - Froze identical-input, anti-look-ahead, 30-session minimum and rollback rules before any real forward comparison.
 - Blocked real Stage 12 registration until Stage 11 explicitly proceeds; fixtures cannot become promotion evidence.
+- Added the Stage 13 promotion dossier, attributable immutable sign-off journal and default-off release manifest.
+- Required exercised monitoring, rollback and integration controls plus identified rights, security, reliability and broker/reconciliation evidence before bounded-ranking approval.
+- Recorded that no real promotion decision or feature manifest exists; macro ranking remains research-only and disabled.
 
 ### Plan change history — 2026-09-07
 
