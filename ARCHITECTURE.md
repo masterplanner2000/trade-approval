@@ -165,6 +165,8 @@ The existing news sheet supports symbol search, source links and publication/upd
 
 `service/macro_capture_worker.py` executes due capture tasks only when explicitly invoked. An injected read-only adapter supplies either normalized release evidence or a timestamped market snapshot; the worker validates required fields and provenance before completing the task. Provider exceptions are reduced to sanitized error types, and process termination leaves the durable claim unresolved for supervision rather than retrying. The worker contains no production adapter, timer, credentials, recommendation integration or broker authority.
 
+`service/macro_forward_pilot.py` sits in front of registration for the supervised pilot procedure. Its preflight combines the reviewed-universe gate, four provider-health states, worker identity, clock drift and baseline timing. Its post-event report summarizes the scheduler's immutable evidence and compares original/replayed evaluations canonically. This is a research orchestration boundary only; the current universe fails preflight and remains disconnected from recommendations and orders.
+
 Capture results now bind to the exact task identity: market data repeats the symbol, official data repeats the scheduled event key and every result repeats the pinned link/map versions. Unfinished claims are resolved in a separate immutable table rather than rewriting or reopening the task. `MACRO_RESEARCH_PLAN.md` is the sequential stage 7–13 delivery and promotion plan.
 
 ## Proposed crypto workstream — design review required

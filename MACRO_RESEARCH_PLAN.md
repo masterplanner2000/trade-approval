@@ -94,6 +94,8 @@ Non-goals: live trading, Paper order submission, automatic selling, recommendati
 
 **Exit gate:** At least one complete real event is deterministic end to end. Any partial event remains incomplete and is excluded from performance conclusions.
 
+**Progress (2026-09-20):** Preflight, gated registration and deterministic completion reporting are implemented in `macro_forward_pilot.py`. Preflight requires an active reviewed study, all four provider dependencies, a named worker, clock offset within one second and completion before the baseline window. The report includes the full task/audit timeline, latency, source, state counts, unresolved claims, replay equivalence and a stable digest; partial or non-replaying plans are not performance eligible. A five-task recorded rehearsal passed. The real frozen universe remains blocked and no October event was registered, so the Stage 10 exit gate remains open. See `MACRO_FORWARD_PILOT_RUNBOOK.md`.
+
 ## Stage 11 — Outcomes and controls
 
 **Objective:** Determine whether macro-conditioned observations contain useful forward information after realistic costs and controls.

@@ -98,7 +98,9 @@ def validate_universe(document: Mapping[str, object]) -> dict[str, object]:
         consensus_id = consensus.get("seriesId")
         if status == "REVIEWED_ACTIVE":
             if (consensus.get("accessStatus") != "APPROVED" or not isinstance(consensus_id, str)
-                    or not SERIES.fullmatch(consensus_id) or study.get("crosswalkStatus") != "REVIEWED"):
+                    or not SERIES.fullmatch(consensus_id) or study.get("crosswalkStatus") != "REVIEWED"
+                    or not SERIES.fullmatch(str(study.get("eventKey") or ""))
+                    or not VERSION.fullmatch(str(study.get("linkVersion") or ""))):
                 raise ValueError("macro_universe_active_consensus_invalid")
             active.append(dict(study))
         elif consensus_id is not None or consensus.get("accessStatus") != "PENDING_APPROVAL":
