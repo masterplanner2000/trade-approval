@@ -1,6 +1,6 @@
 # Trade Approval — Project Plan
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-22
 **Current objective:** Establish a trustworthy paper-trading loop—owned positions, protection, execution state and measurable results—before expanding the recommendation strategy or enabling automatic exits.
 
 ## Today's test plan — 2026-09-22
@@ -17,6 +17,10 @@
 **Today succeeds if:** the known-bad run is machine-excluded, Paper state is fresh and accurately represented, quote/protection blockers are explicit, recommendation lanes are correctly separated, the app reflects the same truth, and the post-close evidence job completes. Trading profit is not a one-day acceptance criterion.
 
 **Progress, 2:03 p.m. ET:** Step 1 is complete. The evidence store now supports immutable, idempotent invalidations; status and outcome collection exclude invalidated runs. The flawed September 21 run is preserved and machine-invalidated, with September 18 restored as the latest active run. Full QA passes: 109 Node and 146 Python tests plus TypeScript typecheck. Next execute steps 2–5 during market hours.
+
+**Progress, market-hours verification:** Steps 2–5 have been exercised without transmitting an order. TWS is logged into Paper account `DUR…217`, port 7497 is listening, the local service is running, and broker reconciliation completed successfully. Holdings remain MRK 5, NVDA 25, DE 1 and MSFT 2; ownership is complete. MRK and DE retain exact stop/target coverage, while NVDA and MSFT remain visibly unprotected. Fresh API snapshots now return bid/ask values for all four symbols, but every callback is delayed `dataType 3`, so price-sensitive protection repair, What-If and execution remain fail-closed. The funded queue produced no new buys because estimated exposure is $7,938.61 against the $5,000 sleeve; it marks MRK, NVDA and MSFT for exit review and does not recommend an ordinary loss-taking DE exit. The aggressive lane produced 73 research-only candidates led by AMRX, RMBS and P, with catalyst, consolidated-liquidity, current-spread, sizing and fresh broker validation still missing. Next complete the app smoke test and post-close evidence capture; do not submit an order from delayed quotes or while protection is incomplete.
+
+**Progress, application smoke test:** Step 6 passes in the iPhone 17 Simulator after switching the persisted workspace from Preview Mode to Paper. The Recommendations screen reports Paper monitoring, explicitly pauses for the protection review, shows MRK/NVDA/MSFT exit-review state and labels replacements as contingent on a confirmed sale. The Positions screen loads the reconciled four holdings, shows MRK/DE protection as verified and NVDA/MSFT protection as missing. No mock recommendation or enabled approval action is presented as live Paper state. Step 7 remains blocked by delayed quotes and incomplete protection; no order was previewed or transmitted. Step 8 remains scheduled for after the close buffer.
 
 ## Market-hours verification — 2026-09-21
 
