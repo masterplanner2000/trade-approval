@@ -3,6 +3,19 @@
 **Last updated:** 2026-09-21
 **Current objective:** Establish a trustworthy paper-trading loop—owned positions, protection, execution state and measurable results—before expanding the recommendation strategy or enabling automatic exits.
 
+## Today's test plan — 2026-09-22
+
+1. **Before the open — evidence integrity:** implement an append-only invalidation/supersession record for immutable daily evidence. Mark the first September 21 run invalid for comparative performance, preserve its payload, and prove automated reports exclude it without deleting or rewriting history.
+2. **Before the open — runtime readiness:** start the local service and TWS in **Paper**, accept any simulated-account notice, and require a complete fresh reconciliation. Confirm the UI distinguishes connection, reconciliation, quote eligibility, protection and execution readiness.
+3. **After 9:30 a.m. ET — market-data retest:** request fresh read-only Paper snapshots for MRK, NVDA, DE and MSFT. Record data type, bid/ask presence and callback times. Type 3, missing or stale quotes fail closed; do not repair stops or submit price-triggered exits from them.
+4. **Portfolio safety:** verify MRK and DE retain exact stop/target coverage and NVDA/MSFT remain visibly unprotected unless broker evidence changes. Exercise the protection-repair and protected-exit preflights without transmitting orders.
+5. **Recommendation behavior:** run the funded queue from the corrected September 21 completed bar and the volatile research lane separately. Verify full-allocation behavior, exit-review reasons, replacement contingency and that research-only candidates cannot become orders.
+6. **Application smoke test:** in Simulator and Expo Go, verify current broker status, scanning/empty states, Positions and Activity, recommendation rationale, risk/expiry presentation and failure messaging. A connected indicator must not enable decisions when another readiness gate fails.
+7. **Bounded Paper execution test only if every gate passes:** use one fresh, engine-produced, user-approved proposal; run preview and IBKR What-If before a small bracket order. Do not invent a symbol or order merely to create activity. Automatic selling remains disabled.
+8. **After 4:15 p.m. ET:** refresh both daily caches, verify their exact session coverage and run the 4:30 evidence capture. The job must exit successfully, preserve isolated missing bars explicitly and create no recommendation or broker authority.
+
+**Today succeeds if:** the known-bad run is machine-excluded, Paper state is fresh and accurately represented, quote/protection blockers are explicit, recommendation lanes are correctly separated, the app reflects the same truth, and the post-close evidence job completes. Trading profit is not a one-day acceptance criterion.
+
 ## Market-hours verification — 2026-09-21
 
 - Restored the local service and TWS Paper session. The first reconciliation timed out because TWS was waiting for acknowledgement of its simulated-trading warning; after acknowledgement, the API handshake and complete broker reconciliation succeeded.
