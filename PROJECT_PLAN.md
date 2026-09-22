@@ -22,6 +22,8 @@
 
 **Progress, application smoke test:** Step 6 passes in the iPhone 17 Simulator after switching the persisted workspace from Preview Mode to Paper. The Recommendations screen reports Paper monitoring, explicitly pauses for the protection review, shows MRK/NVDA/MSFT exit-review state and labels replacements as contingent on a confirmed sale. The Positions screen loads the reconciled four holdings, shows MRK/DE protection as verified and NVDA/MSFT protection as missing. No mock recommendation or enabled approval action is presented as live Paper state. Step 7 remains blocked by delayed quotes and incomplete protection; no order was previewed or transmitted. Step 8 remains scheduled for after the close buffer.
 
+**Live-only diagnostic:** The ordinary snapshot helper intentionally requests delayed fallback, so `dataType 3` alone was not treated as proof of a subscription failure. A separate strict `--live-only` request for NVDA returned IBKR warning 2186: real-time API market data requires an additional subscription, and no live bid/ask callback was delivered. This independently confirms that TWS screen quotes and API execution-grade quote authority differ. Keep price-sensitive protection repair and execution blocked until the API entitlement is changed or an explicitly approved execution-grade quote source is integrated and validated.
+
 ## Market-hours verification — 2026-09-21
 
 - Restored the local service and TWS Paper session. The first reconciliation timed out because TWS was waiting for acknowledgement of its simulated-trading warning; after acknowledgement, the API handshake and complete broker reconciliation succeeded.
