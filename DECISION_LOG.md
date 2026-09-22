@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-22.1 · **Corresponding architecture:** 4.8
+**Log revision:** 2026-09-22.2 · **Corresponding architecture:** 4.8
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -77,10 +77,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-058 | Freeze daily forward evidence before measuring outcomes | Confirmed; append-only capture implemented | 2026-09-21 |
 | D-059 | Treat a successful Paper login as distinct from execution readiness | Confirmed; market-hours evidence recorded | 2026-09-21 |
 | D-060 | Invalidate flawed immutable evidence with an append-only disposition | Confirmed; implemented and applied | 2026-09-22 |
+| D-061 | Use a $10,000 Paper sleeve and automate bounded Paper exits | Confirmed; sleeve updated, exit activation blocked by release gates | 2026-09-22 |
 
 ---
 
 ## Detailed decisions
+
+### D-061 — $10,000 Paper sleeve with bounded automatic exits
+
+**Status:** Confirmed. The local Paper strategy limit and default Paper risk-policy sleeve are $10,000. Automatic broker-hosted stops and targets remain the preferred exit mechanism; deterministic ordinary strategy exits are an explicit product requirement.
+
+**Decision:** Use the larger Paper sleeve to test allocation, rotations and execution without treating the former $5,000 limit as a forced-sale signal. Automatic Paper exits may act only on fully strategy-owned shares, complete fresh reconciliation, exact broker protection, two adjacent completed-session failures, an execution-grade live quote, a durable single-dispatch intent and broker-confirmed modification/fill evidence. The app must retain Pause and Emergency Stop controls, and capital is not released until a fill is reconciled.
+
+**Current boundary:** Raising the Paper sleeve does not authorize live-money trading. It also does not bypass the existing exit release hold. IBKR warning 2186 confirms that execution-grade real-time API quotes are not currently entitled, and NVDA/MSFT lack broker-visible protection. The production target-modification adapter has not passed an actual TWS Paper rejection/partial-fill/reconnect test. Therefore automatic Paper sells remain disabled until those gates are satisfied; existing MRK/DE broker stops and targets remain active independently.
 
 ### D-060 — Flawed immutable evidence is invalidated, never rewritten
 

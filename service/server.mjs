@@ -63,7 +63,7 @@ const simulatedBroker = brokerMode === "simulated"
 let simulatedDisconnectAfterSubmit = false;
 const defaultRiskPolicy = {
   adaptive: true,
-  sleeveValue: 50_000,
+  sleeveValue: 10_000,
   normalRiskPercent: 0.25,
   hardRiskPercent: 0.5,
   dailyLossPercent: 0.75,
