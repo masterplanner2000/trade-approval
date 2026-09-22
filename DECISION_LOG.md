@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-21.7 · **Corresponding architecture:** 4.8
+**Log revision:** 2026-09-22.1 · **Corresponding architecture:** 4.8
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -76,10 +76,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-057 | Historical lane comparisons must preserve timing and universe limitations | Confirmed; first retrospective diagnostic implemented | 2026-09-21 |
 | D-058 | Freeze daily forward evidence before measuring outcomes | Confirmed; append-only capture implemented | 2026-09-21 |
 | D-059 | Treat a successful Paper login as distinct from execution readiness | Confirmed; market-hours evidence recorded | 2026-09-21 |
+| D-060 | Invalidate flawed immutable evidence with an append-only disposition | Confirmed; implemented and applied | 2026-09-22 |
 
 ---
 
 ## Detailed decisions
+
+### D-060 — Flawed immutable evidence is invalidated, never rewritten
+
+**Status:** Confirmed; store, CLI, status filtering and tests implemented.
+
+**Decision:** Preserve an erroneous daily evidence run and append one immutable invalidation containing its exact run ID, reason and timestamp. Status and future-outcome collection exclude invalidated runs automatically. Repeating the identical invalidation is idempotent; changing or deleting it is prohibited at the database boundary.
+
+**Applied evidence:** `daily-2026-09-21-605808740e6f4f69` is invalid because the baseline evaluator stripped the cache-certified September 21 close as intraday. The payload remains in the local evidence store, but it is no longer the latest active run and cannot receive new outcomes. September 18 remains the latest active evidence session.
+
+**Boundary:** Invalidation does not fabricate a corrected historical run or authorize using hindsight. September 21 remains excluded from comparative performance. A future supersession design may link a separately captured, contemporaneous replacement, but it cannot overwrite the original record.
 
 ### D-059 — Paper connectivity does not imply execution readiness
 

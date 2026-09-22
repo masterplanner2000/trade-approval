@@ -65,6 +65,40 @@ class DailyEvidenceCaptureTests(unittest.TestCase):
         self.assertEqual(first["inserted"], 0)
         self.assertGreater(first["pending"], 0)
 
+    def test_invalidation_is_append_only_idempotent_and_excluded_from_status(self) -> None:
+        run = self.store.capture(self.baseline, self.shadow, captured_at="2026-09-21T21:00:00Z")
+        first = self.store.invalidate_run(
+            run["runId"], reason="certified close was evaluated as intraday",
+            recorded_at="2026-09-22T12:00:00Z",
+        )
+        second = self.store.invalidate_run(
+            run["runId"], reason="certified close was evaluated as intraday",
+            recorded_at="2026-09-22T13:00:00Z",
+        )
+        self.assertFalse(first["idempotent"])
+        self.assertTrue(second["idempotent"])
+        status = self.store.status()
+        self.assertEqual(status["runCount"], 1)
+        self.assertEqual(status["activeRunCount"], 0)
+        self.assertEqual(status["invalidatedRunCount"], 1)
+        self.assertIsNone(status["latestSignalDate"])
+        with self.assertRaisesRegex(ValueError, "daily_evidence_invalidation_conflict"):
+            self.store.invalidate_run(
+                run["runId"], reason="different reason", recorded_at="2026-09-22T14:00:00Z"
+            )
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "evidence_invalidation_is_immutable"):
+            self.store.connection.execute(
+                "UPDATE evidence_run_invalidations SET reason='changed' WHERE run_id=?", (run["runId"],)
+            )
+
+    def test_invalidated_run_never_receives_new_outcomes(self) -> None:
+        run = self.store.capture(self.baseline, self.shadow, captured_at="2026-09-21T21:00:00Z")
+        self.store.invalidate_run(run["runId"], reason="bad input boundary",
+                                  recorded_at="2026-09-22T12:00:00Z")
+        _, histories = load_cache(self.baseline)
+        result = self.store.record_available_outcomes(histories, recorded_at="2027-09-22T21:00:00Z")
+        self.assertEqual(result, {"inserted": 0, "pending": 0})
+
     def test_mismatched_cache_boundaries_fail_closed(self) -> None:
         with sqlite3.connect(self.shadow) as connection:
             connection.execute("UPDATE cache_meta SET value='2025-01-01' WHERE key='completed_through'")

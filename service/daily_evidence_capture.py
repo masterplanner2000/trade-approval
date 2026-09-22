@@ -80,6 +80,10 @@ class DailyEvidenceStore:
           PRIMARY KEY(run_id,lane,symbol,horizon), FOREIGN KEY(run_id,lane,symbol)
             REFERENCES evidence_symbols(run_id,lane,symbol)
         );
+        CREATE TABLE IF NOT EXISTS evidence_run_invalidations(
+          run_id TEXT PRIMARY KEY, reason TEXT NOT NULL, recorded_at TEXT NOT NULL,
+          FOREIGN KEY(run_id) REFERENCES evidence_runs(run_id)
+        );
         CREATE TRIGGER IF NOT EXISTS evidence_runs_no_update BEFORE UPDATE ON evidence_runs
           BEGIN SELECT RAISE(ABORT,'evidence_run_is_immutable'); END;
         CREATE TRIGGER IF NOT EXISTS evidence_runs_no_delete BEFORE DELETE ON evidence_runs
@@ -92,6 +96,10 @@ class DailyEvidenceStore:
           BEGIN SELECT RAISE(ABORT,'evidence_outcome_is_immutable'); END;
         CREATE TRIGGER IF NOT EXISTS evidence_outcomes_no_delete BEFORE DELETE ON evidence_outcomes
           BEGIN SELECT RAISE(ABORT,'evidence_outcome_is_immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS evidence_invalidations_no_update BEFORE UPDATE ON evidence_run_invalidations
+          BEGIN SELECT RAISE(ABORT,'evidence_invalidation_is_immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS evidence_invalidations_no_delete BEFORE DELETE ON evidence_run_invalidations
+          BEGIN SELECT RAISE(ABORT,'evidence_invalidation_is_immutable'); END;
         """)
         current = self.connection.execute("SELECT value FROM evidence_meta WHERE key='schema_version'").fetchone()
         if current is None:
@@ -102,6 +110,35 @@ class DailyEvidenceStore:
 
     def close(self) -> None:
         self.connection.close()
+
+    def invalidate_run(self, run_id: str, *, reason: str, recorded_at: str) -> dict[str, object]:
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise ValueError("daily_evidence_invalidation_reason_required")
+        recorded = datetime.fromisoformat(recorded_at.replace("Z", "+00:00"))
+        if recorded.tzinfo is None:
+            raise ValueError("daily_evidence_invalidation_time_invalid")
+        run = self.connection.execute(
+            "SELECT run_id,signal_date FROM evidence_runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if run is None:
+            raise ValueError("daily_evidence_run_unknown")
+        existing = self.connection.execute(
+            "SELECT reason,recorded_at FROM evidence_run_invalidations WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if existing:
+            if existing["reason"] != normalized_reason:
+                raise ValueError("daily_evidence_invalidation_conflict")
+            return {"runId": run_id, "signalDate": run["signal_date"], "invalidated": True,
+                    "idempotent": True, "reason": existing["reason"], "recordedAt": existing["recorded_at"]}
+        timestamp = recorded.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO evidence_run_invalidations VALUES(?,?,?)",
+                (run_id, normalized_reason, timestamp),
+            )
+        return {"runId": run_id, "signalDate": run["signal_date"], "invalidated": True,
+                "idempotent": False, "reason": normalized_reason, "recordedAt": timestamp}
 
     def capture(self, baseline_cache: Path, shadow_cache: Path, *, captured_at: str,
                 catalysts: dict[str, object] | None = None) -> dict[str, object]:
@@ -177,7 +214,9 @@ class DailyEvidenceStore:
         pending = 0
         rows = self.connection.execute(
             """SELECT s.run_id,s.lane,s.symbol,r.signal_date FROM evidence_symbols s
-               JOIN evidence_runs r ON r.run_id=s.run_id WHERE s.eligible=1
+               JOIN evidence_runs r ON r.run_id=s.run_id
+               LEFT JOIN evidence_run_invalidations i ON i.run_id=r.run_id
+               WHERE s.eligible=1 AND i.run_id IS NULL
                ORDER BY r.signal_date,s.lane,s.symbol"""
         ).fetchall()
         with self.connection:
@@ -204,8 +243,17 @@ class DailyEvidenceStore:
 
     def status(self) -> dict[str, object]:
         runs = self.connection.execute("SELECT COUNT(*) FROM evidence_runs").fetchone()[0]
-        latest = self.connection.execute("SELECT signal_date,summary_json FROM evidence_runs ORDER BY signal_date DESC LIMIT 1").fetchone()
-        outcomes = self.connection.execute("SELECT COUNT(*) FROM evidence_outcomes").fetchone()[0]
-        return {"ok": True, "runCount": runs, "outcomeCount": outcomes,
+        invalidated = self.connection.execute("SELECT COUNT(*) FROM evidence_run_invalidations").fetchone()[0]
+        latest = self.connection.execute(
+            """SELECT r.signal_date,r.summary_json FROM evidence_runs r
+               LEFT JOIN evidence_run_invalidations i ON i.run_id=r.run_id
+               WHERE i.run_id IS NULL ORDER BY r.signal_date DESC LIMIT 1"""
+        ).fetchone()
+        outcomes = self.connection.execute(
+            """SELECT COUNT(*) FROM evidence_outcomes o
+               LEFT JOIN evidence_run_invalidations i ON i.run_id=o.run_id WHERE i.run_id IS NULL"""
+        ).fetchone()[0]
+        return {"ok": True, "runCount": runs, "activeRunCount": runs - invalidated,
+                "invalidatedRunCount": invalidated, "outcomeCount": outcomes,
                 "latestSignalDate": latest["signal_date"] if latest else None,
                 "latestSummary": json.loads(latest["summary_json"]) if latest else None}

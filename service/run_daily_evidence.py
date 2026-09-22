@@ -35,8 +35,12 @@ def main() -> int:
             result["outcomes"] = store.record_available_outcomes({**baseline, **shadow}, recorded_at=now)
         elif command == "status":
             result = store.status()
+        elif command == "invalidate":
+            if len(sys.argv) < 4:
+                raise ValueError("usage: invalidate RUN_ID REASON")
+            result = store.invalidate_run(sys.argv[2], reason=" ".join(sys.argv[3:]), recorded_at=now)
         else:
-            raise ValueError("usage: capture|status")
+            raise ValueError("usage: capture|status|invalidate RUN_ID REASON")
         print(json.dumps({"ok": True, **result}))
         return 0
     finally:

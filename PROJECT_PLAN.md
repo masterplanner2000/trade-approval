@@ -16,6 +16,8 @@
 
 **Today succeeds if:** the known-bad run is machine-excluded, Paper state is fresh and accurately represented, quote/protection blockers are explicit, recommendation lanes are correctly separated, the app reflects the same truth, and the post-close evidence job completes. Trading profit is not a one-day acceptance criterion.
 
+**Progress, 2:03 p.m. ET:** Step 1 is complete. The evidence store now supports immutable, idempotent invalidations; status and outcome collection exclude invalidated runs. The flawed September 21 run is preserved and machine-invalidated, with September 18 restored as the latest active run. Full QA passes: 109 Node and 146 Python tests plus TypeScript typecheck. Next execute steps 2–5 during market hours.
+
 ## Market-hours verification — 2026-09-21
 
 - Restored the local service and TWS Paper session. The first reconciliation timed out because TWS was waiting for acknowledgement of its simulated-trading warning; after acknowledgement, the API handshake and complete broker reconciliation succeeded.
