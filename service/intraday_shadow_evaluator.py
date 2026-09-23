@@ -124,8 +124,11 @@ def evaluate_intraday_snapshot(snapshot: Mapping[str, object], *, now: str) -> d
             "spreadPercent": round(spread, 4) if isfinite(spread) else None,
         },
         "checks": checks,
+        "signalBasis": "price_volume_direction",
+        "catalystRequired": False,
+        "optionalContext": ["news_catalyst", "macro_theme", "scheduled_event"],
         "missingBeforeProposal": [
-            "verified_catalyst", "completed_daily_context", "portfolio_sizing",
+            "completed_daily_context", "portfolio_sizing",
             "account_validation", "broker_what_if", "forward_performance_evidence",
         ],
     }

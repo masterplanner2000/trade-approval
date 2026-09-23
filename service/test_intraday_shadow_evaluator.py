@@ -27,6 +27,9 @@ class IntradayShadowEvaluatorTests(unittest.TestCase):
         self.assertEqual(result["classification"], "research_only")
         self.assertAlmostEqual(result["metrics"]["dayChangePercent"], 9.71, places=2)
         self.assertIn("forward_performance_evidence", result["missingBeforeProposal"])
+        self.assertNotIn("verified_catalyst", result["missingBeforeProposal"])
+        self.assertFalse(result["catalystRequired"])
+        self.assertEqual(result["signalBasis"], "price_volume_direction")
 
     def test_every_failed_gate_is_reported_instead_of_only_the_first(self):
         result = evaluate_intraday_snapshot(snapshot(

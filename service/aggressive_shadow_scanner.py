@@ -27,7 +27,7 @@ from ibkr_daily_scanner import DailyBar, average_true_range_percent
 
 
 DATABASE_PATH = DATA_DIRECTORY / "aggressive-market-cache.sqlite3"
-RULESET_VERSION = "volatile-growth-shadow-v2"
+RULESET_VERSION = "volatile-growth-shadow-v3"
 UNIVERSE_LIMIT = 1500
 MINIMUM_BARS = 60
 MINIMUM_AVERAGE_DOLLAR_VOLUME = 1_000_000  # IEX venue volume, not consolidated liquidity.
@@ -166,7 +166,12 @@ def evaluate(symbol: str, bars: list[DailyBar], *, today: str | None = None) -> 
         "maximumDrawdownPercent60": round(drawdown60, 2) if drawdown60 is not None else None,
         "openingGapPercent": round(opening_gap, 2) if opening_gap is not None else None,
         "researchScore": round(score, 1) if eligible else None, "checks": checks,
-        "missingBeforeProposal": ["verified_catalyst", "consolidated_liquidity", "current_bid_ask_spread", "portfolio_sizing", "fresh_broker_validation"],
+        # Direction, momentum, participation and liquidity are the signal. News
+        # may add context or event risk, but its absence cannot veto a setup.
+        "signalBasis": "price_volume_direction",
+        "catalystRequired": False,
+        "optionalContext": ["news_catalyst", "macro_theme", "scheduled_event"],
+        "missingBeforeProposal": ["consolidated_liquidity", "current_bid_ask_spread", "portfolio_sizing", "fresh_broker_validation"],
     }
 
 
@@ -284,7 +289,7 @@ def scan() -> dict[str, object]:
         "generatedAt": int(time.time() * 1000), "universeSize": len(assets),
         "evaluatedCount": len(results), "qualifiedCount": len(ranked),
         "candidates": ranked, "rejectionCounts": dict(rejection_counts),
-        "limitations": ["No verified catalyst or current spread", "Venue volume is not consolidated when feed=iex", "No portfolio-aware sizing or order authority"],
+        "limitations": ["News and catalysts are optional context, not eligibility gates", "No current spread", "Venue volume is not consolidated when feed=iex", "No portfolio-aware sizing or order authority"],
     }
 
 

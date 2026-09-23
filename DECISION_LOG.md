@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-22.2 · **Corresponding architecture:** 4.8
+**Log revision:** 2026-09-23.1 · **Corresponding architecture:** 4.8
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -78,10 +78,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-059 | Treat a successful Paper login as distinct from execution readiness | Confirmed; market-hours evidence recorded | 2026-09-21 |
 | D-060 | Invalidate flawed immutable evidence with an append-only disposition | Confirmed; implemented and applied | 2026-09-22 |
 | D-061 | Use a $10,000 Paper sleeve and automate bounded Paper exits | Confirmed; sleeve updated, exit activation blocked by release gates | 2026-09-22 |
+| D-062 | Treat news as optional context for directional volatile-growth signals | Confirmed; shadow contracts updated | 2026-09-23 |
 
 ---
 
 ## Detailed decisions
+
+### D-062 — Directional price and volume can qualify without news
+
+**Status:** Confirmed. Volatile-growth daily and intraday research contracts now identify `price_volume_direction` as their signal basis and explicitly set `catalystRequired: false`.
+
+**Decision:** Direction, momentum, relative volume and liquidity may establish a technical opportunity without an identifiable news catalyst. News, macro themes and scheduled events are optional context: supportive evidence may help explain a move, while adverse or imminent event risk may reduce confidence or block execution under a separately tested risk rule. Missing news is neutral and cannot veto an otherwise valid setup.
+
+**Boundary:** This does not make the volatile lane executable. Consolidated liquidity, current spread, portfolio-aware sizing and fresh broker validation remain mandatory. The intraday lane additionally retains completed-daily context, account validation, What-If and forward-evidence gates. News cannot rescue a failed technical, liquidity, freshness, portfolio or protection check.
 
 ### D-061 — $10,000 Paper sleeve with bounded automatic exits
 
