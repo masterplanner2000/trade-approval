@@ -118,6 +118,8 @@ The service uses Alpaca for bulk historical research, IBKR for current quote/acc
 
 Risk calculations live under `service/risk/`. Components have no network or broker side effects and return a versioned structured result. `equity-observed-market-risk-v1` currently combines volatility, overnight-gap, and historical-liquidity components. Complete trade risk remains null until entry, stop, quantity, portfolio, current spread, and event data are available.
 
+`intraday_portfolio_context.py` converts one complete, fresh, read-only TWS Paper reconciliation snapshot into projected intraday research constraints. It checks position capacity, proposed symbol exposure, a conservative sector-exposure upper bound, daily loss and buying power. One broker snapshot is reused across the full symbol cycle. Missing, stale, Live or writable evidence fails closed, and the adapter has no recommendation or order authority.
+
 It deliberately cannot submit live orders. Approved proposals receive an HMAC-signed, single-use receipt that binds the approval to an exact paper account, symbol, buy direction, quantity, order type, maximum entry price, protective stop, profit target, automatic-exit policy, and short expiration.
 
 ## Run locally

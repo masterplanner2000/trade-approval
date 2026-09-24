@@ -41,6 +41,7 @@ class ReconciliationSnapshot(EWrapper, EClient):
         self.orders_done = threading.Event()
         self.completed_orders_done = threading.Event()
         self.executions_done = threading.Event()
+        self.pnl_done = threading.Event()
         self.accounts: list[str] = []
         self.summary: dict[str, dict] = {}
         self.positions: list[dict] = []
@@ -49,6 +50,7 @@ class ReconciliationSnapshot(EWrapper, EClient):
         self.executions: list[dict] = []
         self.commissions: dict[str, dict] = {}
         self.errors: list[dict] = []
+        self.pnl_data: dict[str, float | None] = {}
 
     def nextValidId(self, orderId: int) -> None:  # noqa: N802
         self.ready.set()
@@ -157,6 +159,13 @@ class ReconciliationSnapshot(EWrapper, EClient):
                 execution.update(commission)
                 break
 
+    def pnl(self, reqId, dailyPnL, unrealizedPnL, realizedPnL) -> None:
+        self.pnl_data = {
+            "dailyPnl": number(dailyPnL), "unrealizedPnl": number(unrealizedPnL),
+            "realizedPnl": number(realizedPnL),
+        }
+        self.pnl_done.set()
+
     def error(self, reqId: int, *args) -> None:
         if len(args) >= 4:
             _, code, message, *_ = args
@@ -166,16 +175,23 @@ class ReconciliationSnapshot(EWrapper, EClient):
             self.errors.append({"code": code, "message": message})
 
 
-def main() -> int:
+def collect_snapshot(*, client_id: int = CLIENT_ID, timeout_seconds: float = 8) -> dict:
+    """Collect one read-only snapshot without printing or granting order authority."""
     app = ReconciliationSnapshot()
+    pnl_requested = False
     try:
-        app.connect(HOST, PAPER_PORT, clientId=CLIENT_ID)
+        app.connect(HOST, PAPER_PORT, clientId=client_id)
         threading.Thread(target=app.run, daemon=True).start()
-        if not app.ready.wait(8):
-            print(json.dumps({"ok": False, "error": "tws_connection_timeout"}))
-            return 1
+        if not app.ready.wait(timeout_seconds):
+            return {"ok": False, "error": "tws_connection_timeout", "complete": False,
+                    "environment": "paper", "readOnly": True}
 
         app.reqManagedAccts()
+        for _ in range(20):
+            if app.accounts:
+                break
+            time.sleep(0.1)
+        account = app.accounts[0] if len(app.accounts) == 1 else None
         app.reqAccountSummary(
             9201,
             "All",
@@ -186,23 +202,22 @@ def main() -> int:
         app.reqAllOpenOrders()
         app.reqCompletedOrders(False)
         app.reqExecutions(9202, ExecutionFilter())
+        if account:
+            app.reqPnL(9203, account, "")
+            pnl_requested = True
 
         completed = {
-            "accountSummary": app.summary_done.wait(8),
-            "positions": app.positions_done.wait(8),
-            "openOrders": app.orders_done.wait(8),
-            "completedOrders": app.completed_orders_done.wait(8),
-            "executions": app.executions_done.wait(8),
+            "accountSummary": app.summary_done.wait(timeout_seconds),
+            "positions": app.positions_done.wait(timeout_seconds),
+            "openOrders": app.orders_done.wait(timeout_seconds),
+            "completedOrders": app.completed_orders_done.wait(timeout_seconds),
+            "executions": app.executions_done.wait(timeout_seconds),
         }
         # Commission reports follow execution details and have no end callback.
         # Allow a short bounded window for them to attach to the executions.
         time.sleep(0.35)
-        for _ in range(20):
-            if app.accounts:
-                break
-            time.sleep(0.1)
-
-        account = app.accounts[0] if len(app.accounts) == 1 else None
+        if account:
+            app.pnl_done.wait(timeout_seconds)
         complete = all(completed.values()) and account is not None
         result = {
             "ok": complete,
@@ -217,15 +232,23 @@ def main() -> int:
             "openOrders": list(app.orders.values()),
             "completedOrders": list(app.completed_orders.values()),
             "executions": app.executions,
+            "pnl": app.pnl_data,
             "warnings": app.errors,
         }
-        print(json.dumps(result))
-        return 0 if complete else 1
+        return result
     finally:
         if app.isConnected():
+            if pnl_requested:
+                app.cancelPnL(9203)
             app.cancelAccountSummary(9201)
             app.cancelPositions()
             app.disconnect()
+
+
+def main() -> int:
+    result = collect_snapshot()
+    print(json.dumps(result))
+    return 0 if result.get("ok") else 1
 
 
 if __name__ == "__main__":

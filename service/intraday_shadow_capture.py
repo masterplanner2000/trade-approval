@@ -13,6 +13,7 @@ from alpaca_market_cache import api_json, credentials, data_feed
 from intraday_capture_journal import IntradayCaptureJournal
 from intraday_forward_outcomes import IntradayOutcomeJournal, build_mature_outcomes
 from intraday_opportunity_score import score_intraday_opportunity
+from intraday_portfolio_context import IbkrPaperPortfolioReader
 from intraday_price_signals import calculate_intraday_price_signals, expected_range_at
 from intraday_provider_contract import build_intraday_research_snapshot
 from intraday_safety_filters import evaluate_intraday_safety
@@ -59,7 +60,7 @@ def capture_cycle(
     snapshot_reader: Callable[[str], Mapping[str, object]],
     bars_reader: Callable[[str, datetime, datetime], list[dict[str, object]]],
     halt_reader: Callable[[list[str], str], Mapping[str, Mapping[str, object]]],
-    portfolio_reader: Callable[[str, str], Mapping[str, object]],
+    portfolio_reader: Callable[[str, str, Mapping[str, object]], Mapping[str, object]],
     capture_journal: IntradayCaptureJournal, shadow_journal: IntradayShadowJournal,
     outcome_journal: IntradayOutcomeJournal | None = None,
     completed_at: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
@@ -107,7 +108,7 @@ def capture_cycle(
                 data_source=f"Alpaca {market['feed']} current-session 1Min bars",
             )
             score = score_intraday_opportunity(evaluation, price)
-            portfolio = dict(portfolio_reader(symbol, iso(scheduled_at)))
+            portfolio = dict(portfolio_reader(symbol, iso(evaluated_at), market))
             safety = evaluate_intraday_safety(
                 evaluation, price, score, halt, portfolio, now=iso(evaluated_at),
             )
@@ -152,6 +153,8 @@ def run_live(now: datetime | None = None) -> dict[str, object]:
     feed = data_feed()
     snapshot_client = AlpacaSnapshotClient(api_key=key, api_secret=secret, feed=feed)
     halt_client = NasdaqHaltClient()
+    portfolio_reader = IbkrPaperPortfolioReader()
+    portfolio_reader.prime()
     capture_journal = IntradayCaptureJournal(CAPTURE_PATH)
     shadow_journal = IntradayShadowJournal(SHADOW_PATH)
     outcome_journal = IntradayOutcomeJournal(OUTCOME_PATH)
@@ -162,9 +165,7 @@ def run_live(now: datetime | None = None) -> dict[str, object]:
             bars_reader=lambda symbol, start, end: fetch_minute_bars(
                 symbol, start=iso(start), end=iso(end), feed=feed, reader=api_json),
             halt_reader=lambda symbols, observed: halt_client.fetch_many(symbols, observed_at=observed),
-            # Portfolio state is deliberately unavailable until the read-only IBKR
-            # adapter is connected. Market shadow eligibility remains separate.
-            portfolio_reader=lambda symbol, observed: {"observedAt": None},
+            portfolio_reader=portfolio_reader.context,
             capture_journal=capture_journal, shadow_journal=shadow_journal,
             outcome_journal=outcome_journal,
         )

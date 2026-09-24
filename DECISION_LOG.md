@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-24.10 · **Corresponding architecture:** 5.18
+**Log revision:** 2026-09-24.11 · **Corresponding architecture:** 5.19
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -91,7 +91,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-072 | Compare performance with an exposure-matched QQQ alternative | Confirmed; minimum-sample gate retained | 2026-09-23 |
 | D-073 | Archive one immutable performance report after each daily collection | Confirmed; scheduled path integrated | 2026-09-23 |
 | D-074 | Process approved Paper orders in the background | Confirmed; failure restores the card | 2026-09-24 |
-| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; automatic atomic profile refresh implemented | 2026-09-24 |
+| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; read-only Paper portfolio context implemented | 2026-09-24 |
 
 ---
 
@@ -122,6 +122,8 @@ This is the living record of product, design, trading-safety, data, and technica
 **2026-09-24 forward-outcome evidence:** Each capture now settles earlier 5- and 30-minute windows only from exact later records no more than two minutes after the target. The append-only outcome preserves source/target identity, original pass/reject cohort, raw movement and a versioned estimate using entry ask, exit bid, two basis points of slippage per leg and one basis point of round-trip fees. Missing mature evidence is permanently incomplete and after-close horizons are excluded. The first live settlement produced four complete rejected-cohort five-minute outcomes; average raw movement was `+0.0272%`, while the modeled after-cost result was `-0.6516%`, with only one distinct session and therefore no calibration conclusion. Eight older windows lacking scheduled follow-up were preserved as incomplete. The run also exposed and fixed a per-symbol clock error that briefly labeled sequentially fetched quotes as future-dated. No threshold, recommendation or order behavior changed.
 
 **2026-09-24 profile-refresh evidence:** The current artifact now defines the exact scheduled symbol set and feed. A weekday 8:45 a.m. local runner rebuilds all profiles from completed prior sessions, requires identical volume/range session dates, rejects coverage regression and publishes through an atomic replace only when every symbol passes. Partial failure leaves the previous artifact byte-exact. The installed LaunchAgent completed successfully for BMNR, MSFT, MU and NVDA on IEX, with all four histories through September 23, and cleaned its lock. This automates baseline freshness but does not resolve single-venue scope, performance calibration, portfolio context or commercial data rights.
+
+**2026-09-24 portfolio-context evidence:** The scheduled lane now reads one complete TWS Paper reconciliation snapshot before evaluating its symbol set. It requires the Paper environment, read-only collection, complete account evidence and a fresh timestamp; missing P&L or balances fail closed. It projects a bounded research notional against position capacity, symbol exposure, daily loss, buying power and an explicitly conservative all-positions-same-sector upper bound. Live evidence returned six positions and complete balances/P&L, then produced four complete rejections with zero incomplete records. The current account failed position capacity and the conservative sector bound. This supplies portfolio research evidence only and does not remove the single-venue, 20-session calibration, reviewed-sector-map or data-rights promotion blockers.
 
 ### D-074 — Background Paper submission during continued review
 

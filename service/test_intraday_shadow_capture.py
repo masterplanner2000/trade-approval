@@ -49,7 +49,7 @@ def halt_reader(symbols, observed):
             for symbol in symbols}
 
 
-def portfolio(symbol, observed):
+def portfolio(symbol, observed, market_data):
     return {
         "observedAt": "2026-09-24T15:00:25Z", "openPositionCount": 1,
         "maxOpenPositions": 5, "symbolExposurePercent": 5, "maxSymbolExposurePercent": 10,
