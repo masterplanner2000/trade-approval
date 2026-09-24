@@ -16,6 +16,7 @@
     "market:aggressive:refresh": ".venv-ibkr-10.49/bin/python service/aggressive_shadow_scanner.py refresh",
     "market:aggressive:status": ".venv-ibkr-10.49/bin/python service/aggressive_shadow_scanner.py status",
     "market:aggressive:scan": ".venv-ibkr-10.49/bin/python service/aggressive_shadow_scanner.py scan",
+    "market:intraday:profiles": ".venv-ibkr-10.49/bin/python service/intraday_volume_profile_job.py",
     "market:evidence:capture": ".venv-ibkr-10.49/bin/python service/run_daily_evidence.py capture",
     "market:evidence:status": ".venv-ibkr-10.49/bin/python service/run_daily_evidence.py status",
     "market:evidence:report": ".venv-ibkr-10.49/bin/python service/run_daily_evidence.py report",

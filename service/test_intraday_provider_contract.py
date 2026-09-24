@@ -38,7 +38,7 @@ class IntradayProviderContractTests(unittest.TestCase):
         cases = [
             ({**CONTEXT, "symbol": "OTHER"}, "intraday_context_symbol_mismatch"),
             ({**CONTEXT, "observedAt": "2026-09-24T15:28:00Z"}, "intraday_context_stale_or_future"),
-            ({**CONTEXT, "profileSessionCount": 9}, "intraday_volume_profile_incomplete"),
+            ({**CONTEXT, "profileSessionCount": 19}, "intraday_volume_profile_incomplete"),
             ({**CONTEXT, "halted": None}, "intraday_halt_state_unknown"),
         ]
         for context, error in cases:

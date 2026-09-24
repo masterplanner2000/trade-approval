@@ -29,7 +29,9 @@ Development branch: `feature/intraday-volatility-recommendations`
 
 Goal: originate new recommendations from market movement developing during the session rather than repeatedly presenting a queue derived from the prior completed daily bar. Start from the existing research-only intraday evaluator. First connect and validate a consolidated real-time provider, then collect immutable forward observations, measure after-cost outcomes and surface shadow-only cards. Actionable Paper cards require a later explicit promotion decision; `main` remains the stable daily-bar workflow.
 
-**Milestone 1 complete — provider contract:** Alpaca snapshots now expose the timestamps and session fields required by the evaluator. The join refuses a wrong symbol, stale/future context, fewer than 10 volume-profile sessions, unknown halt state or unlabeled feed. Live IEX access works; live SIP access is currently denied. Next implement a point-in-time cumulative minute-volume profile from prior sessions and select an approved halt-status source. Only then schedule IEX observations into the append-only shadow journal.
+**Milestone 1 complete — provider contract:** Alpaca snapshots now expose the timestamps and session fields required by the evaluator. The join refuses a wrong symbol, stale/future context, fewer than 20 volume-profile sessions, unknown halt state or unlabeled feed. Live IEX access works; live SIP access is currently denied.
+
+**Milestone 2 complete — minute-volume baseline:** A read-only job fetches Alpaca one-minute history and builds a 390-point median cumulative-volume curve from the latest 20–30 complete prior sessions. It excludes the current day, rejects duplicate/invalid bars, requires at least 380 observed minutes plus opening/closing minutes per admitted session, retains an exact input digest and writes a git-ignored research artifact atomically. A live IEX run produced 30-session profiles for BMNR, MU, NVDA and MSFT with no failures. Next select an approved halt-status source, then schedule labeled IEX observations into the append-only shadow journal.
 
 ## Today's test plan — 2026-09-22
 

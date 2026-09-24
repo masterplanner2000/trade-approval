@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 NEW_YORK = ZoneInfo("America/New_York")
 MAX_CONTEXT_AGE_SECONDS = 60
-MINIMUM_PROFILE_SESSIONS = 10
+MINIMUM_PROFILE_SESSIONS = 20
 
 
 def _instant(value: object) -> datetime | None:
