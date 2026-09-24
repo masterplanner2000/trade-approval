@@ -15,6 +15,8 @@
 8. **Next after collection:** Ingest complete commission evidence so net performance becomes available and add exposure-matched/risk-adjusted benchmark analysis after enough sessions exist.
 9. **Promotion gate:** Do not tune a filter from one day or one small cohort. A rule change requires a frozen hypothesis, adequate forward sample, holdout evaluation, costs, drawdown and an explicit decision-log promotion.
 
+**Priority 3 update, 2026-09-23:** The broker-grounded report now produces a reproducible daily strategy scorecard, proposal-relative execution slippage, notional-weighted slippage, and explicit fee/mark/benchmark completeness. Gross results remain visible when fees are missing, but net results and net benchmark excess remain unavailable. Exposure-matched and risk-adjusted benchmark interpretation still requires an adequate forward sample.
+
 ## Today's test plan — 2026-09-22
 
 1. **Before the open — evidence integrity:** implement an append-only invalidation/supersession record for immutable daily evidence. Mark the first September 21 run invalid for comparative performance, preserve its payload, and prove automated reports exclude it without deleting or rewriting history.
@@ -352,7 +354,7 @@ The durable-ledger and reconciliation milestone is complete only when:
 
 1. **Measure filtered opportunities — complete.** Every observed candidate receives immutable 1-, 5- and 10-session counterfactual measurement with explicit costs and path excursions.
 2. **Join recommendations to broker lifecycle — complete.** Exact frozen signal date, symbol and source lane are required; unmatched history stays visible but unattributed.
-3. **Report portfolio results — complete foundation.** Strategy-owned Paper fills produce exposure, turnover, drawdown and gross P/L; net results wait for complete commission evidence.
+3. **Report portfolio results — daily scorecard complete.** Strategy-owned Paper fills produce daily gross/net P/L when supported, exposure, turnover, drawdown, proposal-relative slippage and cash/QQQ comparisons with explicit evidence completeness. Net results still wait for complete commission evidence.
 4. **Automate collection readiness — complete.** Review is blocked until 20 distinct usable sessions exist separately at every horizon, with matched lifecycle progress reported independently.
 5. **Freeze one rule experiment — complete; collecting next-session evidence.** Relative volume is ranking context rather than a hard veto in one isolated treatment lane. Top-five paired results, costs, uncertainty and drawdown are evaluated under D-068. The control remains unchanged and active; treatment has no recommendation or order authority.
 6. **Bind new proposals to frozen evidence — complete prospectively.** New proposals persist exact signal date, lane, ruleset, evidence-run ID and resolution state. Lifecycle capture independently verifies those claims and refuses mismatches. September 11 fills remain unlinked because no contemporaneous frozen run existed.

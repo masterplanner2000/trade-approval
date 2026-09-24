@@ -28,7 +28,7 @@ class PortfolioPerformanceTests(unittest.TestCase):
                   commissions: bool = True) -> None:
         with sqlite3.connect(self.path) as connection:
             connection.execute("INSERT INTO proposals VALUES(?,?,?,?)", (
-                proposal, "paper", symbol, json.dumps({"quantity": 2, "limitPrice": entry}),
+                proposal, "paper", symbol, json.dumps({"quantity": 2, "limitPrice": entry - 0.1}),
             ))
             entry_payload = {"time": "20260911 10:00:00 US/Eastern", "cumulativeQuantity": 2,
                              "averagePrice": entry}
@@ -63,6 +63,7 @@ class PortfolioPerformanceTests(unittest.TestCase):
         self.add_trade("open", "BBB", 50)
         report = portfolio_performance(self.path, self.histories(), capital=1_000)
         self.assertTrue(report["ok"])
+        self.assertEqual(report["status"], "COMPLETE_NET")
         self.assertTrue(report["feesComplete"])
         self.assertEqual(report["grossRealizedPnl"], 4)
         self.assertEqual(report["grossUnrealizedPnl"], 12)
@@ -71,12 +72,19 @@ class PortfolioPerformanceTests(unittest.TestCase):
         self.assertGreater(report["endingExposurePercent"], 0)
         self.assertEqual(len(report["equityCurve"]), 2)
         self.assertIsNotNone(report["netReturnBps"])
+        self.assertEqual(report["executionSlippageSampleCount"], 2)
+        self.assertGreater(report["notionalWeightedExecutionSlippageBps"], 0)
+        self.assertEqual(len(report["dailyPerformance"]), 2)
+        self.assertTrue(report["dataQuality"]["netPerformanceAvailable"])
 
     def test_missing_commissions_make_net_performance_incomplete(self) -> None:
         self.add_trade("open", "BBB", 50, commissions=False)
         report = portfolio_performance(self.path, self.histories(), capital=1_000)
         self.assertFalse(report["feesComplete"])
+        self.assertEqual(report["status"], "COMPLETE_GROSS")
         self.assertIsNone(report["netReturnBps"])
+        self.assertIsNone(report["netExcessVsQqqBps"])
+        self.assertFalse(report["dataQuality"]["netPerformanceAvailable"])
         self.assertIsNotNone(report["grossReturnBps"])
 
     def test_external_or_live_records_are_excluded(self) -> None:

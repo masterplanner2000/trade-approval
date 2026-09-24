@@ -32,6 +32,17 @@ def _execution_date(payload: dict[str, Any], observed_ms: int) -> str:
     return datetime.fromtimestamp(observed_ms / 1000).strftime("%Y%m%d")
 
 
+def _slippage_bps(role: str, execution_price: float, proposed_price: float) -> float | None:
+    """Return positive basis points when execution was worse than the proposal."""
+    if execution_price <= 0 or proposed_price <= 0:
+        return None
+    if role == "entry":
+        return ((execution_price / proposed_price) - 1) * 10_000
+    if role in EXIT_ROLES:
+        return ((proposed_price / execution_price) - 1) * 10_000
+    return None
+
+
 def portfolio_performance(
     ledger_path: Path,
     histories: dict[str, list[DailyBar]],
@@ -73,6 +84,12 @@ def portfolio_performance(
             "proposalId": row["proposal_id"], "symbol": row["symbol"],
             "role": row["role"], "date": _execution_date(payload, row["last_seen_at"]),
             "quantity": quantity, "price": price, "commission": commission,
+            "proposedPrice": float((
+                terms.get("limitPrice") if row["role"] == "entry"
+                else terms.get("stopPrice") if row["role"] == "protective_stop"
+                else terms.get("targetPrice") if row["role"] == "profit_target"
+                else terms.get("limitPrice")
+            ) or 0),
         })
     entries = [event for event in events if event["role"] == "entry"]
     if not entries:
@@ -94,12 +111,23 @@ def portfolio_performance(
     turnover = 0.0
     curve = []
     missing_marks: set[str] = set()
+    slippage_observations: list[dict[str, object]] = []
     for session_date in session_dates:
         for event in (item for item in events if item["date"] == session_date):
             notional = event["quantity"] * event["price"]
             turnover += notional
             fee = float(event["commission"] or 0)
             known_fees += fee
+            slippage = _slippage_bps(
+                str(event["role"]), float(event["price"]), float(event["proposedPrice"])
+            )
+            if slippage is not None:
+                slippage_observations.append({
+                    "proposalId": event["proposalId"], "symbol": event["symbol"],
+                    "role": event["role"], "date": event["date"],
+                    "slippageBps": round(slippage, 6),
+                    "notional": round(notional, 2),
+                })
             position = positions.setdefault(event["proposalId"], {
                 "symbol": event["symbol"], "quantity": 0.0, "entryPrice": 0.0,
             })
@@ -159,8 +187,38 @@ def portfolio_performance(
     qqq_gross_bps = ((last_benchmark.close / first_benchmark.open) - 1) * 10_000
     strategy_return_bps = ((final_equity / capital) - 1) * 10_000
     net_return_bps = (((final_equity - known_fees) / capital) - 1) * 10_000
+    daily_performance = []
+    previous_gross = capital
+    previous_net = capital
+    for point in curve:
+        gross_change = point["grossEquity"] - previous_gross
+        net_change = None if point["netEquity"] is None else point["netEquity"] - previous_net
+        daily_performance.append({
+            "date": point["date"],
+            "grossPnl": round(gross_change, 2),
+            "grossReturnBps": round((gross_change / previous_gross) * 10_000, 6)
+            if previous_gross else None,
+            "netPnl": round(net_change, 2) if net_change is not None else None,
+            "netReturnBps": round((net_change / previous_net) * 10_000, 6)
+            if net_change is not None and previous_net else None,
+            "endingExposurePercent": point["exposurePercent"],
+        })
+        previous_gross = point["grossEquity"]
+        if point["netEquity"] is not None:
+            previous_net = point["netEquity"]
+    weighted_slippage = (
+        sum(float(item["slippageBps"]) * float(item["notional"])
+            for item in slippage_observations)
+        / sum(float(item["notional"]) for item in slippage_observations)
+        if slippage_observations else None
+    )
+    report_status = (
+        "INCOMPLETE_MARKS" if missing_marks else
+        "COMPLETE_NET" if fees_complete else
+        "COMPLETE_GROSS"
+    )
     return {
-        "ok": True, "status": "COMPLETE_GROSS" if not missing_marks else "INCOMPLETE_MARKS",
+        "ok": True, "status": report_status,
         "environment": environment, "capital": capital,
         "window": {"startDate": session_dates[0], "endDate": session_dates[-1],
                    "sessionCount": len(session_dates)},
@@ -186,7 +244,20 @@ def portfolio_performance(
         "qqqBenchmarkGrossReturnBps": round(qqq_gross_bps, 6),
         "qqqBenchmarkNetReturnBps": round(qqq_gross_bps - benchmark_cost_bps, 6),
         "grossExcessVsQqqBps": round(strategy_return_bps - (qqq_gross_bps - benchmark_cost_bps), 6),
+        "netExcessVsQqqBps": round(net_return_bps - (qqq_gross_bps - benchmark_cost_bps), 6)
+        if fees_complete else None,
+        "executionSlippageSampleCount": len(slippage_observations),
+        "notionalWeightedExecutionSlippageBps": round(weighted_slippage, 6)
+        if weighted_slippage is not None else None,
+        "executionSlippage": slippage_observations,
         "missingMarkCount": len(missing_marks),
+        "dataQuality": {
+            "fees": "COMPLETE" if fees_complete else "INCOMPLETE",
+            "marks": "COMPLETE" if not missing_marks else "INCOMPLETE",
+            "benchmark": "COMPLETE",
+            "netPerformanceAvailable": fees_complete and not missing_marks,
+        },
         "currentPositions": current_positions,
+        "dailyPerformance": daily_performance,
         "equityCurve": curve,
     }

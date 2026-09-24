@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-23.9 · **Corresponding architecture:** 5.6
+**Log revision:** 2026-09-23.10 · **Corresponding architecture:** 5.7
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -87,10 +87,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-068 | Test relative volume as ranking context instead of a hard veto | Provisional; frozen forward-only experiment implemented | 2026-09-23 |
 | D-069 | Bind every new proposal to exact frozen evidence identity | Confirmed; prospective identity resolution implemented | 2026-09-23 |
 | D-070 | Recover historical Paper commissions only from exact Flex executions | Confirmed; importer implemented, fresh report required | 2026-09-23 |
+| D-071 | Label strategy performance by evidence completeness | Confirmed; daily scorecard implemented | 2026-09-23 |
 
 ---
 
 ## Detailed decisions
+
+### D-071 — Evidence-complete strategy scorecard
+
+**Status:** Confirmed and implemented.
+
+**Decision:** Report Paper performance only from strategy-owned broker executions and completed daily marks. Publish daily gross P/L, exposure, execution slippage, turnover, drawdown, open positions and same-window cash/QQQ comparisons. Label the report `COMPLETE_NET` only when every included execution has verified fees and every required mark exists; otherwise preserve gross results while leaving net results null or label missing marks explicitly.
+
+**Boundary:** The scorecard measures the recorded strategy; it does not infer profitability from candidate backtests, external holdings or market-wide price movement. Positive slippage means the execution was worse than its frozen proposal price. No missing commission, mark or benchmark value is silently replaced with zero.
 
 ### D-070 — Exact Paper commission recovery
 
