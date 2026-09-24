@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.10
+**Current architecture version:** 5.11
 **Last updated:** 2026-09-23
 **Status:** Living source of truth
 
@@ -152,7 +152,7 @@ flowchart LR
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
-| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Evaluator, append-only journal, recorded-data importer and observation-outcome report implemented | Add provider integrity checks, scheduled capture and a forward dataset |
+| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Evaluator, journal, replay and fail-closed Alpaca/context contract implemented | Build historical minute-volume profiles, add an approved halt source and schedule labeled IEX shadow capture; SIP/actionable use remains blocked |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
 | Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Evaluator, journal, source/consensus adapters and immutable exposure-map registry implemented | Curate reviewed mappings, join records, schedule reaction capture and compare forward outcomes |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | New proposals bind to exact frozen evidence identity; verify the first market-hours proposal/fill lifecycle |
@@ -324,6 +324,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Decoupled review-deck navigation from the Paper submission lifecycle.
 - Advanced immediately after confirmed approval while preview, What-If, safety checks and broker submission continue in the background.
 - Restored failed submissions to the front of the stack and kept successful progress in Activity/fill reconciliation.
+
+### Version 5.11 — 2026-09-24
+
+- Extended fixed-host Alpaca normalization with quote time and session open/high/low.
+- Added a fail-closed intraday provider contract requiring exact symbol/time, a minimum historical volume profile, known halt state and explicit feed scope.
+- Verified current IEX access and SIP denial; preserved IEX as single-venue shadow evidence with no recommendation or order authority.
 
 ### Version 3.17 — 2026-09-12
 

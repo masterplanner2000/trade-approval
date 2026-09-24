@@ -22,7 +22,8 @@ class Response:
 SNAPSHOT = {
     "latestQuote": {"bp": 99.9, "ap": 100.1, "t": "2026-10-01T12:25:00Z"},
     "latestTrade": {"p": 100.0, "t": "2026-10-01T12:24:59Z"},
-    "dailyBar": {"v": 1000}, "prevDailyBar": {"c": 98.0},
+    "dailyBar": {"v": 1000, "o": 99.0, "h": 101.0, "l": 98.5},
+    "prevDailyBar": {"c": 98.0},
 }
 PLAN = {"eventKey": "cpi-1", "linkVersion": "link-v1", "mapVersion": "map-v1"}
 TASK = {"kind": "baseline", "symbol": "TEST", "dueAt": "2026-10-01T12:25:00Z", "plan": PLAN}
@@ -40,6 +41,9 @@ class MacroProviderAdapterTests(unittest.TestCase):
         client, requests = self.client()
         result = client.fetch("test")
         self.assertEqual((result["symbol"], result["volumeScope"]), ("TEST", "single_venue"))
+        self.assertEqual((result["sessionOpen"], result["sessionHigh"], result["sessionLow"]),
+                         (99.0, 101.0, 98.5))
+        self.assertEqual(result["quoteObservedAt"], "2026-10-01T12:25:00Z")
         request = requests[0][0]
         self.assertNotIn("key", request.full_url)
         self.assertNotIn("secret", request.full_url)

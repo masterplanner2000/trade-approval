@@ -29,6 +29,8 @@ Development branch: `feature/intraday-volatility-recommendations`
 
 Goal: originate new recommendations from market movement developing during the session rather than repeatedly presenting a queue derived from the prior completed daily bar. Start from the existing research-only intraday evaluator. First connect and validate a consolidated real-time provider, then collect immutable forward observations, measure after-cost outcomes and surface shadow-only cards. Actionable Paper cards require a later explicit promotion decision; `main` remains the stable daily-bar workflow.
 
+**Milestone 1 complete — provider contract:** Alpaca snapshots now expose the timestamps and session fields required by the evaluator. The join refuses a wrong symbol, stale/future context, fewer than 10 volume-profile sessions, unknown halt state or unlabeled feed. Live IEX access works; live SIP access is currently denied. Next implement a point-in-time cumulative minute-volume profile from prior sessions and select an approved halt-status source. Only then schedule IEX observations into the append-only shadow journal.
+
 ## Today's test plan — 2026-09-22
 
 1. **Before the open — evidence integrity:** implement an append-only invalidation/supersession record for immutable daily evidence. Mark the first September 21 run invalid for comparative performance, preserve its payload, and prove automated reports exclude it without deleting or rewriting history.
