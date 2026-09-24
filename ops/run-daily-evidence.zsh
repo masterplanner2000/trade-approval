@@ -23,5 +23,6 @@ set +a
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 print -r -- "$(date -u +%Y-%m-%dT%H:%M:%SZ) daily evidence started"
 /opt/homebrew/bin/npm run market:daily
+/opt/homebrew/bin/npm run market:evidence:archive-performance
 /opt/homebrew/bin/npm run market:evidence:readiness
 print -r -- "$(date -u +%Y-%m-%dT%H:%M:%SZ) daily evidence completed"

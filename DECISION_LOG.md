@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-23.11 · **Corresponding architecture:** 5.8
+**Log revision:** 2026-09-23.12 · **Corresponding architecture:** 5.9
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -89,10 +89,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-070 | Recover historical Paper commissions only from exact Flex executions | Confirmed; importer implemented, fresh report required | 2026-09-23 |
 | D-071 | Label strategy performance by evidence completeness | Confirmed; daily scorecard implemented | 2026-09-23 |
 | D-072 | Compare performance with an exposure-matched QQQ alternative | Confirmed; minimum-sample gate retained | 2026-09-23 |
+| D-073 | Archive one immutable performance report after each daily collection | Confirmed; scheduled path integrated | 2026-09-23 |
 
 ---
 
 ## Detailed decisions
+
+### D-073 — Immutable daily performance archive
+
+**Status:** Confirmed and implemented in the installed weekday collection path.
+
+**Decision:** After the daily market refresh and immutable evidence capture, generate the broker-grounded performance report and append its canonical payload to a separate local SQLite archive. Key exact repeats by SHA-256 so reruns are idempotent. Preserve later same-day revisions—such as newly imported fees—as new immutable versions rather than overwriting the earlier report. Database triggers reject update and delete.
+
+**Operation:** The weekday 4:30 p.m. job now runs capture, performance archival and readiness reporting under its existing non-overlapping lock. Any failure exits nonzero and remains visible in the local collector log. The archive is local and Git-ignored because it contains account-derived evidence.
+
+**Boundary:** Archival has no recommendation or order authority. A stored `COMPLETE_GROSS` report does not become net evidence later; importing fees produces a distinct report version.
 
 ### D-072 — Exposure-matched benchmark and minimum sample
 

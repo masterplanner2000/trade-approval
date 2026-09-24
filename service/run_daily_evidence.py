@@ -7,11 +7,13 @@ from pathlib import Path
 
 from daily_evidence_capture import DailyEvidenceStore
 from portfolio_performance import portfolio_performance
+from performance_report_archive import PerformanceReportArchive
 from shadow_strategy_comparison import load_cache
 
 
 DATA = Path(__file__).parent / "data"
 STORE = DATA / "daily-forward-evidence.sqlite3"
+PERFORMANCE_ARCHIVE = DATA / "performance-report-archive.sqlite3"
 
 
 def main() -> int:
@@ -44,13 +46,21 @@ def main() -> int:
             )
         elif command == "status":
             result = store.status()
-        elif command == "report":
+        elif command in {"report", "archive-performance"}:
             result = store.counterfactual_report()
             _, baseline = load_cache(DATA / "market-cache.sqlite3")
             _, shadow = load_cache(DATA / "aggressive-market-cache.sqlite3")
             result["portfolioPerformance"] = portfolio_performance(
                 DATA / "trading-ledger.sqlite3", {**baseline, **shadow}
             )
+            if command == "archive-performance":
+                archive = PerformanceReportArchive(PERFORMANCE_ARCHIVE)
+                try:
+                    result["performanceArchive"] = archive.record(
+                        result["portfolioPerformance"], observed_at=now
+                    )
+                finally:
+                    archive.close()
         elif command == "readiness":
             result = store.collection_readiness()
         elif command == "invalidate":
@@ -58,7 +68,9 @@ def main() -> int:
                 raise ValueError("usage: invalidate RUN_ID REASON")
             result = store.invalidate_run(sys.argv[2], reason=" ".join(sys.argv[3:]), recorded_at=now)
         else:
-            raise ValueError("usage: capture|status|report|readiness|invalidate RUN_ID REASON")
+            raise ValueError(
+                "usage: capture|status|report|archive-performance|readiness|invalidate RUN_ID REASON"
+            )
         print(json.dumps({"ok": True, **result}))
         return 0
     finally:
