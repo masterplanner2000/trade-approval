@@ -152,7 +152,7 @@ flowchart LR
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
-| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Five-minute capture, immutable outcomes, profiles, Paper context, exposure buckets, data readiness and qualified-session health implemented | Accumulate 20 qualified sessions and resolve consolidated-data entitlement; actionable use remains blocked |
+| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Seven-symbol frozen forward universe with capture, outcomes, profiles, Paper context, exposure, data readiness and session health | Accumulate 20 qualified sessions and resolve consolidated-data entitlement; actionable use remains blocked |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
 | Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Evaluator, journal, source/consensus adapters and immutable exposure-map registry implemented | Curate reviewed mappings, join records, schedule reaction capture and compare forward outcomes |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | New proposals bind to exact frozen evidence identity; verify the first market-hours proposal/fill lifecycle |
@@ -408,6 +408,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added per-session capture-slot, record-completeness and portfolio-context health reporting from immutable journals only.
 - Required a usable closed session to intersect completed forward outcomes before it counts toward the 20-session review gate.
 - Classified the partial September 24 setup session as degraded and excluded it from qualified-session progress.
+
+### Version 5.23 — 2026-09-24
+
+- Added a tracked, versioned forward intraday research universe and an all-or-nothing atomic profile expansion path.
+- Rejected five proposed symbols with insufficient IEX minute coverage without lowering profile-quality requirements.
+- Expanded the live shadow set from four to seven fully profiled and explicitly mapped symbols for prospective collection beginning September 25.
 
 ### Version 3.17 — 2026-09-12
 

@@ -1,0 +1,10 @@
+{
+  "version": "intraday-research-universe-v1",
+  "effectiveFrom": "2026-09-25",
+  "selectedFromCompletedSession": "2026-09-23",
+  "selectionPolicy": "frozen_forward_research_set_from_existing_aggressive_cache_with_liquidity_and_theme_diversity",
+  "symbols": ["BMNR", "CRWV", "IONQ", "MSFT", "MU", "NVDA", "RIOT"],
+  "classification": "research_only",
+  "recommendationAllowed": false,
+  "orderSubmissionAllowed": false
+}

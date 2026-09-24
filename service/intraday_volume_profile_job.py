@@ -15,6 +15,7 @@ from intraday_volume_profile import build_cumulative_volume_profile
 
 
 OUTPUT_PATH = Path(__file__).resolve().parent / "data" / "intraday-volume-profiles.json"
+UNIVERSE_PATH = Path(__file__).resolve().parent / "data" / "intraday-research-universe.json"
 HISTORY_CALENDAR_DAYS = 70
 
 
@@ -158,12 +159,45 @@ def refresh_existing_profiles(
         candidate.unlink(missing_ok=True)
 
 
+def refresh_universe_profiles(
+    *, now: datetime | None = None, output_path: Path = OUTPUT_PATH,
+    universe_path: Path = UNIVERSE_PATH,
+    reader: Callable[[str, dict[str, object]], object] = api_json,
+) -> dict[str, object]:
+    """Atomically expand to an exact frozen research universe only if every profile validates."""
+    universe = json.loads(universe_path.read_text(encoding="utf-8"))
+    symbols = universe.get("symbols") if isinstance(universe, dict) else None
+    version = universe.get("version") if isinstance(universe, dict) else None
+    if (not isinstance(version, str) or not isinstance(symbols, list) or not symbols
+            or any(not isinstance(symbol, str) for symbol in symbols)
+            or len(symbols) != len(set(symbols))):
+        raise ValueError("intraday_research_universe_invalid")
+    previous = load_profile_artifact(output_path)
+    candidate = output_path.with_name(f".{output_path.name}.{uuid.uuid4().hex}.candidate")
+    try:
+        result = refresh_profiles(symbols, now=now, output_path=candidate, reader=reader,
+                                  feed=str(previous["feed"]))
+        if result["failures"] or set(result["profiles"]) != set(symbols):
+            raise RuntimeError("intraday_universe_profile_refresh_incomplete")
+        for symbol, prior in previous["profiles"].items():
+            if symbol in result["profiles"] and _profile_session_through(result["profiles"][symbol]) < _profile_session_through(prior):
+                raise RuntimeError("intraday_profile_refresh_regression")
+        result["universeVersion"] = version
+        result["refreshPolicy"] = "complete_frozen_research_universe_atomic_replace_v1"
+        candidate.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        candidate.replace(output_path)
+        return result
+    finally:
+        candidate.unlink(missing_ok=True)
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(json.dumps({"ok": False, "error": "usage: --refresh-existing | SYMBOL [SYMBOL ...]"}))
         return 2
     try:
         result = (refresh_existing_profiles() if sys.argv[1:] == ["--refresh-existing"]
+                  else refresh_universe_profiles() if sys.argv[1:] == ["--refresh-universe"]
                   else refresh_profiles(sys.argv[1:]))
         print(json.dumps({
             "ok": bool(result["profiles"]), "generatedAt": result["generatedAt"],

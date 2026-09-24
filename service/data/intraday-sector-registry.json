@@ -8,6 +8,11 @@
       "effectiveFrom": "2026-06-30",
       "source": "https://www.bitminetech.io/"
     },
+    "CRWV": {
+      "sector": "information_technology",
+      "effectiveFrom": "2025-03-28",
+      "source": "https://www.coreweave.com/about-us"
+    },
     "DE": {
       "sector": "industrials",
       "effectiveFrom": "2000-01-01",
@@ -17,6 +22,16 @@
       "sector": "health_care",
       "effectiveFrom": "2000-01-01",
       "source": "https://www.merck.com/company-overview/"
+    },
+    "GME": {
+      "sector": "consumer_discretionary",
+      "effectiveFrom": "2000-01-01",
+      "source": "https://investor.gamestop.com/"
+    },
+    "IONQ": {
+      "sector": "information_technology",
+      "effectiveFrom": "2021-10-01",
+      "source": "https://ionq.com/company"
     },
     "MSFT": {
       "sector": "information_technology",
@@ -33,10 +48,35 @@
       "effectiveFrom": "2000-01-01",
       "source": "https://www.nvidia.com/en-us/about-nvidia/"
     },
+    "RIOT": {
+      "sector": "digital_asset_treasury",
+      "effectiveFrom": "2021-01-01",
+      "source": "https://www.riotplatforms.com/about"
+    },
+    "RKLB": {
+      "sector": "industrials",
+      "effectiveFrom": "2021-08-25",
+      "source": "https://www.rocketlabusa.com/about/about-us/"
+    },
+    "RMBS": {
+      "sector": "information_technology",
+      "effectiveFrom": "2000-01-01",
+      "source": "https://www.rambus.com/about/"
+    },
+    "SHOP": {
+      "sector": "information_technology",
+      "effectiveFrom": "2015-05-21",
+      "source": "https://www.shopify.com/about"
+    },
     "TQQQ": {
       "sector": "leveraged_nasdaq_100",
       "effectiveFrom": "2010-02-09",
       "source": "https://www.proshares.com/our-etfs/leveraged-and-inverse/tqqq"
+    },
+    "TWLO": {
+      "sector": "information_technology",
+      "effectiveFrom": "2016-06-23",
+      "source": "https://www.twilio.com/en-us/company"
     }
   }
 }
