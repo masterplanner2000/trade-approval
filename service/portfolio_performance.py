@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import statistics
 import sqlite3
+from math import sqrt
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -190,9 +192,20 @@ def portfolio_performance(
     daily_performance = []
     previous_gross = capital
     previous_net = capital
+    exposure_matched_equity = float(capital)
+    previous_exposure = 0.0
+    daily_excess_returns: list[float] = []
     for point in curve:
         gross_change = point["grossEquity"] - previous_gross
         net_change = None if point["netEquity"] is None else point["netEquity"] - previous_net
+        qqq_bar = qqq_by_date[point["date"]]
+        exposure = float(point["exposurePercent"]) / 100
+        qqq_session_return = (qqq_bar.close / qqq_bar.open) - 1
+        allocation_cost = abs(exposure - previous_exposure) * (benchmark_cost_bps / 10_000)
+        exposure_matched_return = exposure * qqq_session_return - allocation_cost
+        exposure_matched_equity *= 1 + exposure_matched_return
+        gross_daily_return = gross_change / previous_gross if previous_gross else 0
+        daily_excess_returns.append(gross_daily_return - exposure_matched_return)
         daily_performance.append({
             "date": point["date"],
             "grossPnl": round(gross_change, 2),
@@ -202,8 +215,10 @@ def portfolio_performance(
             "netReturnBps": round((net_change / previous_net) * 10_000, 6)
             if net_change is not None and previous_net else None,
             "endingExposurePercent": point["exposurePercent"],
+            "exposureMatchedQqqReturnBps": round(exposure_matched_return * 10_000, 6),
         })
         previous_gross = point["grossEquity"]
+        previous_exposure = exposure
         if point["netEquity"] is not None:
             previous_net = point["netEquity"]
     weighted_slippage = (
@@ -217,6 +232,19 @@ def portfolio_performance(
         "COMPLETE_NET" if fees_complete else
         "COMPLETE_GROSS"
     )
+    exposure_matched_return_bps = ((exposure_matched_equity / capital) - 1) * 10_000
+    risk_adjusted = {
+        "status": "COMPLETE" if len(daily_excess_returns) >= 20 else "INSUFFICIENT_SAMPLE",
+        "minimumSessionCount": 20,
+        "observedSessionCount": len(daily_excess_returns),
+        "annualizedInformationRatio": None,
+    }
+    if len(daily_excess_returns) >= 20:
+        tracking_error = statistics.stdev(daily_excess_returns)
+        risk_adjusted["annualizedInformationRatio"] = (
+            round((statistics.fmean(daily_excess_returns) / tracking_error) * sqrt(252), 6)
+            if tracking_error > 0 else None
+        )
     return {
         "ok": True, "status": report_status,
         "environment": environment, "capital": capital,
@@ -246,6 +274,15 @@ def portfolio_performance(
         "grossExcessVsQqqBps": round(strategy_return_bps - (qqq_gross_bps - benchmark_cost_bps), 6),
         "netExcessVsQqqBps": round(net_return_bps - (qqq_gross_bps - benchmark_cost_bps), 6)
         if fees_complete else None,
+        "exposureMatchedQqqNetReturnBps": round(exposure_matched_return_bps, 6),
+        "grossExcessVsExposureMatchedQqqBps": round(
+            strategy_return_bps - exposure_matched_return_bps, 6
+        ),
+        "exposureMatchedBenchmarkMethod": (
+            "Daily QQQ open-to-close return scaled by strategy ending exposure; "
+            "20 bps applied pro rata to absolute daily allocation changes."
+        ),
+        "riskAdjustedComparison": risk_adjusted,
         "executionSlippageSampleCount": len(slippage_observations),
         "notionalWeightedExecutionSlippageBps": round(weighted_slippage, 6)
         if weighted_slippage is not None else None,

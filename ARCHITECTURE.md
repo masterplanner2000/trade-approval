@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.7
+**Current architecture version:** 5.8
 **Last updated:** 2026-09-23
 **Status:** Living source of truth
 
@@ -162,7 +162,7 @@ flowchart LR
 | Broker reconciliation | Match app state to IBKR orders, fills, positions, and commission reports | Partial | Complete partial-fill, cancellation, and missing-account-summary handling |
 | Durable trading ledger | Persist proposals, decisions, submission attempts, broker orders, executions, fees, and lifecycle events | Partial | Closed-trade and recycled-budget read models added; complete historical fee coverage |
 | Activity and Positions | Show pending orders as trades, open positions, and closed results | Partial | Consolidated trade views added; add current-price unrealized P/L |
-| Performance evaluation | Measure selection, missed-opportunity, execution and portfolio outcomes separately | Partial | Daily strategy-only scorecard and exact commission importer implemented; obtain a current Flex report to unlock net Paper results |
+| Performance evaluation | Measure selection, missed-opportunity, execution and portfolio outcomes separately | Partial | Daily scorecard plus all-in and exposure-matched QQQ comparisons implemented; obtain current fees and 20 sessions |
 | Directional-volume experiment | Test one frozen eligibility change against the unchanged higher-volatility control | Research only | Collect 20 paired forward sessions per horizon; no app-card or broker integration |
 | Notifications | Deliver proposals, fills, exits, and safety alerts | Planned | Add after reliable event states exist |
 | Web app | Cross-platform account and review experience | Planned | Reuse API after mobile workflow is reliable |
@@ -306,6 +306,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a strategy-only daily scorecard with gross/net daily P/L, exposure and explicit data-quality labels.
 - Added proposal-relative execution-slippage observations and notional-weighted summary.
 - Added net excess return versus the same-window QQQ alternative only when commission evidence is complete.
+
+### Version 5.8 — 2026-09-23
+
+- Added a dynamic QQQ comparison scaled to the strategy's recorded daily exposure.
+- Applied explicit allocation-change costs and exposed the approximation method with the result.
+- Withheld the annualized risk-adjusted comparison until at least 20 observed sessions exist.
 
 ### Version 3.17 — 2026-09-12
 

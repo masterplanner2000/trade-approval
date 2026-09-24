@@ -12,10 +12,12 @@
 5. **Completed:** Added append-only application-lifecycle observations linking proposals to evidence only by exact signal date, symbol and lane. Reports now separate proposal disposition, decision, submission, broker entry, entry slippage, commission coverage and incompleteness. Historical proposals that predate valid evidence remain explicitly unlinked.
 6. **Completed:** Added a broker-grounded Paper portfolio report using strategy-owned fills and completed daily marks. It reports gross realized/unrealized P/L, equity, exposure, turnover, drawdown, open positions and same-window cash/QQQ alternatives; external and Live activity are excluded.
 7. **In progress, automated:** The loaded weekday 4:30 p.m. collector now refreshes both universes, captures immutable evidence, attaches available candidate outcomes, cash/QQQ benchmarks and ledger lifecycle observations, then logs progress toward 20 distinct usable sessions for every horizon. A separate matched-proposal session gate tracks execution evidence.
-8. **Next after collection:** Ingest complete commission evidence so net performance becomes available and add exposure-matched/risk-adjusted benchmark analysis after enough sessions exist.
+8. **In progress:** Exact commission importing and exposure-matched QQQ analysis are implemented. Net performance still requires the current Flex export; the risk-adjusted statistic remains gated until 20 observed sessions exist.
 9. **Promotion gate:** Do not tune a filter from one day or one small cohort. A rule change requires a frozen hypothesis, adequate forward sample, holdout evaluation, costs, drawdown and an explicit decision-log promotion.
 
 **Priority 3 update, 2026-09-23:** The broker-grounded report now produces a reproducible daily strategy scorecard, proposal-relative execution slippage, notional-weighted slippage, and explicit fee/mark/benchmark completeness. Gross results remain visible when fees are missing, but net results and net benchmark excess remain unavailable. Exposure-matched and risk-adjusted benchmark interpretation still requires an adequate forward sample.
+
+**Priority 4 update, 2026-09-23:** Added a cost-aware exposure-matched QQQ alternative alongside the existing fully invested benchmark. The report shows daily matched-benchmark returns and gross excess but labels risk-adjusted comparison insufficient until 20 sessions are observed. This is descriptive and cannot promote a strategy.
 
 ## Today's test plan — 2026-09-22
 

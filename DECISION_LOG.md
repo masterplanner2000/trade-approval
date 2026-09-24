@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-23.10 · **Corresponding architecture:** 5.7
+**Log revision:** 2026-09-23.11 · **Corresponding architecture:** 5.8
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -88,10 +88,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-069 | Bind every new proposal to exact frozen evidence identity | Confirmed; prospective identity resolution implemented | 2026-09-23 |
 | D-070 | Recover historical Paper commissions only from exact Flex executions | Confirmed; importer implemented, fresh report required | 2026-09-23 |
 | D-071 | Label strategy performance by evidence completeness | Confirmed; daily scorecard implemented | 2026-09-23 |
+| D-072 | Compare performance with an exposure-matched QQQ alternative | Confirmed; minimum-sample gate retained | 2026-09-23 |
 
 ---
 
 ## Detailed decisions
+
+### D-072 — Exposure-matched benchmark and minimum sample
+
+**Status:** Confirmed and implemented.
+
+**Decision:** Keep the existing all-in QQQ alternative, and separately compound a dynamic QQQ benchmark using the strategy's recorded daily ending exposure. Apply the declared 20-basis-point cost pro rata to each absolute allocation change. Report gross strategy excess against this benchmark. Do not calculate the annualized information ratio until at least 20 observed sessions exist.
+
+**Reason:** Comparing a partly invested strategy only with fully invested QQQ confounds stock selection with cash exposure. The exposure-matched view is a more relevant—but still approximate—opportunity-cost comparison. Ending exposure does not reproduce intraday timing, so the method must remain visible alongside the result.
+
+**Boundary:** This comparison is descriptive, not evidence of a profitable edge. It cannot promote a strategy rule, generate a recommendation or authorize an order. Net strategy conclusions still require complete commission evidence.
 
 ### D-071 — Evidence-complete strategy scorecard
 

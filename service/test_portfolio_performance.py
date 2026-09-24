@@ -76,6 +76,13 @@ class PortfolioPerformanceTests(unittest.TestCase):
         self.assertGreater(report["notionalWeightedExecutionSlippageBps"], 0)
         self.assertEqual(len(report["dailyPerformance"]), 2)
         self.assertTrue(report["dataQuality"]["netPerformanceAvailable"])
+        self.assertIsNotNone(report["exposureMatchedQqqNetReturnBps"])
+        self.assertIsNotNone(report["grossExcessVsExposureMatchedQqqBps"])
+        self.assertEqual(
+            report["riskAdjustedComparison"]["status"], "INSUFFICIENT_SAMPLE"
+        )
+        self.assertEqual(report["riskAdjustedComparison"]["observedSessionCount"], 2)
+        self.assertIn("exposureMatchedQqqReturnBps", report["dailyPerformance"][0])
 
     def test_missing_commissions_make_net_performance_incomplete(self) -> None:
         self.add_trade("open", "BBB", 50, commissions=False)
@@ -86,6 +93,32 @@ class PortfolioPerformanceTests(unittest.TestCase):
         self.assertIsNone(report["netExcessVsQqqBps"])
         self.assertFalse(report["dataQuality"]["netPerformanceAvailable"])
         self.assertIsNotNone(report["grossReturnBps"])
+
+    def test_risk_adjusted_comparison_requires_twenty_sessions(self) -> None:
+        self.add_trade("open", "BBB", 50)
+        dates = [f"202609{day:02d}" for day in range(1, 21)]
+        histories = {
+            "BBB": [DailyBar(date, 50 + day, 52 + day, 49 + day, 51 + day, 1)
+                    for day, date in enumerate(dates)],
+            "QQQ": [DailyBar(date, 500 + day, 504 + day, 499 + day,
+                             501 + day + (day % 2), 1)
+                    for day, date in enumerate(dates)],
+        }
+        with sqlite3.connect(self.path) as connection:
+            payload = json.loads(connection.execute(
+                "SELECT order_json FROM broker_orders WHERE proposal_id='open'"
+            ).fetchone()[0])
+            payload["time"] = "20260901 10:00:00 US/Eastern"
+            connection.execute(
+                "UPDATE broker_orders SET order_json=? WHERE proposal_id='open'",
+                (json.dumps(payload),),
+            )
+        report = portfolio_performance(self.path, histories, capital=1_000)
+        self.assertEqual(report["riskAdjustedComparison"]["status"], "COMPLETE")
+        self.assertEqual(report["riskAdjustedComparison"]["observedSessionCount"], 20)
+        self.assertIsNotNone(
+            report["riskAdjustedComparison"]["annualizedInformationRatio"]
+        )
 
     def test_external_or_live_records_are_excluded(self) -> None:
         with sqlite3.connect(self.path) as connection:
