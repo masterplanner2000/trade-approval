@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.12
+**Current architecture version:** 5.13
 **Last updated:** 2026-09-24
 **Status:** Living source of truth
 
@@ -152,7 +152,7 @@ flowchart LR
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
-| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Evaluator, journal, replay, fail-closed Alpaca/context contract and historical minute-volume profiles implemented | Add an approved halt source and schedule labeled IEX shadow capture; SIP/actionable use remains blocked |
+| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Evaluator, journal, replay, provider contract, historical minute volume/range profiles and price-movement diagnostics implemented | Add approved halt provenance, combine evidence in a versioned opportunity score and schedule labeled IEX shadow capture; SIP/actionable use remains blocked |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
 | Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Evaluator, journal, source/consensus adapters and immutable exposure-map registry implemented | Curate reviewed mappings, join records, schedule reaction capture and compare forward outcomes |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | New proposals bind to exact frozen evidence identity; verify the first market-hours proposal/fill lifecycle |
@@ -175,6 +175,8 @@ The experimental higher-volatility lane lives in `service/aggressive_shadow_scan
 `service/intraday_shadow_evaluator.py` consumes a caller-supplied, timestamped snapshot and evaluates session, freshness, halt state, coherent prices, day movement, opening gap, relative volume, session dollar volume and current spread. It returns every failed check and is hard-coded `research_only` with `orderSubmissionAllowed: false`. `service/intraday_shadow_journal.py` stores exact snapshots and evaluations in an append-only SQLite timeline, deduplicates identical evidence and deterministically replays only a supported versioned ruleset. `service/intraday_shadow_replay.py` validates and imports recorded JSONL evidence, then selects the first eligible observation per symbol/session and measures fixed-horizon, last-observed and excursion outcomes without representing observations as fills. Missing horizons remain incomplete. Its numerical gates and score are proposed test variables. It still has no provider, scheduler, API route, mobile surface, portfolio sizing or broker authority; therefore it cannot discover or recommend a stock in real time yet.
 
 `service/intraday_volume_profile.py` provides the point-in-time relative-volume denominator. It admits only complete regular sessions strictly before the as-of date, selects the most recent 20–30 sessions, expands them to all 390 regular-session minutes and takes the median cumulative volume at each minute. `service/intraday_volume_profile_job.py` reads paginated Alpaca one-minute history and writes a local research artifact atomically. The exact included dates, provider scope and input digest remain visible; the current day cannot leak into its own baseline.
+
+`service/intraday_price_signals.py` builds the corresponding cumulative high/low range baseline and computes current-session price movement without interpreting it as a recommendation. Exact 5/15/60-minute returns, acceleration, VWAP distance, range expansion, session-high pullback and recent path-quality metrics remain timestamped diagnostics. Future, stale, sparse, duplicate and cross-session input fails closed.
 
 `service/stock_catalyst.mjs` classifies normalized Alpaca/Benzinga headlines into bounded research categories and returns evidence, timing, affected symbols, lexical direction, classification confidence, window-relative novelty and secondary-source quality. It is included in the existing stock-news response. Predictive confidence is null, and the component has no ranking, proposal, sizing or order authority. Primary-source verification, source conflict handling, event identity/corrections and outcome testing remain pending.
 
@@ -338,6 +340,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a deterministic 390-point cumulative minute-volume profile from the latest 20–30 complete prior sessions.
 - Added paginated, read-only Alpaca one-minute collection with atomic local persistence, explicit feed provenance and exact input digests.
 - Verified live IEX profiles for BMNR, MU, NVDA and MSFT; retained all outputs as research-only with no recommendation or order authority.
+
+### Version 5.13 — 2026-09-24
+
+- Added a point-in-time cumulative intraday range baseline from the same prior 20–30 complete sessions.
+- Added exact 5/15/60-minute momentum, acceleration, VWAP, range-expansion, pullback and recent path-quality diagnostics.
+- Verified the diagnostics on current IEX bars for BMNR, MU, NVDA and MSFT while preserving research-only boundaries.
 
 ### Version 3.17 — 2026-09-12
 

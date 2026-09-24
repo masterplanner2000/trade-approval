@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 from alpaca_market_cache import BARS_URL, api_json, data_feed
+from intraday_price_signals import build_intraday_range_profile
 from intraday_volume_profile import build_cumulative_volume_profile
 
 
@@ -65,10 +66,15 @@ def refresh_profiles(
             bars = fetch_minute_bars(
                 symbol, start=start, end=end, feed=selected_feed, reader=reader,
             )
-            profiles[symbol] = build_cumulative_volume_profile(
+            volume_profile = build_cumulative_volume_profile(
                 symbol, bars, as_of=as_of,
                 data_source=f"Alpaca {selected_feed.upper()} historical 1Min bars",
             )
+            price_profile = build_intraday_range_profile(
+                symbol, bars, as_of=as_of,
+                data_source=f"Alpaca {selected_feed.upper()} historical 1Min bars",
+            )
+            profiles[symbol] = {**volume_profile, **price_profile}
         except (RuntimeError, ValueError) as error:
             failures[symbol] = str(error)
     result = {

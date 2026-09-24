@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-24.4 · **Corresponding architecture:** 5.12
+**Log revision:** 2026-09-24.5 · **Corresponding architecture:** 5.13
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -91,7 +91,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-072 | Compare performance with an exposure-matched QQQ alternative | Confirmed; minimum-sample gate retained | 2026-09-23 |
 | D-073 | Archive one immutable performance report after each daily collection | Confirmed; scheduled path integrated | 2026-09-23 |
 | D-074 | Process approved Paper orders in the background | Confirmed; failure restores the card | 2026-09-24 |
-| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; provider contract and minute-volume baseline implemented | 2026-09-24 |
+| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; provider baselines and price diagnostics implemented | 2026-09-24 |
 
 ---
 
@@ -110,6 +110,8 @@ This is the living record of product, design, trading-safety, data, and technica
 **2026-09-24 implementation evidence:** The fixed-host Alpaca snapshot client now preserves the quote timestamp and current session open/high/low required by the evaluator. A fail-closed join requires exact symbol identity, context no more than 60 seconds old, at least 20 historical volume-profile sessions, a known halt state and explicit IEX-versus-SIP provenance. Regular-session classification uses New York time. Tests cover consolidated and single-venue evidence, symbol/time mismatches, insufficient profiles, unknown halt state and outside-session rejection. A live read-only entitlement check succeeded for IEX and was denied for SIP. Therefore IEX may support labeled shadow observations only; actionable promotion remains blocked on consolidated data and the remaining context sources.
 
 **2026-09-24 minute-profile evidence:** The minimum profile is now 20 sessions. The builder uses the median cumulative volume at every one of 390 regular-session minutes from the latest 20–30 complete sessions strictly before the as-of day. A session requires at least 380 observed minutes and both boundary minutes; malformed and duplicate bars fail closed. The artifact records included dates, estimator, provider scope and a deterministic input digest. A live read-only IEX collection produced 30-session profiles for BMNR, MU, NVDA and MSFT without failures. This solves the relative-volume denominator only; IEX remains single-venue, halt evidence is not yet approved, and the output cannot create recommendations or orders.
+
+**2026-09-24 price-diagnostic evidence:** The same admitted prior sessions now produce a median cumulative high/low range for every market minute. Current-session calculations expose 5/15/60-minute momentum, previous-five-minute momentum, acceleration, VWAP distance, time-matched range expansion, session-high pullback, recent close location and positive-bar share. A real IEX check completed for BMNR, MU, NVDA and MSFT and showed materially different paths rather than one generic volatility label. The metrics remain unweighted diagnostics: no threshold has been promoted, no opportunity score exists yet and no recommendation or broker authority was added.
 
 ### D-074 — Background Paper submission during continued review
 

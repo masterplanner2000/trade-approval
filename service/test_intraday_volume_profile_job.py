@@ -16,8 +16,11 @@ def history():
     while sessions < 20:
         if day.weekday() < 5:
             start = datetime.combine(day, time(9, 30), NEW_YORK)
-            bars.extend({"t": (start + timedelta(minutes=minute)).isoformat(), "v": 100}
-                        for minute in range(390))
+            bars.extend({
+                "t": (start + timedelta(minutes=minute)).isoformat(),
+                "o": 100 + minute * 0.01, "h": 100.2 + minute * 0.01,
+                "l": 99.9 + minute * 0.01, "c": 100.05 + minute * 0.01, "v": 100,
+            } for minute in range(390))
             sessions += 1
         day += timedelta(days=1)
     return bars
@@ -54,6 +57,7 @@ class IntradayVolumeProfileJobTests(unittest.TestCase):
         self.assertEqual(set(result["profiles"]), {"GOOD"})
         self.assertEqual(result["failures"]["BAD"], "intraday_volume_profile_incomplete")
         self.assertEqual(stored["volumeScope"], "single_venue")
+        self.assertEqual(len(stored["profiles"]["GOOD"]["expectedRangePercentByMinute"]), 390)
         self.assertFalse(stored["orderSubmissionAllowed"])
 
 
