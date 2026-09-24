@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.15
+**Current architecture version:** 5.16
 **Last updated:** 2026-09-24
 **Status:** Living source of truth
 
@@ -152,7 +152,7 @@ flowchart LR
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
-| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Evaluator, journal, replay, profiles, score, official halt adapter and market/portfolio safety verdict implemented | Schedule labeled IEX shadow capture and measure forward outcomes; SIP/actionable use remains blocked |
+| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Complete pipeline scheduled every five minutes in market hours; append-only run envelopes preserve pass, rejection and incomplete states | Collect forward outcomes, refresh profiles daily and connect read-only portfolio context; SIP/actionable use remains blocked |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
 | Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Evaluator, journal, source/consensus adapters and immutable exposure-map registry implemented | Curate reviewed mappings, join records, schedule reaction capture and compare forward outcomes |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | New proposals bind to exact frozen evidence identity; verify the first market-hours proposal/fill lifecycle |
@@ -172,7 +172,7 @@ flowchart LR
 
 The experimental higher-volatility lane lives in `service/aggressive_shadow_scanner.py`, with its own SQLite cache. It ranks active, tradable listed U.S. equities by recent venue dollar volume, retains the top 1,500 and adds eligible watchlist or imported discovery-list names. Imported symbols extend observation only and cannot bypass the same security, completed-history, price, venue-liquidity, ATR, momentum or relative-volume checks. Missing and unsupported imports are recorded explicitly. Both daily caches filter incomplete bars before universe selection or persistence, atomically rebuild bar history, record an explicit `completedThrough` boundary and refuse unversioned legacy cache data. A same-day bar is conservatively unavailable until 16:15 ET. Shadow v2 additionally reports realized volatility, recent maximum drawdown and opening gap as non-ranking diagnostics. Its gates are proposed test variables, not a profitability model. The authenticated `GET /shadow/aggressive` route returns research candidates only; it does not feed the recommendation queue, approval flow, portfolio sizing, or broker submission. The current IEX feed is a single-venue observation, not consolidated market liquidity. Verified catalysts, live spread, account and sizing checks are explicitly missing. The existing 500-stock strategy rules are unchanged.
 
-`service/intraday_shadow_evaluator.py` consumes a caller-supplied, timestamped snapshot and evaluates session, freshness, halt state, coherent prices, day movement, opening gap, relative volume, session dollar volume and current spread. It returns every failed check and is hard-coded `research_only` with `orderSubmissionAllowed: false`. `service/intraday_shadow_journal.py` stores exact snapshots and evaluations in an append-only SQLite timeline, deduplicates identical evidence and deterministically replays only a supported versioned ruleset. `service/intraday_shadow_replay.py` validates and imports recorded JSONL evidence, then selects the first eligible observation per symbol/session and measures fixed-horizon, last-observed and excursion outcomes without representing observations as fills. Missing horizons remain incomplete. Its numerical gates and score are proposed test variables. It still has no provider, scheduler, API route, mobile surface, portfolio sizing or broker authority; therefore it cannot discover or recommend a stock in real time yet.
+`service/intraday_shadow_evaluator.py` consumes a caller-supplied, timestamped snapshot and evaluates session, freshness, halt state, coherent prices, day movement, opening gap, relative volume, session dollar volume and current spread. It returns every failed check and is hard-coded `research_only` with `orderSubmissionAllowed: false`. `service/intraday_shadow_journal.py` stores exact valid snapshots and evaluations in an append-only SQLite timeline, deduplicates identical evidence and deterministically replays only a supported versioned ruleset. `service/intraday_shadow_replay.py` selects the first eligible observation per symbol/session and measures fixed-horizon, last-observed and excursion outcomes without representing observations as fills. Missing horizons remain incomplete. `service/intraday_shadow_capture.py` now supplies the scheduled read-only provider orchestration, while `service/intraday_capture_journal.py` atomically preserves the complete per-run pass, rejection and incomplete envelope. A local LaunchAgent invokes it every five minutes and the runner exits before network access outside regular weekday hours. It still has no API route, mobile surface, portfolio sizing or broker authority; single-venue IEX and absent fresh broker portfolio context prevent actionable use.
 
 `service/intraday_volume_profile.py` provides the point-in-time relative-volume denominator. It admits only complete regular sessions strictly before the as-of date, selects the most recent 20–30 sessions, expands them to all 390 regular-session minutes and takes the median cumulative volume at each minute. `service/intraday_volume_profile_job.py` reads paginated Alpaca one-minute history and writes a local research artifact atomically. The exact included dates, provider scope and input digest remain visible; the current day cannot leak into its own baseline.
 
@@ -362,6 +362,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added fixed-host, minute-fresh Nasdaq Trader current-halt evidence with exact halt/resumption semantics and one fetch per scan.
 - Added a fail-closed safety verdict separating market-quality failures from projected portfolio conflicts.
 - Kept IEX acceptable only for labeled shadow research and retained consolidated data, forward calibration and data-rights review as promotion blockers.
+
+### Version 5.16 — 2026-09-24
+
+- Added a complete read-only intraday capture orchestrator scheduled every five minutes during regular weekday market hours.
+- Added atomic append-only run envelopes preserving every pass, rejection and incomplete result with conflict-safe idempotency.
+- Installed and live-verified the non-overlapping macOS runner; retained no recommendation or order authority and left portfolio eligibility fail-closed pending read-only broker context.
 
 ### Version 3.17 — 2026-09-12
 

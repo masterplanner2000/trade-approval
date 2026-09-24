@@ -11,6 +11,8 @@ service/data/market-cache.sqlite3*
 service/data/aggressive-market-cache.sqlite3*
 service/data/daily-forward-evidence.sqlite3*
 service/data/performance-report-archive.sqlite3*
+service/data/intraday-captures.sqlite3*
+service/data/intraday-shadow.sqlite3*
 service/data/trading-ledger.sqlite3*
 *.py[cod]
 .DS_Store
@@ -18,4 +20,5 @@ service/data/trading-ledger.sqlite3*
 # Runtime trading and shadow state stays on this computer.
 service/data/*.json
 service/data/*.log
+service/data/*.lock/
 !service/data/*.example.json

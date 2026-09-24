@@ -1,6 +1,6 @@
 # Trade Approval — Project Plan
 
-**Last updated:** 2026-09-23
+**Last updated:** 2026-09-24
 **Current objective:** Establish a trustworthy paper-trading and learning loop—owned positions, protection, execution state, measured selections and measured missed opportunities—before promoting strategy changes or enabling automatic exits.
 
 ## Current work — performance feedback loop
@@ -38,6 +38,8 @@ Goal: originate new recommendations from market movement developing during the s
 **Milestone 4 complete — transparent opportunity score:** A versioned 100-point long-direction shadow score now itemizes relative volume (25), multi-horizon momentum (25), acceleration (10), VWAP position (10), range expansion (15) and recent path quality (15). Each component exposes its inputs, points, maximum and plain-language explanation. The score blocks on any failed upstream hard gate, wrong symbol/time, missing feed provenance or missing metric; it cannot average away freshness, halt, spread or liquidity failures. Thresholds and weights are explicitly uncalibrated research hypotheses. Live scoring was kept blocked until the independent halt source in milestone 5 was implemented.
 
 **Milestone 5 complete — safety and quality verdict:** A fixed-host Nasdaq Trader RSS adapter now supplies fresh current-halt evidence for Nasdaq- and other exchange-listed securities, fetching once per scan and resolving exact symbols and resumption times. The safety policy separately reports market blockers and portfolio blockers across evidence identity, upstream gates, halt freshness/status, spread, liquidity, profile depth, VWAP extension, extreme range, pullback, portfolio freshness, position capacity, projected symbol/sector exposure, daily loss and buying power. Single-venue IEX can support labeled shadow research but remains an actionable-promotion blocker, as does missing forward calibration. A live check returned fresh not-halted evidence for BMNR, MU, NVDA and MSFT. Next schedule the complete pipeline into immutable shadow capture; review Nasdaq feed terms before any commercial redistribution.
+
+**Milestone 6 complete — scheduled immutable shadow capture:** A read-only orchestrator now runs the complete profile, snapshot, halt, gate, price-signal, score and safety pipeline every five minutes during regular weekday market hours. Every symbol is recorded atomically as `PASS`, `REJECTED` or `INCOMPLETE` in an append-only SQLite run envelope; exact retries are idempotent and conflicting retries fail. Valid observations also enter the existing replay journal. The installed macOS LaunchAgent completed successfully, and the manual plus scheduled live checks each recorded four legitimate rejections with no incomplete evidence and no orders. The collector performs no network work outside market hours. Next collect forward outcomes, automate daily profile refresh and connect fresh read-only portfolio context; IEX, calibration and data-rights limits still block actionable promotion.
 
 ## Today's test plan — 2026-09-22
 

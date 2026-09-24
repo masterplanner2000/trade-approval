@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-24.7 · **Corresponding architecture:** 5.15
+**Log revision:** 2026-09-24.8 · **Corresponding architecture:** 5.16
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -91,7 +91,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-072 | Compare performance with an exposure-matched QQQ alternative | Confirmed; minimum-sample gate retained | 2026-09-23 |
 | D-073 | Archive one immutable performance report after each daily collection | Confirmed; scheduled path integrated | 2026-09-23 |
 | D-074 | Process approved Paper orders in the background | Confirmed; failure restores the card | 2026-09-24 |
-| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; safety filters and official halt evidence implemented | 2026-09-24 |
+| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; scheduled immutable shadow capture implemented | 2026-09-24 |
 
 ---
 
@@ -99,7 +99,7 @@ This is the living record of product, design, trading-safety, data, and technica
 
 ### D-075 — Isolated intraday-volatility recommendation workstream
 
-**Status:** In progress on `feature/intraday-volatility-recommendations`; the provider contract is implemented, but capture remains research-only and is not connected to recommendations.
+**Status:** In progress on `feature/intraday-volatility-recommendations`; scheduled capture is implemented, but it remains research-only and is not connected to recommendations.
 
 **Objective:** Extend discovery beyond completed daily bars so the system can identify volatility, price/volume acceleration, breakouts or reversals developing during the market session. Reuse the existing research-only intraday evaluator, but keep it disconnected from approval cards and broker authority until the data and performance gates pass.
 
@@ -116,6 +116,8 @@ This is the living record of product, design, trading-safety, data, and technica
 **2026-09-24 shadow-score evidence:** The first opportunity score is frozen as `intraday-opportunity-score-v1`: relative volume 25 points, multi-horizon momentum 25, acceleration 10, VWAP position 10, time-matched range expansion 15 and recent path quality 15. Every contribution discloses its exact input, awarded points, cap and explanation. A failed upstream hard gate, mismatched symbol/time, missing feed provenance or missing metric produces no score. The 60-point developing and 75-point strong labels are uncalibrated forward-test hypotheses, not profit estimates. Even a 100-point result remains research-only and cannot create a card or order. Live scoring required the independent halt source implemented below before it could enter scheduled shadow capture.
 
 **2026-09-24 safety evidence:** Nasdaq Trader's official current-halts RSS feed is the prototype halt source. The fixed-host adapter fetches once per scan, requires publication within two minutes, resolves exact symbols and halt/resumption times, rejects malformed/oversized XML and provides no recommendation authority. The versioned safety policy separately reports market and portfolio failures, including overextension and projected exposure. A live check returned fresh `halted: false` evidence for BMNR, MU, NVDA and MSFT. This removes the unknown-halt blocker for labeled personal shadow observations only. IEX single-venue scope, uncalibrated performance, scheduled forward evidence and commercial-feed-terms review still block promotion and distribution.
+
+**2026-09-24 scheduled-capture evidence:** The complete read-only pipeline now runs every five minutes during regular weekday market hours under a non-overlapping macOS LaunchAgent. Each cycle atomically appends one immutable run plus one `PASS`, `REJECTED` or `INCOMPLETE` record per symbol; exact retries are idempotent and conflicting payloads are refused. Valid observations are also stored for deterministic replay. The manual and first scheduled live cycles each completed with four legitimate market-gate rejections, zero incomplete records and zero order authority. Outside-hours invocations exit before network access. Portfolio eligibility remains blocked until fresh read-only IBKR context is connected; IEX scope, forward calibration and commercial data-rights review still block promotion.
 
 ### D-074 — Background Paper submission during continued review
 
