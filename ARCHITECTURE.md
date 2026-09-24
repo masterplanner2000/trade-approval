@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.4
+**Current architecture version:** 5.5
 **Last updated:** 2026-09-23
 **Status:** Living source of truth
 
@@ -21,6 +21,7 @@ flowchart LR
         risk["Calculate risk and position size"]
         rules["Apply portfolio rules"]
         recommend["Create exact buy recommendation"]
+        bindEvidence["Bind frozen evidence identity<br/>date · lane · symbol · ruleset · run"]
         queue["Build market-driven recommendation set"]
 
         sources ==> normalize
@@ -32,7 +33,8 @@ flowchart LR
         scan ==> recommend
         risk --> recommend
         rules --> recommend
-        recommend ==> queue
+        recommend ==> bindEvidence
+        bindEvidence ==> queue
     end
 
     subgraph review ["2. Present and decide"]
@@ -151,7 +153,7 @@ flowchart LR
 | Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Evaluator, append-only journal, recorded-data importer and observation-outcome report implemented | Add provider integrity checks, scheduled capture and a forward dataset |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
 | Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Evaluator, journal, source/consensus adapters and immutable exposure-map registry implemented | Curate reviewed mappings, join records, schedule reaction capture and compare forward outcomes |
-| Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | Full-allocation portfolio review implemented; add approved sell execution and post-fill replacement regeneration |
+| Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | New proposals bind to exact frozen evidence identity; verify the first market-hours proposal/fill lifecycle |
 | Risk and position sizing | Calculate quantity, loss, concentration, and limits | Partial | Pure sizing model implemented; connect reconciled IBKR inputs |
 | Safety validation | Recheck price, account, approval, limits, and What-If | Prototype | Preserve exact validation results |
 | Order service | Submit approved buys, protective stops, and separately approved ordinary sales | Prototype | Confirm durable broker identifiers |
@@ -284,6 +286,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a third immutable daily evidence lane for the frozen directional-volume treatment.
 - Added paired top-five control/treatment evaluation with explicit costs, uncertainty, drawdown rollback and a 20-session review gate.
 - Preserved the production scanner, recommendation queue and broker path unchanged; the treatment has no recommendation or order authority.
+
+### Version 5.5 — 2026-09-23
+
+- Added exact prospective proposal identity resolution against active immutable daily evidence.
+- Persisted lane, ruleset, evidence-run ID and resolution status with every new generated proposal.
+- Made lifecycle attribution reject claimed run or ruleset mismatches; historical pre-collector trades remain unlinked rather than backfilled.
 
 ### Version 3.17 — 2026-09-12
 

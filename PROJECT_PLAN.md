@@ -355,8 +355,9 @@ The durable-ledger and reconciliation milestone is complete only when:
 3. **Report portfolio results — complete foundation.** Strategy-owned Paper fills produce exposure, turnover, drawdown and gross P/L; net results wait for complete commission evidence.
 4. **Automate collection readiness — complete.** Review is blocked until 20 distinct usable sessions exist separately at every horizon, with matched lifecycle progress reported independently.
 5. **Freeze one rule experiment — complete; collecting next-session evidence.** Relative volume is ranking context rather than a hard veto in one isolated treatment lane. Top-five paired results, costs, uncertainty and drawdown are evaluated under D-068. The control remains unchanged and active; treatment has no recommendation or order authority.
+6. **Bind new proposals to frozen evidence — complete prospectively.** New proposals persist exact signal date, lane, ruleset, evidence-run ID and resolution state. Lifecycle capture independently verifies those claims and refuses mismatches. September 11 fills remain unlinked because no contemporaneous frozen run existed.
 
-**Next operational action:** Let the installed post-close collector capture the first new treatment session. Do not alter this hypothesis, thresholds or selection rule during the 20-session collection window. Review data integrity after the first matured 1-session outcome; do not infer performance from the recorded rehearsal.
+**Next operational action:** During the next Paper recommendation cycle, confirm the created proposal reports `evidenceStatus: MATCHED`; after a decision and any fill, run lifecycle capture and confirm its matched-proposal count increases. In parallel, let the installed post-close collector capture treatment sessions without changing the frozen experiment.
 
 ## Separate crypto paper MVP — proposed delivery sequence
 

@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-23.7 · **Corresponding architecture:** 5.4
+**Log revision:** 2026-09-23.8 · **Corresponding architecture:** 5.5
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -85,10 +85,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-066 | Measure portfolio performance from strategy-owned broker fills only | Confirmed; gross Paper portfolio report implemented | 2026-09-23 |
 | D-067 | Require 20 distinct usable sessions before strategy-rule review | Confirmed; automated readiness gate and daily logging implemented | 2026-09-23 |
 | D-068 | Test relative volume as ranking context instead of a hard veto | Provisional; frozen forward-only experiment implemented | 2026-09-23 |
+| D-069 | Bind every new proposal to exact frozen evidence identity | Confirmed; prospective identity resolution implemented | 2026-09-23 |
 
 ---
 
 ## Detailed decisions
+
+### D-069 — Prospective proposal-to-evidence identity
+
+**Status:** Confirmed and implemented for newly generated proposals.
+
+**Decision:** Before persisting a proposal, resolve its signal date, scanner lane, symbol and ruleset against the active immutable daily-evidence store. Persist the claimed lane, ruleset, evidence-run ID and resolution status with the proposal. During lifecycle capture, independently resolve the same date/lane/symbol and reject attribution if the claimed run ID or ruleset differs from the frozen evidence.
+
+**Evidence:** The current baseline scan completed through September 23 identifies MU as an eligible candidate and resolves it to `daily-2026-09-23-b0e5a61064d78248` under `liquid-growth-momentum-mvp-v2`. Unit and lifecycle tests cover exact resolution, missing evidence, invalidated evidence, ruleset mismatch and run-ID mismatch without broker submission.
+
+**Boundary:** The four historical filled entries were generated September 11, before daily evidence began September 18. They remain legitimately unlinked and cannot be backfilled using hindsight. Evidence unavailable at proposal time is recorded explicitly; it is never guessed. Attribution measures provenance and performance—it does not authorize a recommendation or order.
 
 ### D-068 — Frozen directional-volume context experiment
 

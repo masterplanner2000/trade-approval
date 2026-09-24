@@ -248,6 +248,9 @@ class DailyEvidenceCaptureTests(unittest.TestCase):
     def test_ledger_lifecycle_links_exact_signal_and_preserves_execution_gaps(self) -> None:
         run = self.store.capture(self.baseline, self.shadow, captured_at="2026-09-21T21:00:00Z")
         signal_date = run["signalDate"].replace("-", "")
+        baseline_ruleset = self.store.connection.execute(
+            "SELECT baseline_ruleset FROM evidence_runs WHERE run_id=?", (run["runId"],)
+        ).fetchone()[0]
         ledger_path = Path(self.temp.name) / "ledger.sqlite3"
         with sqlite3.connect(ledger_path) as ledger:
             ledger.executescript("""
@@ -261,8 +264,11 @@ class DailyEvidenceCaptureTests(unittest.TestCase):
             ledger.execute("INSERT INTO proposals VALUES(?,?,?,?,?,?,?,?)", (
                 "proposal-1", 1_000, "submitted", "paper", "TEST", "buy",
                 __import__("json").dumps({"quantity": 2, "limitPrice": 101}),
-                __import__("json").dumps({"signalDate": signal_date,
-                                          "universeSource": "alpaca-cache"}),
+                __import__("json").dumps({
+                    "signalDate": signal_date, "universeSource": "alpaca-cache",
+                    "lane": "baseline", "rulesetVersion": baseline_ruleset,
+                    "evidenceRunId": run["runId"], "evidenceStatus": "MATCHED",
+                }),
             ))
             ledger.execute("INSERT INTO decisions VALUES(?,?,?,?)",
                            ("decision-1", "proposal-1", "approved", 2_000))
@@ -292,6 +298,36 @@ class DailyEvidenceCaptureTests(unittest.TestCase):
             self.store.connection.execute(
                 "UPDATE evidence_lifecycle_observations SET proposal_status='changed'"
             )
+
+    def test_lifecycle_rejects_claimed_run_or_ruleset_mismatch(self) -> None:
+        run = self.store.capture(self.baseline, self.shadow, captured_at="2026-09-21T21:00:00Z")
+        signal_date = run["signalDate"].replace("-", "")
+        ledger_path = Path(self.temp.name) / "mismatched-ledger.sqlite3"
+        with sqlite3.connect(ledger_path) as ledger:
+            ledger.executescript("""
+                CREATE TABLE proposals(id TEXT PRIMARY KEY,created_at INTEGER,status TEXT,
+                  environment TEXT,symbol TEXT,side TEXT,terms_json TEXT,source_json TEXT);
+                CREATE TABLE decisions(id TEXT PRIMARY KEY,proposal_id TEXT,decision TEXT,decided_at INTEGER);
+                CREATE TABLE submission_attempts(id TEXT PRIMARY KEY,decision_id TEXT,status TEXT,started_at INTEGER);
+                CREATE TABLE broker_orders(proposal_id TEXT,role TEXT,status TEXT,order_json TEXT,
+                  last_seen_at INTEGER);
+            """)
+            ledger.execute("INSERT INTO proposals VALUES(?,?,?,?,?,?,?,?)", (
+                "wrong-run", 1_000, "pending", "paper", "TEST", "buy", "{}",
+                __import__("json").dumps({
+                    "signalDate": signal_date, "lane": "baseline",
+                    "rulesetVersion": "wrong-ruleset", "evidenceRunId": "wrong-run-id",
+                }),
+            ))
+        result = self.store.record_ledger_lifecycle(
+            ledger_path, recorded_at="2026-09-22T21:00:00Z"
+        )
+        self.assertEqual(result["unlinked"], 1)
+        row = self.store.connection.execute(
+            "SELECT match_status,run_id FROM evidence_lifecycle_observations WHERE proposal_id='wrong-run'"
+        ).fetchone()
+        self.assertEqual(row["match_status"], "evidence_run_identity_mismatch")
+        self.assertIsNone(row["run_id"])
 
     def test_unmatched_historical_proposal_is_visible_but_not_attributed(self) -> None:
         self.store.capture(self.baseline, self.shadow, captured_at="2026-09-21T21:00:00Z")

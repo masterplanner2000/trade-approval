@@ -15,6 +15,7 @@ import { loadPaperFlexEvidence } from "./paper_flex_evidence.mjs";
 import { DeterministicBroker } from "./testing/deterministic_broker.mjs";
 import { evaluateAutomaticExits } from "./automatic_exit_policy.mjs";
 import { assessAutomaticExitQuote } from "./automatic_exit_quote.mjs";
+import { resolveProposalEvidenceIdentity } from "./proposal_evidence_identity.mjs";
 
 const port = Number(process.env.TRADE_APPROVAL_PORT ?? 8787);
 const host = process.env.TRADE_APPROVAL_HOST ?? "127.0.0.1";
@@ -54,6 +55,7 @@ const tradingLedgerPath = process.env.TRADE_LEDGER_PATH ?? join(serviceDirectory
 const riskPolicyPath = process.env.RISK_POLICY_PATH ?? join(serviceDirectory, "data", "risk-policy.json");
 const historicalEvidencePath = process.env.HISTORICAL_BROKER_EVIDENCE_PATH ?? join(serviceDirectory, "data", "paper-transaction-history.json");
 const paperFlexEvidencePath = process.env.PAPER_FLEX_EVIDENCE_PATH ?? join(serviceDirectory, "data", "paper-flex-attribution.json");
+const dailyEvidencePath = process.env.DAILY_EVIDENCE_PATH ?? join(serviceDirectory, "data", "daily-forward-evidence.sqlite3");
 let tradingLedger = null;
 let reconciliationStore = null;
 const strategy = JSON.parse(readFileSync(strategyStatePath, "utf8"));
@@ -109,6 +111,10 @@ function proposalLedgerRecord(proposal) {
       category: proposal.category ?? null,
       signalDate: proposal.signalDate ?? null,
       universeSource: proposal.universeSource ?? null,
+      lane: proposal.sourceLane ?? null,
+      rulesetVersion: proposal.rulesetVersion ?? null,
+      evidenceRunId: proposal.evidenceRunId ?? null,
+      evidenceStatus: proposal.evidenceStatus ?? null,
     },
   };
 }
@@ -510,6 +516,10 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
     recommendationScore: candidate?.recommendationScore ?? null,
     signalDate: candidate?.signalDate ?? null,
     universeSource: "alpaca-cache",
+    sourceLane: candidate?.sourceLane ?? "baseline",
+    rulesetVersion: candidate?.rulesetVersion ?? null,
+    evidenceRunId: candidate?.evidenceRunId ?? null,
+    evidenceStatus: candidate?.evidenceStatus ?? "IDENTITY_INCOMPLETE",
     secResearch,
     researchContext: summarizeSecResearch(secResearch),
     rationale: candidate?.checks?.filter((check) => check.passed).map((check) => check.label) ?? [],
@@ -573,8 +583,18 @@ async function recommendationQueue({ additionalExcludedSymbols = [] } = {}) {
     const midpoint = (bid + ask) / 2;
     const spreadPercent = ((ask - bid) / midpoint) * 100;
     if (spreadPercent > maximumBidAskSpreadPercent) continue;
+    const evidenceIdentity = resolveProposalEvidenceIdentity(dailyEvidencePath, {
+      signalDate: evaluated.signalDate,
+      lane: "baseline",
+      symbol: evaluated.symbol,
+      rulesetVersion: scan.rulesetVersion,
+    });
     const candidate = {
       ...evaluated,
+      sourceLane: evidenceIdentity.lane,
+      rulesetVersion: evidenceIdentity.rulesetVersion,
+      evidenceRunId: evidenceIdentity.evidenceRunId,
+      evidenceStatus: evidenceIdentity.evidenceStatus,
       checks: [
         ...evaluated.checks,
         {

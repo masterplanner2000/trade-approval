@@ -465,20 +465,41 @@ class DailyEvidenceStore:
                 signal_date = None
                 if isinstance(raw_signal_date, str) and len(raw_signal_date) == 8 and raw_signal_date.isdigit():
                     signal_date = f"{raw_signal_date[:4]}-{raw_signal_date[4:6]}-{raw_signal_date[6:]}"
+                elif isinstance(raw_signal_date, str) and len(raw_signal_date) == 10 \
+                        and raw_signal_date[4] == "-" and raw_signal_date[7] == "-":
+                    signal_date = raw_signal_date
                 universe = source.get("universeSource") or terms.get("universeSource")
-                lane = "baseline" if universe == "alpaca-cache" else None
+                lane = source.get("lane") or terms.get("sourceLane")
+                if lane is None and universe == "alpaca-cache":
+                    lane = "baseline"
+                claimed_run_id = source.get("evidenceRunId") or terms.get("evidenceRunId")
+                claimed_ruleset = source.get("rulesetVersion") or terms.get("rulesetVersion")
                 run_id = None
                 match_status = "signal_identity_missing"
                 if signal_date and lane:
                     matched = self.connection.execute(
-                        """SELECT s.run_id FROM evidence_symbols s JOIN evidence_runs r ON r.run_id=s.run_id
+                        """SELECT s.run_id,r.baseline_ruleset,r.shadow_ruleset,s.evaluation_json
+                           FROM evidence_symbols s JOIN evidence_runs r ON r.run_id=s.run_id
                            LEFT JOIN evidence_run_invalidations i ON i.run_id=r.run_id
                            WHERE r.signal_date=? AND s.lane=? AND s.symbol=? AND i.run_id IS NULL""",
                         (signal_date, lane, proposal["symbol"]),
                     ).fetchone()
                     if matched:
-                        run_id = matched["run_id"]
-                        match_status = "matched"
+                        recorded_ruleset = (
+                            matched["baseline_ruleset"] if lane == "baseline"
+                            else matched["shadow_ruleset"]
+                        )
+                        if lane == "directional_volume_context":
+                            recorded_ruleset = json.loads(matched["evaluation_json"]).get(
+                                "rulesetVersion"
+                            )
+                        if claimed_run_id and claimed_run_id != matched["run_id"]:
+                            match_status = "evidence_run_identity_mismatch"
+                        elif claimed_ruleset and claimed_ruleset != recorded_ruleset:
+                            match_status = "evidence_ruleset_mismatch"
+                        else:
+                            run_id = matched["run_id"]
+                            match_status = "matched"
                     else:
                         match_status = "evidence_run_or_symbol_missing"
                 elif signal_date:
