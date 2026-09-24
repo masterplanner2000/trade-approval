@@ -1,7 +1,19 @@
 # Trade Approval — Project Plan
 
-**Last updated:** 2026-09-22
-**Current objective:** Establish a trustworthy paper-trading loop—owned positions, protection, execution state and measurable results—before expanding the recommendation strategy or enabling automatic exits.
+**Last updated:** 2026-09-23
+**Current objective:** Establish a trustworthy paper-trading and learning loop—owned positions, protection, execution state, measured selections and measured missed opportunities—before promoting strategy changes or enabling automatic exits.
+
+## Current work — performance feedback loop
+
+1. **Completed:** Added an append-only counterfactual outcome ledger alongside the original forward evidence. It measures every eligible and filtered candidate at 1, 5 and 10 sessions using next-session-open entry, horizon-close exit, explicit round-trip costs and full-path favorable/adverse excursion.
+2. **Completed:** Added a cohort report that separates lane, horizon, eligibility and exact rejection reason, and labels groups below both 20 observations and 20 distinct sessions as insufficient. The report is research-only and has no recommendation or broker authority.
+3. **Completed:** Added an in-place schema-v1-to-v2 migration that preserves all existing frozen runs and outcomes. Invalidated runs remain excluded and all new outcome rows remain immutable.
+4. **Completed:** Added immutable nominal-cash and QQQ outcomes aligned to each run's exact next-open/horizon-close window. Reports now show cost-adjusted excess return against both benchmarks and benchmark coverage explicitly.
+5. **Completed:** Added append-only application-lifecycle observations linking proposals to evidence only by exact signal date, symbol and lane. Reports now separate proposal disposition, decision, submission, broker entry, entry slippage, commission coverage and incompleteness. Historical proposals that predate valid evidence remain explicitly unlinked.
+6. **Completed:** Added a broker-grounded Paper portfolio report using strategy-owned fills and completed daily marks. It reports gross realized/unrealized P/L, equity, exposure, turnover, drawdown, open positions and same-window cash/QQQ alternatives; external and Live activity are excluded.
+7. **In progress, automated:** The loaded weekday 4:30 p.m. collector now refreshes both universes, captures immutable evidence, attaches available candidate outcomes, cash/QQQ benchmarks and ledger lifecycle observations, then logs progress toward 20 distinct usable sessions for every horizon. A separate matched-proposal session gate tracks execution evidence.
+8. **Next after collection:** Ingest complete commission evidence so net performance becomes available and add exposure-matched/risk-adjusted benchmark analysis after enough sessions exist.
+9. **Promotion gate:** Do not tune a filter from one day or one small cohort. A rule change requires a frozen hypothesis, adequate forward sample, holdout evaluation, costs, drawdown and an explicit decision-log promotion.
 
 ## Today's test plan — 2026-09-22
 
@@ -335,6 +347,16 @@ The durable-ledger and reconciliation milestone is complete only when:
 3. Manual broker changes are detected and displayed.
 4. The app can distinguish submitted, pending, partially filled, filled, cancelled, rejected, protected, and closed states.
 5. Portfolio-aware sizing remains disabled until balances, positions, open orders, and fills are fresh and reconciled.
+
+## Current strategy-evidence sequence — September 23
+
+1. **Measure filtered opportunities — complete.** Every observed candidate receives immutable 1-, 5- and 10-session counterfactual measurement with explicit costs and path excursions.
+2. **Join recommendations to broker lifecycle — complete.** Exact frozen signal date, symbol and source lane are required; unmatched history stays visible but unattributed.
+3. **Report portfolio results — complete foundation.** Strategy-owned Paper fills produce exposure, turnover, drawdown and gross P/L; net results wait for complete commission evidence.
+4. **Automate collection readiness — complete.** Review is blocked until 20 distinct usable sessions exist separately at every horizon, with matched lifecycle progress reported independently.
+5. **Freeze one rule experiment — complete; collecting next-session evidence.** Relative volume is ranking context rather than a hard veto in one isolated treatment lane. Top-five paired results, costs, uncertainty and drawdown are evaluated under D-068. The control remains unchanged and active; treatment has no recommendation or order authority.
+
+**Next operational action:** Let the installed post-close collector capture the first new treatment session. Do not alter this hypothesis, thresholds or selection rule during the 20-session collection window. Review data integrity after the first matured 1-session outcome; do not infer performance from the recorded rehearsal.
 
 ## Separate crypto paper MVP — proposed delivery sequence
 

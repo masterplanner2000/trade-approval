@@ -1,7 +1,7 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 4.8
-**Last updated:** 2026-09-21
+**Current architecture version:** 5.4
+**Last updated:** 2026-09-23
 **Status:** Living source of truth
 
 This document explains the major application components, their responsibilities, and how information moves from research to recommendations, approval, broker execution, reconciliation, and performance evaluation.
@@ -26,6 +26,7 @@ flowchart LR
         sources ==> normalize
         normalize ==> scan
         normalize -.-> experimental["Higher-volatility shadow scanner<br/>Broader listed-stock universe"]
+        experimental -.-> volumeTreatment["Frozen directional-volume treatment<br/>Relative volume ranks, never vetoes"]
         sources -.-> optionsVol["Options-volatility research<br/>OPRA · IV history · liquidity"]
         optionsVol -.-> experimental
         scan ==> recommend
@@ -68,7 +69,13 @@ flowchart LR
         closed["Record closed trade"]
         ledger[("Durable trading ledger")]
         activity["Activity and positions"]
-        performance["Performance evaluation"]
+        performance["Performance evaluation<br/>fills and selected trades"]
+        counterfactuals["Forward counterfactual ledger<br/>passed and filtered candidates"]
+        benchmarks["Exact-window benchmarks<br/>cash and QQQ"]
+        lifecycle["Append-only lifecycle observations<br/>proposals · decisions · fills · costs"]
+        portfolioReport["Paper portfolio report<br/>P/L · exposure · turnover · drawdown"]
+        readiness["Forward-evidence readiness<br/>20 distinct sessions per horizon"]
+        pairedExperiment["Paired control/treatment scorecard<br/>Top five · costs · interval · drawdown"]
         notifications["Notifications"]
 
         reconcile ==> monitor
@@ -83,6 +90,18 @@ flowchart LR
         closed ==> ledger
         ledger --> activity
         ledger --> performance
+        ledger --> lifecycle
+        lifecycle --> performance
+        lifecycle --> portfolioReport
+        normalize --> portfolioReport
+        portfolioReport --> performance
+        counterfactuals --> readiness
+        counterfactuals --> pairedExperiment
+        volumeTreatment -.-> counterfactuals
+        benchmarks --> readiness
+        lifecycle --> readiness
+        counterfactuals --> performance
+        benchmarks --> performance
         ledger -.-> notifications
     end
 
@@ -104,6 +123,9 @@ flowchart LR
     newsContext -.-> plannedEvent["Planned: sourced event and theme evidence<br/>Shadow evaluation only"]
     plannedEvent -.-> researchCandidates
     performance -.->|"Validated feedback"| recommend
+    normalize -.-> counterfactuals
+    scan -.-> counterfactuals
+    normalize -.-> benchmarks
     experimental -.-> researchCandidates["Research candidates only<br/>No proposal or order authority"]
 
     style discover fill:#E8F1FF,stroke:#82AFFF
@@ -136,7 +158,8 @@ flowchart LR
 | Broker reconciliation | Match app state to IBKR orders, fills, positions, and commission reports | Partial | Complete partial-fill, cancellation, and missing-account-summary handling |
 | Durable trading ledger | Persist proposals, decisions, submission attempts, broker orders, executions, fees, and lifecycle events | Partial | Closed-trade and recycled-budget read models added; complete historical fee coverage |
 | Activity and Positions | Show pending orders as trades, open positions, and closed results | Partial | Consolidated trade views added; add current-price unrealized P/L |
-| Performance evaluation | Measure strategy and execution outcomes | Partial | Closed-trade net/gross records available; add benchmark and aggregate metrics |
+| Performance evaluation | Measure selection, missed-opportunity, execution and portfolio outcomes separately | Partial | Reports and automated 20-session readiness gates implemented; collection is in progress and commissions remain incomplete |
+| Directional-volume experiment | Test one frozen eligibility change against the unchanged higher-volatility control | Research only | Collect 20 paired forward sessions per horizon; no app-card or broker integration |
 | Notifications | Deliver proposals, fills, exits, and safety alerts | Planned | Add after reliable event states exist |
 | Web app | Cross-platform account and review experience | Planned | Reuse API after mobile workflow is reliable |
 | Production operations | Authentication, secrets, hosting, monitoring, recovery | Planned | Required before external users or live trading |
@@ -255,6 +278,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 3. Increment the major version when responsibilities or core data flow change.
 4. Update the component-status table whenever work begins, completes, or changes priority.
 5. Preserve a short change-history entry rather than silently replacing the architecture.
+
+### Version 5.4 — 2026-09-23
+
+- Added a third immutable daily evidence lane for the frozen directional-volume treatment.
+- Added paired top-five control/treatment evaluation with explicit costs, uncertainty, drawdown rollback and a 20-session review gate.
+- Preserved the production scanner, recommendation queue and broker path unchanged; the treatment has no recommendation or order authority.
 
 ### Version 3.17 — 2026-09-12
 

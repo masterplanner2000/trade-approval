@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-23.1 · **Corresponding architecture:** 4.8
+**Log revision:** 2026-09-23.7 · **Corresponding architecture:** 5.4
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -79,10 +79,66 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-060 | Invalidate flawed immutable evidence with an append-only disposition | Confirmed; implemented and applied | 2026-09-22 |
 | D-061 | Use a $10,000 Paper sleeve and automate bounded Paper exits | Confirmed; sleeve updated, exit activation blocked by release gates | 2026-09-22 |
 | D-062 | Treat news as optional context for directional volatile-growth signals | Confirmed; shadow contracts updated | 2026-09-23 |
+| D-063 | Measure passed and filtered candidates before changing strategy rules | Confirmed; append-only counterfactual ledger implemented | 2026-09-23 |
+| D-064 | Compare every measurable forward cohort with cash and QQQ | Confirmed; immutable exact-window benchmarks implemented | 2026-09-23 |
+| D-065 | Attribute proposals and fills only through exact frozen signal identity | Confirmed; append-only lifecycle join implemented | 2026-09-23 |
+| D-066 | Measure portfolio performance from strategy-owned broker fills only | Confirmed; gross Paper portfolio report implemented | 2026-09-23 |
+| D-067 | Require 20 distinct usable sessions before strategy-rule review | Confirmed; automated readiness gate and daily logging implemented | 2026-09-23 |
+| D-068 | Test relative volume as ranking context instead of a hard veto | Provisional; frozen forward-only experiment implemented | 2026-09-23 |
 
 ---
 
 ## Detailed decisions
+
+### D-068 — Frozen directional-volume context experiment
+
+**Status:** Provisional research hypothesis. The control/treatment capture and paired scorecard are implemented; no forward treatment session has matured.
+
+**Decision:** Freeze exactly one experimental change: retain the existing price, venue-liquidity, volatility, 5-day momentum and 20-day momentum gates, but use relative volume as a ranking input rather than an eligibility veto. Compare the top five control and treatment candidates on the same newly captured signal sessions at 1-, 5- and 10-session horizons after a 20-basis-point round-trip cost assumption. A session counts only when every selected candidate in both lanes has a complete outcome.
+
+**Review and rollback:** Require 20 distinct paired sessions at each horizon. The treatment is only eligible for human review when the lower descriptive 95% bound of its paired return improvement is positive. Reject it if mean paired improvement is non-positive after the minimum sample or if its maximum drawdown exceeds control by more than 100 basis points. Any other result continues collection.
+
+**Boundary:** A September 23 recorded rehearsal expanded eligible names from 80 to 262, adding 182 names, which demonstrates breadth and noise risk—not performance. Rehearsal data is excluded from promotion evidence. The experiment is research-only, cannot create app cards or submit orders, and starts prospectively with the next new immutable daily capture. No existing frozen run is rewritten.
+
+### D-067 — Automated forward-collection gate
+
+**Status:** Confirmed. Readiness reporting is implemented and the installed weekday collector is healthy.
+
+**Decision:** Require at least 20 distinct active signal sessions with completed candidate and QQQ outcomes separately at the 1-, 5- and 10-session horizons before the recommendation rules are eligible for review. Track matched proposal sessions separately for execution conclusions. Run and log the readiness calculation after each successful weekday post-close capture.
+
+**Boundary:** Candidate count cannot substitute for distinct market sessions. The longer horizons mature later, so a captured day is not immediately a usable 5- or 10-session observation. Invalidated runs do not count. Crossing the threshold starts a review; it cannot automatically tune filters, promote the shadow lane or change order behavior.
+
+### D-066 — Broker-grounded Paper portfolio performance
+
+**Status:** Confirmed. Strategy-owned Paper equity-curve reporting is implemented.
+
+**Decision:** Build portfolio performance only from application-attributed filled entry and exit orders, the configured $10,000 Paper sleeve and exact completed daily closes. Report gross realized and unrealized P/L, gross equity, exposure, turnover, maximum drawdown and open positions. Compare the same calendar window with nominal cash and an all-in QQQ alternative. Exclude Live-account and external activity.
+
+**Boundary:** Net performance remains unavailable whenever any included execution lacks commission evidence; missing fees are never assumed to be zero. Missing marks make the curve incomplete rather than being forward-filled. QQQ is not exposure-, volatility- or timing-matched to the strategy, so excess return is descriptive rather than a risk-adjusted conclusion. Legacy holdings without application ownership are excluded even if their tickers appear in the account.
+
+### D-065 — Exact lifecycle attribution
+
+**Status:** Confirmed. Daily forward evidence schema version 4 and lifecycle-aware reporting are implemented.
+
+**Decision:** Snapshot the durable proposal ledger into append-only evidence observations. Attribute a proposal to a scanner result only when signal date, symbol and source lane match an active frozen evidence run exactly. Preserve proposal disposition, decision, latest submission state, broker entry state, requested quantity and limit, observed fill quantity and price, available commissions and limit-relative entry slippage. Compare approved, denied, expired and unselected outcomes only after that exact join exists.
+
+**Boundary:** Ticker similarity, creation time or later holdings cannot establish attribution. Historical proposals predating the forward collector remain visible and unlinked. Missing commissions make cost-complete execution unavailable; missing submissions or fills stay incomplete. A fill observation does not prove a recommendation was profitable, and counterfactual outcomes do not replace broker evidence.
+
+### D-064 — Exact-window cash and QQQ benchmarks
+
+**Status:** Confirmed. Daily forward evidence schema version 3 and benchmark-aware reporting are implemented.
+
+**Decision:** For each valid evidence run and 1-, 5- and 10-session horizon, persist an immutable nominal-cash result and QQQ result using the same next-session-open and horizon-close dates as candidate counterfactuals. Apply the declared round-trip trading-cost assumption to QQQ and no trading cost or interest accrual to the nominal-cash baseline. Report candidate excess return only when the exact benchmark window exists.
+
+**Boundary:** Cash is a simple zero-nominal-return control, not the user's actual savings yield. QQQ observations are hypothetical, not fills. Missing bars remain incomplete and are never interpolated. Benchmarks do not change eligibility, ranks, sizing, cards or orders; strategy changes still require adequate distinct-session forward evidence and a separate promotion decision.
+
+### D-063 — Measure selection and missed opportunity independently
+
+**Status:** Confirmed. Daily forward evidence schema version 2 and its research report are implemented.
+
+**Decision:** Attach immutable 1-, 5- and 10-session counterfactual outcomes to every observed candidate, whether eligible or filtered. Use the next completed session's open as the hypothetical entry, the horizon close as the exit, an explicit round-trip cost assumption, and full-path maximum favorable and adverse excursion. Report eligible candidates and filtered candidates separately by lane and exact rejection reason.
+
+**Boundary:** A counterfactual is not an order, fill or claim that the price was obtainable. It cannot change ranking, thresholds, sizing or broker behavior. Groups require both the declared observation count and distinct-session count; many symbols from a few market days are not an adequate sample. Any later rule change requires a frozen hypothesis, chronological forward/holdout evidence, drawdown and cost review, and a separate promotion decision.
 
 ### D-062 — Directional price and volume can qualify without news
 

@@ -18,6 +18,8 @@
     "market:aggressive:scan": ".venv-ibkr-10.49/bin/python service/aggressive_shadow_scanner.py scan",
     "market:evidence:capture": ".venv-ibkr-10.49/bin/python service/run_daily_evidence.py capture",
     "market:evidence:status": ".venv-ibkr-10.49/bin/python service/run_daily_evidence.py status",
+    "market:evidence:report": ".venv-ibkr-10.49/bin/python service/run_daily_evidence.py report",
+    "market:evidence:readiness": ".venv-ibkr-10.49/bin/python service/run_daily_evidence.py readiness",
     "market:daily": "npm run market:refresh && npm run market:aggressive:refresh && npm run market:evidence:capture",
     "test:sec": "node --test service/sec_edgar.test.mjs service/recommendation_queue.test.mjs",
     "test:ledger": "node --test service/trading_ledger.test.mjs",

@@ -1038,7 +1038,6 @@ export default function App() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const marketWindow = marketSessionWindow();
   const [proposal, setProposal] = useState(SHADOW_LOADING);
-  const [paused, setPaused] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [rationaleOpen, setRationaleOpen] = useState(false);
   const [, tick] = useState(0);
@@ -1086,7 +1085,7 @@ export default function App() {
   const dismissToast = useCallback(() => setAppToast(null), []);
   const adaptiveOperatingPercent = !riskPolicy.adaptive
     ? 100
-    : paused || brokerConnectionStatus === "disconnected"
+    : brokerConnectionStatus === "disconnected"
       ? 0
       : proposal.marketRisk?.level === "VERY_HIGH"
         ? 35
@@ -1095,9 +1094,7 @@ export default function App() {
           : proposal.marketRisk?.level === "MODERATE"
             ? 80
             : 100;
-  const adaptiveOperatingReason = paused
-    ? "New recommendations are paused."
-    : brokerConnectionStatus === "disconnected"
+  const adaptiveOperatingReason = brokerConnectionStatus === "disconnected"
       ? "Paper broker data is unavailable, so new risk is paused."
       : proposal.marketRisk?.level === "VERY_HIGH"
         ? "Current observed volatility is very high."
@@ -1447,7 +1444,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (brokerConnectionStatus !== "connected" || !proposal.shadowMode || paused || marketWindow.phase !== "open") {
+    if (brokerConnectionStatus !== "connected" || !proposal.shadowMode || marketWindow.phase !== "open") {
       if (marketWindow.phase !== "open") setProcessing(false);
       return;
     }
@@ -1478,13 +1475,13 @@ export default function App() {
       active = false;
       clearInterval(scanTimer);
     };
-  }, [brokerConnectionStatus, paused, proposal.shadowMode, marketWindow.phase]);
+  }, [brokerConnectionStatus, proposal.shadowMode, marketWindow.phase]);
 
   const expired = proposal.decision === "pending" && Date.now() >= proposal.expiresAt;
   const state: Decision = expired ? "expired" : proposal.decision;
   const expiringSoon = state === "pending" && proposal.expiresAt - Date.now() <= 60_000;
   const brokerReady = broker !== null && brokerConnectionStatus === "connected";
-  const actionable = state === "pending" && !paused && brokerReady && !proposal.shadowMode;
+  const actionable = state === "pending" && brokerReady && !proposal.shadowMode;
   const timer = countdown(proposal.expiresAt);
 
   useEffect(() => {
@@ -1734,7 +1731,6 @@ export default function App() {
     } catch {
       Alert.alert("Unable to scan", "Completed daily history is unavailable. Confirm TWS paper is open and historical data is permitted.");
     }
-    setPaused(false);
     setDetailsOpen(false);
     setRationaleOpen(false);
   }
@@ -2016,8 +2012,6 @@ export default function App() {
     ...(activePage !== "positions" ? [{ label: "Positions", onPress: () => openHistory("positions") }] : []),
     ...(activePage !== "settings" ? [{ label: "Settings", onPress: () => setActivePage("settings") }] : []),
     ...(activePage !== "preview" ? [{ label: "Preview mode", onPress: () => setActivePage("preview"), emphasized: uiPreview }] : []),
-    ...(!uiPreview ? [{ label: "Refresh recommendations", onPress: () => void openPaperRecommendation() }] : []),
-    { label: paused ? "Resume scanner" : "Pause scanner", onPress: () => setPaused((value) => !value) },
   ];
   const headerStatusLabel = uiPreview
     ? "Preview mode"
@@ -2025,9 +2019,7 @@ export default function App() {
       ? "Paper offline"
       : brokerConnectionStatus === "checking"
         ? "Checking paper"
-        : paused
-          ? "Paper · paused"
-          : proposal.shadowMode && marketWindow.phase === "weekend"
+        : proposal.shadowMode && marketWindow.phase === "weekend"
             ? "Paper · weekend"
             : proposal.shadowMode && marketWindow.phase !== "open"
               ? "Paper · market closed"
@@ -2044,7 +2036,7 @@ export default function App() {
       ? "#D64545"
       : brokerConnectionStatus === "checking" || (proposal.shadowMode && processing)
         ? "#D99000"
-        : paused || (proposal.shadowMode && marketWindow.phase !== "open")
+        : proposal.shadowMode && marketWindow.phase !== "open"
           ? colors.muted
           : "#22A447";
 
@@ -2105,13 +2097,6 @@ export default function App() {
         ) : (
         <>
 
-        {paused && (
-          <View style={styles.pauseBanner}>
-            <Text style={styles.pauseBannerTitle}>All agents are paused</Text>
-            <Text style={styles.pauseBannerText}>No proposal can be approved until you resume.</Text>
-          </View>
-        )}
-
         {proposal.shadowMode && showRecommendationSkeleton && !realDeckComplete && (
           <View style={[styles.deckStage, { height: Math.max(420, viewportHeight - 150) }]}>
             <View pointerEvents="none" style={[styles.stackCard, styles.stackCardBack]} />
@@ -2148,9 +2133,9 @@ export default function App() {
           </View>
         )}
 
-        {proposal.shadowMode && !showRecommendationSkeleton && !realDeckComplete && (
+        {proposal.shadowMode && !showRecommendationSkeleton && (
           <View style={styles.homeDashboard}>
-            <Text style={styles.homeEyebrow}>{paused ? "SCANNER PAUSED" : marketWindow.phase === "open" ? "SCANNER ACTIVE" : "SCANNER STANDBY"}</Text>
+            <Text style={styles.homeEyebrow}>{marketWindow.phase === "open" ? "SCANNER ACTIVE" : "SCANNER STANDBY"}</Text>
             <Text style={styles.homeTitle}>
               {brokerConnectionStatus === "disconnected"
                 ? "Paper is offline"
@@ -2174,7 +2159,7 @@ export default function App() {
                   ? "Some broker shares cannot be attributed to this strategy. New buys and automatic sells are blocked until the records are reconciled."
                   : strategy?.budget?.status === "protection_incomplete"
                     ? "A strategy position has no verified broker stop. New buys and automatic sells are blocked until protection is reviewed."
-                    : "The strategy has used its current allocation. Review existing positions before considering another buy."
+                    : "The strategy has used its current allocation. Scanning continues and compares new candidates with current holdings for possible profitable rotations."
                 : brokerUnavailable
                 ? "The scanner could not load a recommendation. You can try again when the connection is ready."
                 : noEligibleRecommendation
@@ -2191,7 +2176,7 @@ export default function App() {
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Recommendations</Text>
-                <Text style={styles.homeScannerValue}>{strategyCapitalReached ? strategy?.budget?.status === "reconciled" ? "Paused while allocation is full" : "Paused for safety review" : "All currently qualified buys"}</Text>
+                <Text style={styles.homeScannerValue}>{strategyCapitalReached ? strategy?.budget?.status === "reconciled" ? "Continuously ranked against holdings" : "Paused for safety review" : "All currently qualified buys"}</Text>
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Protection</Text>
@@ -2207,7 +2192,9 @@ export default function App() {
                     ? `Resolve ownership for ${strategy.budget.ownershipConflicts?.join(", ") || "unmatched holdings"} before considering an exit or new buy.`
                     : strategy?.budget?.status === "protection_incomplete"
                       ? `Review broker protection for ${strategy.budget.protectionGaps?.join(", ") || "held positions"} before considering another trade.`
-                      : `Review enough positions to release at least ${money(portfolioReview.reductionRequired)} before considering another buy.`}
+                      : portfolioReview.reductionRequired > 0
+                        ? `Review enough positions to release at least ${money(portfolioReview.reductionRequired)} before considering another buy.`
+                        : "New candidates are continuously compared with current holdings. Ordinary rotations are considered only when a stronger candidate exists and the proposed sale is estimated at break-even or better."}
                 </Text>
                 {portfolioReview.holdings.map((holding) => (
                   <View key={holding.symbol} style={styles.rotationRow}>
@@ -2255,28 +2242,21 @@ export default function App() {
           </View>
         )}
 
-        {((!proposal.shadowMode && sampleDeckComplete) || realDeckComplete) && (
+        {uiPreview && !proposal.shadowMode && sampleDeckComplete && (
           <View style={styles.deckComplete}>
             <View style={styles.deckCompleteIcon}>
               <CheckCircleIcon size={34} color={colors.actionApprove} weight="fill" />
             </View>
             <Text style={styles.deckCompleteEyebrow}>0 recommendations remaining</Text>
             <Text style={styles.deckCompleteTitle}>You’re all caught up</Text>
-            <Text style={styles.deckCompleteBody}>
-              {uiPreview
-                ? `You reviewed all ${UI_PROPOSALS.length} sample trades.`
-                : "You reviewed every available trade. New recommendations will appear automatically when the scanner finds them."}
-            </Text>
+            <Text style={styles.deckCompleteBody}>{`You reviewed all ${UI_PROPOSALS.length} sample trades.`}</Text>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={uiPreview ? "Review sample trades again" : "Check for new recommendations"}
-              onPress={uiPreview ? previewActiveProposal : () => {
-                returnToScanner();
-                void openPaperRecommendation();
-              }}
+              accessibilityLabel="Review sample trades again"
+              onPress={previewActiveProposal}
               style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}
             >
-              <Text style={styles.previewProposalButtonText}>{uiPreview ? "Review sample trades again" : "Check for new recommendations"}</Text>
+              <Text style={styles.previewProposalButtonText}>Review sample trades again</Text>
             </Pressable>
           </View>
         )}
@@ -2471,7 +2451,7 @@ export default function App() {
               </Pressable>
             </View>
             <View style={styles.contextMenuStatus}>
-              <Text style={styles.contextMenuEyebrow}>{uiPreview ? "PREVIEW MODE" : paused ? "SCANNER PAUSED" : "SCANNER RUNNING"}</Text>
+              <Text style={styles.contextMenuEyebrow}>{uiPreview ? "PREVIEW MODE" : "SCANNER RUNNING"}</Text>
               <Text style={styles.contextMenuStatusText}>{uiPreview ? "Realistic sample data · broker actions disabled" : `IBKR Paper · ${brokerConnectionStatus}`}</Text>
             </View>
             <View style={styles.navigationDrawerItems}>
