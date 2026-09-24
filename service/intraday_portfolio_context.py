@@ -12,12 +12,13 @@ from typing import Callable, Mapping
 from ibkr_reconciliation import collect_snapshot
 
 
-CONTEXT_VERSION = "intraday-paper-portfolio-context-v1"
+CONTEXT_VERSION = "intraday-paper-portfolio-context-v2"
 MAX_SNAPSHOT_AGE_SECONDS = 60
 DATA = Path(__file__).resolve().parent / "data"
 RISK_PATH = DATA / "risk-policy.json"
 RISK_FALLBACK_PATH = DATA / "risk-policy.example.json"
 STRATEGY_PATH = DATA / "strategy-state.json"
+SECTOR_REGISTRY_PATH = DATA / "intraday-sector-registry.json"
 
 
 def _number(value: object) -> float | None:
@@ -69,9 +70,61 @@ def load_limits() -> dict[str, float]:
     return {key: float(value) for key, value in values.items()}
 
 
+def load_sector_registry(path: Path = SECTOR_REGISTRY_PATH) -> dict[str, object]:
+    document = _load_json(path)
+    version = document.get("version")
+    entries = document.get("entries")
+    if not isinstance(version, str) or not version or not isinstance(entries, Mapping):
+        raise ValueError("intraday_sector_registry_invalid")
+    normalized: dict[str, dict[str, str]] = {}
+    for raw_symbol, raw_entry in entries.items():
+        symbol = str(raw_symbol).strip().upper()
+        if not symbol or not isinstance(raw_entry, Mapping):
+            raise ValueError("intraday_sector_registry_invalid")
+        sector = raw_entry.get("sector")
+        effective = raw_entry.get("effectiveFrom")
+        source = raw_entry.get("source")
+        if (not isinstance(sector, str) or not sector or
+                not isinstance(effective, str) or not effective or
+                not isinstance(source, str) or not source.startswith("https://")):
+            raise ValueError("intraday_sector_registry_invalid")
+        normalized[symbol] = {
+            "sector": sector, "effectiveFrom": effective, "source": source,
+        }
+    return {"version": version, "entries": normalized}
+
+
+def _aggregate_stock_positions(positions: list[object]) -> list[dict[str, object]]:
+    aggregated: dict[str, dict[str, float | str]] = {}
+    for position in positions:
+        if not isinstance(position, Mapping) or position.get("securityType") != "STK":
+            continue
+        symbol = str(position.get("symbol") or "").strip().upper()
+        quantity = _number(position.get("quantity"))
+        average_cost = _number(position.get("averageCost"))
+        if not symbol or quantity in (None, 0) or average_cost is None or average_cost <= 0:
+            continue
+        current = aggregated.setdefault(symbol, {
+            "symbol": symbol, "quantity": 0.0, "costNotional": 0.0,
+        })
+        current["quantity"] = float(current["quantity"]) + float(quantity)
+        current["costNotional"] = (float(current["costNotional"]) +
+                                   abs(float(quantity)) * float(average_cost))
+    result = []
+    for position in aggregated.values():
+        quantity = float(position["quantity"])
+        if quantity == 0:
+            continue
+        result.append({
+            "symbol": position["symbol"], "quantity": quantity,
+            "averageCost": float(position["costNotional"]) / abs(quantity),
+        })
+    return result
+
+
 def build_portfolio_context(
     snapshot: Mapping[str, object], *, symbol: str, observed_at: str,
-    market_price: float, limits: Mapping[str, float],
+    market_price: float, limits: Mapping[str, float], sector_registry: Mapping[str, object],
 ) -> dict[str, object]:
     observed = _instant(observed_at)
     captured_ms = _number(snapshot.get("capturedAt"))
@@ -114,26 +167,40 @@ def build_portfolio_context(
                        "maxSectorExposurePercent", "maxDailyLossPercent", "perTradeLimit")
     if any(_number(limits.get(key)) is None for key in required_limits):
         missing.append("risk_limits")
+    registry_version = sector_registry.get("version")
+    sector_entries = sector_registry.get("entries")
+    if not isinstance(registry_version, str) or not isinstance(sector_entries, Mapping):
+        missing.append("sector_registry")
     if missing:
         return {**base, "status": "INCOMPLETE", "observedAt": None,
                 "missing": sorted(set(missing))}
 
     sleeve = float(limits["sleeveValue"])
-    normalized_positions = [position for position in positions if isinstance(position, Mapping)
-                            and position.get("securityType") == "STK"
-                            and _number(position.get("quantity")) not in (None, 0)]
+    normalized_positions = _aggregate_stock_positions(positions)
+    required_symbols = {str(position["symbol"]) for position in normalized_positions} | {symbol}
+    unknown_sectors = sorted(candidate for candidate in required_symbols
+                             if candidate not in sector_entries)
+    if unknown_sectors:
+        return {**base, "status": "INCOMPLETE", "observedAt": None,
+                "missing": ["sector_classification"], "unclassifiedSymbols": unknown_sectors,
+                "sectorRegistryVersion": registry_version}
+    candidate_sector = sector_entries[symbol]["sector"]
     symbol_position = next((position for position in normalized_positions
                             if position.get("symbol") == symbol), None)
     symbol_quantity = abs(float(symbol_position["quantity"])) if symbol_position else 0.0
     current_symbol_notional = symbol_quantity * market_price
     gross_estimate = 0.0
+    sector_estimate = 0.0
     for position in normalized_positions:
         quantity = abs(float(position["quantity"]))
         price = market_price if position.get("symbol") == symbol else _number(position.get("averageCost"))
         if price is None or price <= 0:
             return {**base, "status": "INCOMPLETE", "observedAt": None,
                     "missing": ["position_valuation"]}
-        gross_estimate += quantity * price
+        notional = quantity * price
+        gross_estimate += notional
+        if sector_entries[str(position["symbol"])]["sector"] == candidate_sector:
+            sector_estimate += notional
     available = min(float(buying_power), float(available_funds))
     max_symbol_notional = sleeve * float(limits["maxSymbolExposurePercent"]) / 100
     proposed = max(0.0, min(float(limits["perTradeLimit"]), available,
@@ -146,9 +213,11 @@ def build_portfolio_context(
         "addingToExistingPosition": symbol_position is not None,
         "symbolExposurePercent": round((current_symbol_notional + proposed) / sleeve * 100, 4),
         "maxSymbolExposurePercent": float(limits["maxSymbolExposurePercent"]),
-        "sectorExposurePercent": round((gross_estimate + proposed) / sleeve * 100, 4),
+        "sector": candidate_sector,
+        "sectorExposurePercent": round((sector_estimate + proposed) / sleeve * 100, 4),
         "maxSectorExposurePercent": float(limits["maxSectorExposurePercent"]),
-        "sectorExposureMethod": "conservative_all_positions_same_sector_upper_bound",
+        "sectorExposureMethod": "explicit_source_reviewed_exposure_bucket",
+        "sectorRegistryVersion": registry_version,
         "dailyLossPercent": round(max(0.0, -total_pnl) / sleeve * 100, 4),
         "maxDailyLossPercent": float(limits["maxDailyLossPercent"]),
         "availableBuyingPower": round(available, 2),
@@ -162,10 +231,12 @@ class IbkrPaperPortfolioReader:
     """Fetch once per capture cycle, then derive symbol-specific contexts."""
 
     def __init__(self, *, snapshot_reader: Callable[[], Mapping[str, object]] | None = None,
-                 limits: Mapping[str, float] | None = None):
+                 limits: Mapping[str, float] | None = None,
+                 sector_registry: Mapping[str, object] | None = None):
         client_id = int(os.environ.get("IBKR_INTRADAY_CLIENT_ID", "81"))
         self.snapshot_reader = snapshot_reader or (lambda: collect_snapshot(client_id=client_id))
         self.limits = dict(limits or load_limits())
+        self.sector_registry = dict(sector_registry or load_sector_registry())
         self._snapshot: Mapping[str, object] | None = None
 
     def prime(self) -> None:
@@ -187,4 +258,5 @@ class IbkrPaperPortfolioReader:
                     "classification": "research_only", "recommendationAllowed": False,
                     "orderSubmissionAllowed": False}
         return build_portfolio_context(self._snapshot, symbol=symbol, observed_at=observed_at,
-                                       market_price=price, limits=self.limits)
+                                       market_price=price, limits=self.limits,
+                                       sector_registry=self.sector_registry)

@@ -9,6 +9,10 @@ LIMITS = {
     "maxSymbolExposurePercent": 10, "maxSectorExposurePercent": 25,
     "maxDailyLossPercent": 2, "perTradeLimit": 1_500,
 }
+SECTORS = {"version": "test-sectors-v1", "entries": {
+    "NVDA": {"sector": "technology"}, "MRK": {"sector": "health_care"},
+    "MSFT": {"sector": "technology"}, "TEST": {"sector": "test"},
+}}
 
 
 def snapshot():
@@ -27,9 +31,10 @@ def snapshot():
 
 
 class IntradayPortfolioContextTests(unittest.TestCase):
-    def test_complete_paper_snapshot_builds_conservative_context(self):
+    def test_complete_paper_snapshot_builds_reviewed_sector_context(self):
         result = build_portfolio_context(
             snapshot(), symbol="NVDA", observed_at=OBSERVED, market_price=225, limits=LIMITS,
+            sector_registry=SECTORS,
         )
         self.assertEqual(result["status"], "COMPLETE")
         self.assertEqual(result["openPositionCount"], 2)
@@ -37,8 +42,9 @@ class IntradayPortfolioContextTests(unittest.TestCase):
         self.assertEqual(result["symbolExposurePercent"], 10)
         self.assertEqual(result["proposedNotional"], 550)
         self.assertEqual(result["dailyLossPercent"], 0.1)
+        self.assertEqual(result["sectorExposurePercent"], 10)
         self.assertEqual(result["sectorExposureMethod"],
-                         "conservative_all_positions_same_sector_upper_bound")
+                         "explicit_source_reviewed_exposure_bucket")
         self.assertFalse(result["orderSubmissionAllowed"])
 
     def test_live_stale_or_incomplete_snapshot_fails_closed(self):
@@ -46,6 +52,7 @@ class IntradayPortfolioContextTests(unittest.TestCase):
         value.update({"environment": "live", "complete": False, "capturedAt": 1})
         result = build_portfolio_context(
             value, symbol="TEST", observed_at=OBSERVED, market_price=10, limits=LIMITS,
+            sector_registry=SECTORS,
         )
         self.assertEqual(result["status"], "INCOMPLETE")
         self.assertIsNone(result["observedAt"])
@@ -57,6 +64,7 @@ class IntradayPortfolioContextTests(unittest.TestCase):
         calls = []
         reader = IbkrPaperPortfolioReader(
             snapshot_reader=lambda: calls.append(True) or snapshot(), limits=LIMITS,
+            sector_registry=SECTORS,
         )
         first = reader.context("NVDA", OBSERVED, {"last": 225})
         second = reader.context("MSFT", OBSERVED, {"last": 500})
@@ -67,11 +75,34 @@ class IntradayPortfolioContextTests(unittest.TestCase):
     def test_reader_sanitizes_connection_failure(self):
         def unavailable():
             raise OSError("secret raw connection detail")
-        reader = IbkrPaperPortfolioReader(snapshot_reader=unavailable, limits=LIMITS)
+        reader = IbkrPaperPortfolioReader(snapshot_reader=unavailable, limits=LIMITS,
+                                          sector_registry=SECTORS)
         result = reader.context("NVDA", OBSERVED, {"last": 225})
         self.assertEqual(result["status"], "INCOMPLETE")
         self.assertNotIn("secret", str(result))
         self.assertFalse(result["orderSubmissionAllowed"])
+
+    def test_duplicate_broker_rows_are_aggregated_by_symbol(self):
+        value = snapshot()
+        value["positions"].append(
+            {"symbol": "NVDA", "securityType": "STK", "quantity": 1, "averageCost": 220})
+        result = build_portfolio_context(
+            value, symbol="NVDA", observed_at=OBSERVED, market_price=225, limits=LIMITS,
+            sector_registry=SECTORS,
+        )
+        self.assertEqual(result["openPositionCount"], 2)
+        self.assertEqual(result["symbolExposurePercent"], 10)
+
+    def test_unknown_sector_fails_closed(self):
+        value = snapshot()
+        value["positions"].append(
+            {"symbol": "UNKNOWN", "securityType": "STK", "quantity": 1, "averageCost": 10})
+        result = build_portfolio_context(
+            value, symbol="NVDA", observed_at=OBSERVED, market_price=225, limits=LIMITS,
+            sector_registry=SECTORS,
+        )
+        self.assertEqual(result["status"], "INCOMPLETE")
+        self.assertEqual(result["unclassifiedSymbols"], ["UNKNOWN"])
 
 
 if __name__ == "__main__":
