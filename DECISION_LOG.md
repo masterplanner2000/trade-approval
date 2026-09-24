@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-24.1 · **Corresponding architecture:** 5.10
+**Log revision:** 2026-09-24.2 · **Corresponding architecture:** 5.10
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -91,10 +91,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-072 | Compare performance with an exposure-matched QQQ alternative | Confirmed; minimum-sample gate retained | 2026-09-23 |
 | D-073 | Archive one immutable performance report after each daily collection | Confirmed; scheduled path integrated | 2026-09-23 |
 | D-074 | Process approved Paper orders in the background | Confirmed; failure restores the card | 2026-09-24 |
+| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | Bookmarked; not started | 2026-09-24 |
 
 ---
 
 ## Detailed decisions
+
+### D-075 — Isolated intraday-volatility recommendation workstream
+
+**Status:** Bookmarked for later work on `feature/intraday-volatility-recommendations`; no actionable integration has started.
+
+**Objective:** Extend discovery beyond completed daily bars so the system can identify volatility, price/volume acceleration, breakouts or reversals developing during the market session. Reuse the existing research-only intraday evaluator, but keep it disconnected from approval cards and broker authority until the data and performance gates pass.
+
+**Required sequence:** approve a real-time consolidated provider and data rights; capture immutable timestamped quotes, spread and volume evidence; validate freshness, halts, expected-volume baselines and catalyst timing; replay and forward-test outcomes including slippage and missed signals; expose shadow cards first; then make a separate promotion decision before any actionable Paper recommendation.
+
+**Boundary:** The stable daily-bar Paper workflow stays on `main`. Creating this branch is a bookmark, not approval to subscribe to data, alter the production queue or submit an intraday order.
 
 ### D-074 — Background Paper submission during continued review
 
