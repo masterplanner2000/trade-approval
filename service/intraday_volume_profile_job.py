@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -15,6 +16,36 @@ from intraday_volume_profile import build_cumulative_volume_profile
 
 OUTPUT_PATH = Path(__file__).resolve().parent / "data" / "intraday-volume-profiles.json"
 HISTORY_CALENDAR_DAYS = 70
+
+
+def _profile_session_through(profile: object) -> str:
+    if not isinstance(profile, dict):
+        raise ValueError("intraday_profile_artifact_invalid")
+    volume_dates = profile.get("sessionDates")
+    price_dates = profile.get("priceProfileSessionDates")
+    if (not isinstance(volume_dates, list) or not volume_dates
+            or any(not isinstance(value, str) for value in volume_dates)
+            or volume_dates != price_dates):
+        raise ValueError("intraday_profile_sessions_mismatch")
+    return volume_dates[-1]
+
+
+def load_profile_artifact(path: Path = OUTPUT_PATH) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raise ValueError("intraday_profile_artifact_unavailable") from None
+    profiles = payload.get("profiles") if isinstance(payload, dict) else None
+    if (payload.get("formatVersion") != 1 or payload.get("feed") not in {"iex", "sip"}
+            or not isinstance(profiles, dict) or not profiles
+            or payload.get("failures") not in ({}, None)):
+        raise ValueError("intraday_profile_artifact_invalid")
+    for symbol, profile in profiles.items():
+        if (not isinstance(symbol, str) or not isinstance(profile, dict)
+                or profile.get("symbol") != symbol):
+            raise ValueError("intraday_profile_artifact_invalid")
+        _profile_session_through(profile)
+    return payload
 
 
 def fetch_minute_bars(
@@ -95,16 +126,50 @@ def refresh_profiles(
     return result
 
 
+def refresh_existing_profiles(
+    *, now: datetime | None = None, output_path: Path = OUTPUT_PATH,
+    reader: Callable[[str, dict[str, object]], object] = api_json,
+) -> dict[str, object]:
+    """Replace the live artifact only after the entire frozen profile set validates."""
+    previous = load_profile_artifact(output_path)
+    previous_profiles = previous["profiles"]
+    symbols = sorted(previous_profiles)
+    previous_through = {symbol: _profile_session_through(previous_profiles[symbol])
+                        for symbol in symbols}
+    candidate = output_path.with_name(f".{output_path.name}.{uuid.uuid4().hex}.candidate")
+    try:
+        result = refresh_profiles(
+            symbols, now=now, output_path=candidate, reader=reader,
+            feed=str(previous["feed"]),
+        )
+        profiles = result["profiles"]
+        if result["failures"] or set(profiles) != set(symbols):
+            raise RuntimeError("intraday_profile_refresh_incomplete")
+        current_through = {symbol: _profile_session_through(profiles[symbol]) for symbol in symbols}
+        if any(current_through[symbol] < previous_through[symbol] for symbol in symbols):
+            raise RuntimeError("intraday_profile_refresh_regression")
+        result["refreshPolicy"] = "complete_frozen_symbol_set_atomic_replace_v1"
+        result["previousSessionThrough"] = previous_through
+        result["currentSessionThrough"] = current_through
+        candidate.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        candidate.replace(output_path)
+        return result
+    finally:
+        candidate.unlink(missing_ok=True)
+
+
 def main() -> int:
     if len(sys.argv) < 2:
-        print(json.dumps({"ok": False, "error": "usage: SYMBOL [SYMBOL ...]"}))
+        print(json.dumps({"ok": False, "error": "usage: --refresh-existing | SYMBOL [SYMBOL ...]"}))
         return 2
     try:
-        result = refresh_profiles(sys.argv[1:])
+        result = (refresh_existing_profiles() if sys.argv[1:] == ["--refresh-existing"]
+                  else refresh_profiles(sys.argv[1:]))
         print(json.dumps({
             "ok": bool(result["profiles"]), "generatedAt": result["generatedAt"],
             "feed": result["feed"], "profileCount": len(result["profiles"]),
             "failures": result["failures"],
+            "currentSessionThrough": result.get("currentSessionThrough"),
         }))
         return 0 if result["profiles"] else 1
     except (RuntimeError, ValueError) as error:

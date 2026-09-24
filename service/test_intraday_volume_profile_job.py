@@ -5,7 +5,9 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from intraday_volume_profile_job import fetch_minute_bars, refresh_profiles
+from intraday_volume_profile_job import (
+    fetch_minute_bars, load_profile_artifact, refresh_existing_profiles, refresh_profiles,
+)
 
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -59,6 +61,62 @@ class IntradayVolumeProfileJobTests(unittest.TestCase):
         self.assertEqual(stored["volumeScope"], "single_venue")
         self.assertEqual(len(stored["profiles"]["GOOD"]["expectedRangePercentByMinute"]), 390)
         self.assertFalse(stored["orderSubmissionAllowed"])
+
+    def test_scheduled_refresh_rebuilds_exact_frozen_set_and_preserves_feed(self):
+        def reader(url, params):
+            return {"bars": {params["symbols"]: history()}, "next_page_token": None}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profiles.json"
+            refresh_profiles(["ONE", "TWO"], now=datetime(2026, 9, 23, 12, tzinfo=timezone.utc),
+                             output_path=path, reader=reader, feed="iex")
+            result = refresh_existing_profiles(
+                now=datetime(2026, 9, 24, 12, tzinfo=timezone.utc),
+                output_path=path, reader=reader,
+            )
+            stored = load_profile_artifact(path)
+        self.assertEqual(set(stored["profiles"]), {"ONE", "TWO"})
+        self.assertEqual(stored["feed"], "iex")
+        self.assertEqual(result["refreshPolicy"], "complete_frozen_symbol_set_atomic_replace_v1")
+        self.assertEqual(set(result["currentSessionThrough"]), {"ONE", "TWO"})
+
+    def test_partial_scheduled_refresh_keeps_previous_artifact_byte_exact(self):
+        def initial_reader(url, params):
+            return {"bars": {params["symbols"]: history()}, "next_page_token": None}
+        def failing_reader(url, params):
+            symbol = params["symbols"]
+            return {"bars": {symbol: history() if symbol == "GOOD" else []},
+                    "next_page_token": None}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profiles.json"
+            refresh_profiles(["GOOD", "BAD"], now=datetime(2026, 9, 23, 12, tzinfo=timezone.utc),
+                             output_path=path, reader=initial_reader, feed="iex")
+            original = path.read_bytes()
+            with self.assertRaisesRegex(RuntimeError, "intraday_profile_refresh_incomplete"):
+                refresh_existing_profiles(
+                    now=datetime(2026, 9, 24, 12, tzinfo=timezone.utc),
+                    output_path=path, reader=failing_reader,
+                )
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(list(Path(directory).glob("*.candidate")), [])
+
+    def test_scheduled_refresh_refuses_session_regression(self):
+        def reader(url, params):
+            return {"bars": {params["symbols"]: history()}, "next_page_token": None}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profiles.json"
+            refresh_profiles(["TEST"], now=datetime(2026, 9, 23, 12, tzinfo=timezone.utc),
+                             output_path=path, reader=reader, feed="iex")
+            payload = json.loads(path.read_text())
+            payload["profiles"]["TEST"]["sessionDates"][-1] = "2026-09-22"
+            payload["profiles"]["TEST"]["priceProfileSessionDates"][-1] = "2026-09-22"
+            path.write_text(json.dumps(payload))
+            original = path.read_bytes()
+            with self.assertRaisesRegex(RuntimeError, "intraday_profile_refresh_regression"):
+                refresh_existing_profiles(
+                    now=datetime(2026, 9, 24, 12, tzinfo=timezone.utc),
+                    output_path=path, reader=reader,
+                )
+            self.assertEqual(path.read_bytes(), original)
 
 
 if __name__ == "__main__":

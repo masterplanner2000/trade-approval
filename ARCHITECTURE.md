@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.17
+**Current architecture version:** 5.18
 **Last updated:** 2026-09-24
 **Status:** Living source of truth
 
@@ -152,7 +152,7 @@ flowchart LR
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
-| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Five-minute capture plus immutable 5/30-minute raw and modeled-after-cost outcomes implemented | Accumulate 20 sessions, refresh profiles daily and connect read-only portfolio context; SIP/actionable use remains blocked |
+| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Five-minute capture, immutable outcomes and atomic pre-open daily profile refresh implemented | Accumulate 20 sessions and connect read-only portfolio context; SIP/actionable use remains blocked |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
 | Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Evaluator, journal, source/consensus adapters and immutable exposure-map registry implemented | Curate reviewed mappings, join records, schedule reaction capture and compare forward outcomes |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | New proposals bind to exact frozen evidence identity; verify the first market-hours proposal/fill lifecycle |
@@ -175,6 +175,8 @@ The experimental higher-volatility lane lives in `service/aggressive_shadow_scan
 `service/intraday_shadow_evaluator.py` consumes a caller-supplied, timestamped snapshot and evaluates session, freshness, halt state, coherent prices, day movement, opening gap, relative volume, session dollar volume and current spread. It returns every failed check and is hard-coded `research_only` with `orderSubmissionAllowed: false`. `service/intraday_shadow_journal.py` stores exact valid snapshots and evaluations in an append-only SQLite timeline, deduplicates identical evidence and deterministically replays only a supported versioned ruleset. `service/intraday_shadow_replay.py` selects the first eligible observation per symbol/session and measures fixed-horizon, last-observed and excursion outcomes without representing observations as fills. Missing horizons remain incomplete. `service/intraday_shadow_capture.py` now supplies the scheduled read-only provider orchestration, while `service/intraday_capture_journal.py` atomically preserves the complete per-run pass, rejection and incomplete envelope. A local LaunchAgent invokes it every five minutes and the runner exits before network access outside regular weekday hours. It still has no API route, mobile surface, portfolio sizing or broker authority; single-venue IEX and absent fresh broker portfolio context prevent actionable use.
 
 `service/intraday_volume_profile.py` provides the point-in-time relative-volume denominator. It admits only complete regular sessions strictly before the as-of date, selects the most recent 20–30 sessions, expands them to all 390 regular-session minutes and takes the median cumulative volume at each minute. `service/intraday_volume_profile_job.py` reads paginated Alpaca one-minute history and writes a local research artifact atomically. The exact included dates, provider scope and input digest remain visible; the current day cannot leak into its own baseline.
+
+The scheduled profile-refresh mode treats the current artifact's symbol set and feed as a frozen input contract. It stages a complete candidate, requires every symbol and matching volume/range session dates, rejects historical regression and then performs one atomic rename. Its weekday 8:45 a.m. local LaunchAgent is deliberately pre-open; any failed attempt leaves the prior complete artifact untouched for the capture process.
 
 `service/intraday_price_signals.py` builds the corresponding cumulative high/low range baseline and computes current-session price movement without interpreting it as a recommendation. Exact 5/15/60-minute returns, acceleration, VWAP distance, range expansion, session-high pullback and recent path-quality metrics remain timestamped diagnostics. Future, stale, sparse, duplicate and cross-session input fails closed.
 
@@ -376,6 +378,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added immutable 5- and 30-minute forward outcomes tied to exact source and target capture records.
 - Added raw and frozen modeled-after-cost returns, explicit missing windows, cohort completeness and a 20-distinct-session review gate.
 - Corrected sequential-fetch evaluation time so a quote obtained after cycle start is not falsely rejected as future evidence.
+
+### Version 5.18 — 2026-09-24
+
+- Added an all-or-nothing daily rebuild of the frozen intraday profile universe and feed.
+- Required matching volume/range histories and non-regressing completed-session coverage before atomic publication.
+- Installed and live-verified the weekday 8:45 a.m. non-overlapping LaunchAgent; partial failure preserves the prior artifact.
 
 ### Version 3.17 — 2026-09-12
 
