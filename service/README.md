@@ -122,6 +122,8 @@ Risk calculations live under `service/risk/`. Components have no network or brok
 
 `intraday_market_data_readiness.py` performs a read-only, sanitized capability audit against both Alpaca IEX and SIP with the configured credentials. It verifies exact feed and volume-scope provenance and separates shadow-research availability from the consolidated-data promotion gate. Run `npm run market:intraday:data-readiness`; the result cannot authorize recommendations, subscriptions or orders. See `INTRADAY_MARKET_DATA_READINESS.md`.
 
+`intraday_collection_health.py` reads the immutable capture and outcome journals to measure five-minute slot coverage, symbol-record completeness and Paper portfolio-context completeness by trading session. Only closed usable dates that also contain completed forward outcomes count toward the 20-session review threshold. Run `npm run market:intraday:health`. The report has no network, recommendation or order authority.
+
 It deliberately cannot submit live orders. Approved proposals receive an HMAC-signed, single-use receipt that binds the approval to an exact paper account, symbol, buy direction, quantity, order type, maximum entry price, protective stop, profit target, automatic-exit policy, and short expiration.
 
 ## Run locally

@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-24.13 · **Corresponding architecture:** 5.21
+**Log revision:** 2026-09-24.14 · **Corresponding architecture:** 5.22
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -91,7 +91,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-072 | Compare performance with an exposure-matched QQQ alternative | Confirmed; minimum-sample gate retained | 2026-09-23 |
 | D-073 | Archive one immutable performance report after each daily collection | Confirmed; scheduled path integrated | 2026-09-23 |
 | D-074 | Process approved Paper orders in the background | Confirmed; failure restores the card | 2026-09-24 |
-| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; market-data readiness gate implemented, SIP unavailable | 2026-09-24 |
+| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; qualified-session health gate implemented | 2026-09-24 |
 
 ---
 
@@ -128,6 +128,8 @@ This is the living record of product, design, trading-safety, data, and technica
 **2026-09-24 exposure-registry evidence:** TWS may return repeated position rows for the same symbol, so position capacity and concentration must aggregate by symbol rather than count callbacks. The intraday portfolio context now performs that aggregation and uses an explicit, versioned, source-linked exposure bucket for every held and candidate symbol. Unknown symbols fail closed. Live evidence reduced six broker rows to four distinct holdings; BMNR passed portfolio checks at 7.5% projected digital-asset-treasury exposure, while MSFT/NVDA failed combined technology exposure and MU failed existing symbol/technology concentration. The registry is a safety classification, not an investment thesis, and grants no recommendation or order authority.
 
 **2026-09-24 market-data readiness evidence:** Provider capability must be tested from the credentials used by the scheduled collector rather than inferred from a dashboard plan name. A new sanitized diagnostic verifies exact feed/scope provenance for Alpaca IEX and SIP. The live check found IEX available and SIP denied, so the lane may continue labeled single-venue shadow research but cannot pass the consolidated-data promotion gate. Alpaca SIP is the smallest engineering change because the existing pipeline already supports it; IBKR would remain the independent pre-trade quote source and currently still lacks the required live API entitlement. No subscription was purchased, and a future feed change must rebuild profiles without mixing IEX and SIP cohorts.
+
+**2026-09-24 collection-health evidence:** Raw distinct outcome sessions cannot by themselves satisfy the review sample because a partial or operationally degraded day can still produce some outcomes. A session now counts only if the market is closed, at least 90% of expected five-minute slots exist, at least 95% of symbol records are complete, every evaluable record has complete Paper portfolio context and the same date has completed forward outcomes. The September 24 setup day has one raw outcome session but only 32/77 capture slots, 91.89% complete records and 57.35% portfolio coverage, so its qualified contribution is zero. This quality gate changes research admissibility only; it cannot create recommendations or orders.
 
 ### D-074 — Background Paper submission during continued review
 

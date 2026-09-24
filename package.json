@@ -21,6 +21,7 @@
     "market:intraday:capture": ".venv-ibkr-10.49/bin/python service/intraday_shadow_capture.py capture",
     "market:intraday:status": ".venv-ibkr-10.49/bin/python service/intraday_shadow_capture.py status",
     "market:intraday:data-readiness": ".venv-ibkr-10.49/bin/python service/intraday_market_data_readiness.py",
+    "market:intraday:health": ".venv-ibkr-10.49/bin/python service/intraday_collection_health.py",
     "market:evidence:capture": ".venv-ibkr-10.49/bin/python service/run_daily_evidence.py capture",
     "market:evidence:status": ".venv-ibkr-10.49/bin/python service/run_daily_evidence.py status",
     "market:evidence:report": ".venv-ibkr-10.49/bin/python service/run_daily_evidence.py report",
