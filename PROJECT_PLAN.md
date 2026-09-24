@@ -356,8 +356,9 @@ The durable-ledger and reconciliation milestone is complete only when:
 4. **Automate collection readiness — complete.** Review is blocked until 20 distinct usable sessions exist separately at every horizon, with matched lifecycle progress reported independently.
 5. **Freeze one rule experiment — complete; collecting next-session evidence.** Relative volume is ranking context rather than a hard veto in one isolated treatment lane. Top-five paired results, costs, uncertainty and drawdown are evaluated under D-068. The control remains unchanged and active; treatment has no recommendation or order authority.
 6. **Bind new proposals to frozen evidence — complete prospectively.** New proposals persist exact signal date, lane, ruleset, evidence-run ID and resolution state. Lifecycle capture independently verifies those claims and refuses mismatches. September 11 fills remain unlinked because no contemporaneous frozen run existed.
+7. **Complete commission accounting — importer complete; source refresh pending.** New TWS commission callbacks are retained. Historical fees can now be attached only from exact same-account Flex execution IDs and application order references. The existing September 18 export predates the required ledger executions, so net performance remains unavailable until a current report is exported and imported.
 
-**Next operational action:** During the next Paper recommendation cycle, confirm the created proposal reports `evidenceStatus: MATCHED`; after a decision and any fill, run lifecycle capture and confirm its matched-proposal count increases. In parallel, let the installed post-close collector capture treatment sessions without changing the frozen experiment.
+**Next operational action:** Export a new 365-day IBKR Paper Activity Flex CSV through September 23 with execution audit fields and commissions, then run the verified commission importer and confirm `feesComplete: true`. During the next Paper recommendation cycle, also confirm the created proposal reports `evidenceStatus: MATCHED` and that lifecycle capture increases the matched-proposal count.
 
 ## Separate crypto paper MVP — proposed delivery sequence
 

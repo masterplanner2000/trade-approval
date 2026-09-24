@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-23.8 · **Corresponding architecture:** 5.5
+**Log revision:** 2026-09-23.9 · **Corresponding architecture:** 5.6
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -86,10 +86,21 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-067 | Require 20 distinct usable sessions before strategy-rule review | Confirmed; automated readiness gate and daily logging implemented | 2026-09-23 |
 | D-068 | Test relative volume as ranking context instead of a hard veto | Provisional; frozen forward-only experiment implemented | 2026-09-23 |
 | D-069 | Bind every new proposal to exact frozen evidence identity | Confirmed; prospective identity resolution implemented | 2026-09-23 |
+| D-070 | Recover historical Paper commissions only from exact Flex executions | Confirmed; importer implemented, fresh report required | 2026-09-23 |
 
 ---
 
 ## Detailed decisions
+
+### D-070 — Exact Paper commission recovery
+
+**Status:** Import and ledger-enrichment path implemented. Current September 11–18 fills remain incomplete pending a newer IBKR Paper Activity Flex export.
+
+**Decision:** Preserve real-time TWS `commissionReport` values for new executions. For older executions no longer returned by the TWS execution window, accept commissions only from a validated same-account Paper Activity Flex CSV. Require API-order status, an application order reference, unique execution ID, exact symbol and USD commission. Match the Flex execution to the ledger using both exact execution ID and exact order reference, store commission as a positive cost with the source digest, and make re-import idempotent. Conflicting fees or ambiguous matches fail closed.
+
+**Current evidence:** The two available downloads were created September 18 but contain executions only through September 14 and none of the six ledger executions for MRK, JNJ, CVX or DE. A rehearsal therefore updated zero orders and reported all 25 report executions as unmatched. Those files cannot complete current net performance. A fresh export through September 23 is required.
+
+**Boundary:** Never estimate commissions or treat missing fees as zero. Importing fee evidence changes accounting metadata only; it cannot place, modify or cancel an order. Gross results remain available, while net equity and return stay null until every included execution has verified commission evidence.
 
 ### D-069 — Prospective proposal-to-evidence identity
 

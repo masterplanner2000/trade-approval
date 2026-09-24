@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.5
+**Current architecture version:** 5.6
 **Last updated:** 2026-09-23
 **Status:** Living source of truth
 
@@ -76,6 +76,7 @@ flowchart LR
         benchmarks["Exact-window benchmarks<br/>cash and QQQ"]
         lifecycle["Append-only lifecycle observations<br/>proposals · decisions · fills · costs"]
         portfolioReport["Paper portfolio report<br/>P/L · exposure · turnover · drawdown"]
+        commissionEvidence["Commission evidence<br/>TWS callback or exact Paper Flex execution"]
         readiness["Forward-evidence readiness<br/>20 distinct sessions per horizon"]
         pairedExperiment["Paired control/treatment scorecard<br/>Top five · costs · interval · drawdown"]
         notifications["Notifications"]
@@ -95,6 +96,7 @@ flowchart LR
         ledger --> lifecycle
         lifecycle --> performance
         lifecycle --> portfolioReport
+        commissionEvidence --> lifecycle
         normalize --> portfolioReport
         portfolioReport --> performance
         counterfactuals --> readiness
@@ -160,7 +162,7 @@ flowchart LR
 | Broker reconciliation | Match app state to IBKR orders, fills, positions, and commission reports | Partial | Complete partial-fill, cancellation, and missing-account-summary handling |
 | Durable trading ledger | Persist proposals, decisions, submission attempts, broker orders, executions, fees, and lifecycle events | Partial | Closed-trade and recycled-budget read models added; complete historical fee coverage |
 | Activity and Positions | Show pending orders as trades, open positions, and closed results | Partial | Consolidated trade views added; add current-price unrealized P/L |
-| Performance evaluation | Measure selection, missed-opportunity, execution and portfolio outcomes separately | Partial | Reports and automated 20-session readiness gates implemented; collection is in progress and commissions remain incomplete |
+| Performance evaluation | Measure selection, missed-opportunity, execution and portfolio outcomes separately | Partial | Exact commission importer implemented; obtain a current Flex report to unlock net Paper results |
 | Directional-volume experiment | Test one frozen eligibility change against the unchanged higher-volatility control | Research only | Collect 20 paired forward sessions per horizon; no app-card or broker integration |
 | Notifications | Deliver proposals, fills, exits, and safety alerts | Planned | Add after reliable event states exist |
 | Web app | Cross-platform account and review experience | Planned | Reuse API after mobile workflow is reliable |
@@ -292,6 +294,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added exact prospective proposal identity resolution against active immutable daily evidence.
 - Persisted lane, ruleset, evidence-run ID and resolution status with every new generated proposal.
 - Made lifecycle attribution reject claimed run or ruleset mismatches; historical pre-collector trades remain unlinked rather than backfilled.
+
+### Version 5.6 — 2026-09-23
+
+- Added exact historical Paper commission recovery from validated IBKR Flex executions.
+- Required matching execution ID and application order reference, preserved the evidence digest and rejected ambiguous or conflicting fees.
+- Kept net performance incomplete because the currently available report predates the relevant executions; no fees are estimated.
 
 ### Version 3.17 — 2026-09-12
 
