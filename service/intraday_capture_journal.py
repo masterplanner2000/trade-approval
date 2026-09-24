@@ -131,5 +131,17 @@ class IntradayCaptureJournal:
         ).fetchone()
         return self.get_run(row["run_id"]) if row else None
 
+    def runs(self, *, through: str | None = None) -> list[dict[str, object]]:
+        if through:
+            rows = self.connection.execute(
+                "SELECT run_id FROM capture_runs WHERE scheduled_at<=? ORDER BY scheduled_at,run_id",
+                (through,),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                "SELECT run_id FROM capture_runs ORDER BY scheduled_at,run_id"
+            ).fetchall()
+        return [self.get_run(row["run_id"]) for row in rows]
+
     def close(self) -> None:
         self.connection.close()

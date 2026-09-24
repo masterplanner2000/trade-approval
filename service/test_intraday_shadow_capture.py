@@ -5,6 +5,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from intraday_capture_journal import IntradayCaptureJournal
+from intraday_forward_outcomes import IntradayOutcomeJournal
 from intraday_shadow_capture import capture_cycle
 from intraday_shadow_journal import IntradayShadowJournal
 
@@ -64,10 +65,12 @@ class IntradayShadowCaptureTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.capture = IntradayCaptureJournal(Path(self.temp.name) / "capture.sqlite3")
         self.shadow = IntradayShadowJournal(Path(self.temp.name) / "shadow.sqlite3")
+        self.outcomes = IntradayOutcomeJournal(Path(self.temp.name) / "outcomes.sqlite3")
 
     def tearDown(self):
         self.capture.close()
         self.shadow.close()
+        self.outcomes.close()
         self.temp.cleanup()
 
     def test_cycle_records_pass_reject_and_incomplete_without_order_authority(self):
@@ -116,6 +119,36 @@ class IntradayShadowCaptureTests(unittest.TestCase):
         self.assertEqual({item["envelope"]["error"] for item in records},
                          {"halt_evidence_unavailable"})
         self.assertEqual(self.shadow.replay(), [])
+
+    def test_later_cycle_settles_earlier_outcome_without_order_authority(self):
+        common = dict(
+            profiles={"GOOD": profile("GOOD")}, snapshot_reader=market,
+            bars_reader=bars, halt_reader=halt_reader, portfolio_reader=portfolio,
+            capture_journal=self.capture, shadow_journal=self.shadow,
+            outcome_journal=self.outcomes,
+        )
+        first = capture_cycle(scheduled_at=SCHEDULED, **common)
+        second = capture_cycle(scheduled_at=SCHEDULED + timedelta(minutes=5), **common)
+        self.assertEqual(first["outcomes"]["summary"]["outcomeCount"], 0)
+        self.assertEqual(second["outcomes"]["summary"]["outcomeCount"], 1)
+        outcome = self.outcomes.list()[0]
+        self.assertEqual(outcome["horizon"], "5m")
+        self.assertFalse(outcome["orderSubmissionAllowed"])
+
+    def test_quote_fetched_after_cycle_start_is_not_mislabeled_future(self):
+        late_market = {**market("GOOD"), "observedAt": "2026-09-24T15:00:31Z",
+                       "quoteObservedAt": "2026-09-24T15:00:31Z"}
+        capture_cycle(
+            scheduled_at=SCHEDULED, profiles={"GOOD": profile("GOOD")},
+            snapshot_reader=lambda symbol: late_market, bars_reader=bars,
+            halt_reader=halt_reader, portfolio_reader=portfolio,
+            capture_journal=self.capture, shadow_journal=self.shadow,
+            completed_at=lambda: SCHEDULED + timedelta(seconds=2),
+        )
+        evaluation = self.capture.latest()["records"][0]["envelope"]["evaluation"]
+        checks = {item["id"]: item for item in evaluation["checks"]}
+        self.assertTrue(checks["snapshot_fresh"]["passed"])
+        self.assertTrue(checks["quote_fresh"]["passed"])
 
 
 if __name__ == "__main__":

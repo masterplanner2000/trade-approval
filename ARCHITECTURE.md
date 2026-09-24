@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.16
+**Current architecture version:** 5.17
 **Last updated:** 2026-09-24
 **Status:** Living source of truth
 
@@ -152,7 +152,7 @@ flowchart LR
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
-| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Complete pipeline scheduled every five minutes in market hours; append-only run envelopes preserve pass, rejection and incomplete states | Collect forward outcomes, refresh profiles daily and connect read-only portfolio context; SIP/actionable use remains blocked |
+| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Five-minute capture plus immutable 5/30-minute raw and modeled-after-cost outcomes implemented | Accumulate 20 sessions, refresh profiles daily and connect read-only portfolio context; SIP/actionable use remains blocked |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
 | Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Evaluator, journal, source/consensus adapters and immutable exposure-map registry implemented | Curate reviewed mappings, join records, schedule reaction capture and compare forward outcomes |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | New proposals bind to exact frozen evidence identity; verify the first market-hours proposal/fill lifecycle |
@@ -181,6 +181,8 @@ The experimental higher-volatility lane lives in `service/aggressive_shadow_scan
 `service/intraday_opportunity_score.py` is the explainable shadow-ranking boundary. It assigns at most 100 points across six named price/volume components and returns the exact contribution and prose explanation for each. Upstream market gates are prerequisites rather than score inputs: a failed halt, freshness, coherence, liquidity or spread check produces no score. The current bands and weights are frozen hypotheses for forward observation and cannot create proposals or orders.
 
 `service/nasdaq_halt_status.py` provides the independent halt boundary from Nasdaq Trader's current-halts RSS feed. One bounded fixed-host request serves the scan universe; feed publication, halt and resumption timestamps remain explicit and stale or malformed evidence fails closed. `service/intraday_safety_filters.py` combines this evidence with upstream market gates and projected portfolio state while preserving distinct market and portfolio failures. Its result can admit immutable shadow observation only; actionable eligibility is hard-coded false.
+
+`service/intraday_forward_outcomes.py` reads only the append-only capture timeline and settles exact fixed horizons without fetching replacement prices. A first same-symbol observation within two minutes after 5 or 30 minutes completes the window; once the deadline passes, absent evidence is immutably incomplete. The source pass/reject status, score and safety verdict stay attached. Raw last-price movement is reported beside a frozen hypothetical execution model based on source ask, target bid, two basis points of slippage per leg and one basis point of round-trip fees. Cohorts require 20 distinct sessions before review and cannot alter thresholds, recommendations or orders.
 
 `service/stock_catalyst.mjs` classifies normalized Alpaca/Benzinga headlines into bounded research categories and returns evidence, timing, affected symbols, lexical direction, classification confidence, window-relative novelty and secondary-source quality. It is included in the existing stock-news response. Predictive confidence is null, and the component has no ranking, proposal, sizing or order authority. Primary-source verification, source conflict handling, event identity/corrections and outcome testing remain pending.
 
@@ -368,6 +370,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a complete read-only intraday capture orchestrator scheduled every five minutes during regular weekday market hours.
 - Added atomic append-only run envelopes preserving every pass, rejection and incomplete result with conflict-safe idempotency.
 - Installed and live-verified the non-overlapping macOS runner; retained no recommendation or order authority and left portfolio eligibility fail-closed pending read-only broker context.
+
+### Version 5.17 — 2026-09-24
+
+- Added immutable 5- and 30-minute forward outcomes tied to exact source and target capture records.
+- Added raw and frozen modeled-after-cost returns, explicit missing windows, cohort completeness and a 20-distinct-session review gate.
+- Corrected sequential-fetch evaluation time so a quote obtained after cycle start is not falsely rejected as future evidence.
 
 ### Version 3.17 — 2026-09-12
 

@@ -13,6 +13,7 @@ service/data/daily-forward-evidence.sqlite3*
 service/data/performance-report-archive.sqlite3*
 service/data/intraday-captures.sqlite3*
 service/data/intraday-shadow.sqlite3*
+service/data/intraday-outcomes.sqlite3*
 service/data/trading-ledger.sqlite3*
 *.py[cod]
 .DS_Store
