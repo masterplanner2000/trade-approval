@@ -152,7 +152,7 @@ flowchart LR
 | IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
-| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Five-minute capture, immutable outcomes, atomic pre-open profiles, Paper portfolio context and reviewed exposure buckets implemented | Accumulate 20 sessions and evaluate consolidated data; actionable use remains blocked |
+| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Five-minute capture, immutable outcomes, profiles, Paper portfolio context, exposure buckets and a reproducible data-readiness gate implemented | Accumulate 20 sessions and resolve consolidated-data entitlement; actionable use remains blocked |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
 | Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Evaluator, journal, source/consensus adapters and immutable exposure-map registry implemented | Curate reviewed mappings, join records, schedule reaction capture and compare forward outcomes |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | New proposals bind to exact frozen evidence identity; verify the first market-hours proposal/fill lifecycle |
@@ -396,6 +396,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a versioned, source-linked symbol exposure registry and fail-closed handling for unmapped holdings or candidates.
 - Aggregated repeated TWS position rows by symbol before position-count, symbol-exposure and sector-exposure calculations.
 - Live-verified four distinct holdings from six broker rows and differentiated BMNR's passing portfolio context from genuine technology-concentration blocks.
+
+### Version 5.21 — 2026-09-24
+
+- Added a sanitized read-only capability audit for separate Alpaca IEX and SIP feeds.
+- Live-verified single-venue IEX access and current SIP denial without changing subscriptions.
+- Documented Alpaca SIP as the lowest-integration consolidated research path and retained IBKR as a separately entitled execution quote authority.
 
 ### Version 3.17 — 2026-09-12
 

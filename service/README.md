@@ -120,6 +120,8 @@ Risk calculations live under `service/risk/`. Components have no network or brok
 
 `intraday_portfolio_context.py` converts one complete, fresh, read-only TWS Paper reconciliation snapshot into projected intraday research constraints. It aggregates repeated broker position rows by symbol, checks position capacity, proposed symbol and reviewed exposure-bucket concentration, daily loss and buying power. `data/intraday-sector-registry.json` supplies versioned explicit classifications with source links; an unknown held or candidate symbol fails closed. One broker snapshot is reused across the full symbol cycle. Missing, stale, Live or writable evidence fails closed, and the adapter has no recommendation or order authority.
 
+`intraday_market_data_readiness.py` performs a read-only, sanitized capability audit against both Alpaca IEX and SIP with the configured credentials. It verifies exact feed and volume-scope provenance and separates shadow-research availability from the consolidated-data promotion gate. Run `npm run market:intraday:data-readiness`; the result cannot authorize recommendations, subscriptions or orders. See `INTRADAY_MARKET_DATA_READINESS.md`.
+
 It deliberately cannot submit live orders. Approved proposals receive an HMAC-signed, single-use receipt that binds the approval to an exact paper account, symbol, buy direction, quantity, order type, maximum entry price, protective stop, profit target, automatic-exit policy, and short expiration.
 
 ## Run locally
