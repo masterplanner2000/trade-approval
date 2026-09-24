@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-24.6 · **Corresponding architecture:** 5.14
+**Log revision:** 2026-09-24.7 · **Corresponding architecture:** 5.15
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -91,7 +91,7 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-072 | Compare performance with an exposure-matched QQQ alternative | Confirmed; minimum-sample gate retained | 2026-09-23 |
 | D-073 | Archive one immutable performance report after each daily collection | Confirmed; scheduled path integrated | 2026-09-23 |
 | D-074 | Process approved Paper orders in the background | Confirmed; failure restores the card | 2026-09-24 |
-| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; transparent shadow score implemented | 2026-09-24 |
+| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; safety filters and official halt evidence implemented | 2026-09-24 |
 
 ---
 
@@ -113,7 +113,9 @@ This is the living record of product, design, trading-safety, data, and technica
 
 **2026-09-24 price-diagnostic evidence:** The same admitted prior sessions now produce a median cumulative high/low range for every market minute. Current-session calculations expose 5/15/60-minute momentum, previous-five-minute momentum, acceleration, VWAP distance, time-matched range expansion, session-high pullback, recent close location and positive-bar share. A real IEX check completed for BMNR, MU, NVDA and MSFT and showed materially different paths rather than one generic volatility label. These remain diagnostic inputs to the shadow score described below; no threshold has been promoted and no recommendation or broker authority was added.
 
-**2026-09-24 shadow-score evidence:** The first opportunity score is frozen as `intraday-opportunity-score-v1`: relative volume 25 points, multi-horizon momentum 25, acceleration 10, VWAP position 10, time-matched range expansion 15 and recent path quality 15. Every contribution discloses its exact input, awarded points, cap and explanation. A failed upstream hard gate, mismatched symbol/time, missing feed provenance or missing metric produces no score. The 60-point developing and 75-point strong labels are uncalibrated forward-test hypotheses, not profit estimates. Even a 100-point result remains research-only and cannot create a card or order. Current live scoring remains blocked because halt provenance has not been approved.
+**2026-09-24 shadow-score evidence:** The first opportunity score is frozen as `intraday-opportunity-score-v1`: relative volume 25 points, multi-horizon momentum 25, acceleration 10, VWAP position 10, time-matched range expansion 15 and recent path quality 15. Every contribution discloses its exact input, awarded points, cap and explanation. A failed upstream hard gate, mismatched symbol/time, missing feed provenance or missing metric produces no score. The 60-point developing and 75-point strong labels are uncalibrated forward-test hypotheses, not profit estimates. Even a 100-point result remains research-only and cannot create a card or order. Live scoring required the independent halt source implemented below before it could enter scheduled shadow capture.
+
+**2026-09-24 safety evidence:** Nasdaq Trader's official current-halts RSS feed is the prototype halt source. The fixed-host adapter fetches once per scan, requires publication within two minutes, resolves exact symbols and halt/resumption times, rejects malformed/oversized XML and provides no recommendation authority. The versioned safety policy separately reports market and portfolio failures, including overextension and projected exposure. A live check returned fresh `halted: false` evidence for BMNR, MU, NVDA and MSFT. This removes the unknown-halt blocker for labeled personal shadow observations only. IEX single-venue scope, uncalibrated performance, scheduled forward evidence and commercial-feed-terms review still block promotion and distribution.
 
 ### D-074 — Background Paper submission during continued review
 
