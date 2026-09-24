@@ -1,6 +1,6 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.9
+**Current architecture version:** 5.10
 **Last updated:** 2026-09-23
 **Status:** Living source of truth
 
@@ -318,6 +318,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added an append-only local archive of canonical daily strategy-performance reports.
 - Made exact reruns idempotent while retaining fee or evidence revisions as separate immutable versions.
 - Integrated performance archival into the installed weekday collector between evidence capture and readiness reporting.
+
+### Version 5.10 — 2026-09-24
+
+- Decoupled review-deck navigation from the Paper submission lifecycle.
+- Advanced immediately after confirmed approval while preview, What-If, safety checks and broker submission continue in the background.
+- Restored failed submissions to the front of the stack and kept successful progress in Activity/fill reconciliation.
 
 ### Version 3.17 — 2026-09-12
 

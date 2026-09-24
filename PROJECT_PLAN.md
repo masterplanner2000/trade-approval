@@ -21,6 +21,8 @@
 
 **Priority 5 update, 2026-09-23:** Added an append-only performance-report archive to the weekday collector. Exact reruns are idempotent; revised reports caused by later fee evidence are retained as new versions. The first current report was archived as `COMPLETE_GROSS`; it remains fee-incomplete.
 
+**Mobile workflow update, 2026-09-24:** Confirmed approvals now leave the review deck immediately while the complete Paper validation and submission workflow runs in the background. Success is tracked through Activity and reconciliation; only a failure interrupts review and restores the card for retry. No broker safety gate was removed.
+
 ## Today's test plan — 2026-09-22
 
 1. **Before the open — evidence integrity:** implement an append-only invalidation/supersession record for immutable daily evidence. Mark the first September 21 run invalid for comparative performance, preserve its payload, and prove automated reports exclude it without deleting or rewriting history.

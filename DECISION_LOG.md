@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-23.12 · **Corresponding architecture:** 5.9
+**Log revision:** 2026-09-24.1 · **Corresponding architecture:** 5.10
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -90,10 +90,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-071 | Label strategy performance by evidence completeness | Confirmed; daily scorecard implemented | 2026-09-23 |
 | D-072 | Compare performance with an exposure-matched QQQ alternative | Confirmed; minimum-sample gate retained | 2026-09-23 |
 | D-073 | Archive one immutable performance report after each daily collection | Confirmed; scheduled path integrated | 2026-09-23 |
+| D-074 | Process approved Paper orders in the background | Confirmed; failure restores the card | 2026-09-24 |
 
 ---
 
 ## Detailed decisions
+
+### D-074 — Background Paper submission during continued review
+
+**Status:** Confirmed and implemented in the mobile review deck.
+
+**Decision:** Once the user confirms an approval, remove that card from the active review stack immediately and run approval receipt, preview, What-If, final safety validation and Paper submission in the background. Do not interrupt subsequent card review with progress toasts or a submitting card. Successful orders continue through Activity and fill reconciliation. If submission fails, show one error and restore the original recommendation at the front of the stack for review or retry. A server-side capital change instead supplies the recalculated queue.
+
+**Safety:** Background presentation does not bypass any validation, change the immutable decision, or claim success before broker acknowledgement. Multiple in-flight workflows are counted so health scans do not race an active broker operation. Unknown submission outcomes remain reconciliation problems rather than blind retries.
 
 ### D-073 — Immutable daily performance archive
 

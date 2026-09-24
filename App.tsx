@@ -1050,7 +1050,7 @@ export default function App() {
   const [orderPreview, setOrderPreview] = useState<OrderPreview | null>(null);
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResult | null>(null);
   const [paperSubmission, setPaperSubmission] = useState<PaperSubmission | null>(null);
-  const [submittedProposalId, setSubmittedProposalId] = useState<string | null>(null);
+  const [submittedProposalIds, setSubmittedProposalIds] = useState<string[]>([]);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [appToast, setAppToast] = useState<AppToast | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -1078,7 +1078,7 @@ export default function App() {
   const suppressCardTapUntil = useRef(0);
   const brokerCheckInFlight = useRef(false);
   const brokerFailureCount = useRef(0);
-  const orderWorkflowInFlight = useRef(false);
+  const orderWorkflowsInFlight = useRef(0);
   const recommendationScanInFlight = useRef(false);
   const recalculatedRecommendations = useRef<Proposal[] | null>(null);
   const uiPreviewRef = useRef(false);
@@ -1353,7 +1353,7 @@ export default function App() {
       setBrokerConnectionStatus("connected");
       return;
     }
-    if (brokerCheckInFlight.current || orderWorkflowInFlight.current) return;
+    if (brokerCheckInFlight.current || orderWorkflowsInFlight.current > 0) return;
     brokerCheckInFlight.current = true;
     try {
       const response = await fetch(`${API_BASE_URL}/broker/snapshot?symbol=NVDA`, {
@@ -1451,7 +1451,7 @@ export default function App() {
 
     let active = true;
     const scan = async () => {
-      if (!active || recommendationScanInFlight.current || orderWorkflowInFlight.current) return;
+      if (!active || recommendationScanInFlight.current || orderWorkflowsInFlight.current > 0) return;
       recommendationScanInFlight.current = true;
       setProcessing(true);
       setBrokerUnavailable(false);
@@ -1488,16 +1488,22 @@ export default function App() {
     if (expired) setProposal((current) => ({ ...current, decision: "expired" }));
   }, [expired]);
 
-  async function executeDecision(decision: "approved" | "denied"): Promise<boolean> {
-    orderWorkflowInFlight.current = true;
+  async function executeDecision(
+    decision: "approved" | "denied",
+    targetProposal: Proposal = proposal,
+    background = false,
+  ): Promise<boolean> {
+    orderWorkflowsInFlight.current += 1;
     setWorkflowError(null);
-    setAppToast(decision === "approved"
+    if (!background) setAppToast(decision === "approved"
       ? { tone: "info", title: "Checking paper order", message: "Validating the account, price, and order with IBKR Paper." }
       : null);
-    setProcessing(true);
-    setDecisionInFlight(decision);
+    if (!background) {
+      setProcessing(true);
+      setDecisionInFlight(decision);
+    }
     try {
-      const response = await fetch(`${API_BASE_URL}/proposals/${proposal.id}/decision`, {
+      const response = await fetch(`${API_BASE_URL}/proposals/${targetProposal.id}/decision`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-app-token": APP_TOKEN },
         body: JSON.stringify({ decision }),
@@ -1548,10 +1554,11 @@ export default function App() {
       setWhatIfResult(whatIfPayload.whatIf);
       const commission = whatIfPayload.whatIf.result?.commission;
       if (typeof commission === "number") {
-        setProposal((current) => ({ ...current, estimatedFees: commission }));
+        setRealRecommendations((current) => current.map((item) =>
+          item.id === targetProposal.id ? { ...item, estimatedFees: commission } : item));
       }
 
-      setAppToast({ tone: "info", title: "Submitting paper bracket", message: "Waiting for IBKR to acknowledge the buy and both automatic exit orders." });
+      if (!background) setAppToast({ tone: "info", title: "Submitting paper bracket", message: "Waiting for IBKR to acknowledge the buy and both automatic exit orders." });
 
       const submitResponse = await fetch(`${API_BASE_URL}/orders/submit-paper`, {
         method: "POST",
@@ -1593,21 +1600,21 @@ export default function App() {
         recalculatedRecommendations.current = refreshedCards;
         setStrategy(submitPayload.strategy);
       }
-      setSubmittedProposalId(proposal.id);
-      setProposal((current) => ({ ...current, decision: "approved" }));
+      setSubmittedProposalIds((current) => current.includes(targetProposal.id)
+        ? current : [...current, targetProposal.id]);
       const queuedForOpen = submitPayload.submission.result?.status === "PreSubmitted"
         && submitPayload.submission.warnings?.some((warning) => warning.code === 399);
-      setAppToast({
-        tone: "info",
-        title: queuedForOpen ? "Paper order queued" : "Paper order working",
-        message: queuedForOpen
-          ? `${proposal.quantity} ${proposal.symbol} · accepted by IBKR and scheduled for the next regular market open. The card will close after the entry fills.`
-          : `${proposal.quantity} ${proposal.symbol} · acknowledged by IBKR. The card will close after the entry fills.`,
-      });
+      if (!background) setAppToast({
+          tone: "info",
+          title: queuedForOpen ? "Paper order queued" : "Paper order working",
+          message: queuedForOpen
+            ? `${targetProposal.quantity} ${targetProposal.symbol} · accepted by IBKR and scheduled for the next regular market open.`
+            : `${targetProposal.quantity} ${targetProposal.symbol} · acknowledged by IBKR.`,
+        });
       setStrategy((current) => current ? {
         ...current,
-        currentExposure: Math.min(current.capitalLimit, current.currentExposure + proposal.positionValue),
-        remainingCapital: Math.max(0, current.remainingCapital - proposal.positionValue),
+        currentExposure: Math.min(current.capitalLimit, current.currentExposure + targetProposal.positionValue),
+        remainingCapital: Math.max(0, current.remainingCapital - targetProposal.positionValue),
         completedCount: current.completedCount + 1,
       } : current);
       return true;
@@ -1624,11 +1631,19 @@ export default function App() {
             : `The order was not sent. ${code.replaceAll("_", " ")}.`;
       setWorkflowError(message);
       setAppToast({ tone: "danger", title: "Paper order not submitted", message });
+      if (background && code !== "strategy_capital_changed") {
+        const retryable = { ...targetProposal, decision: "pending" as Decision };
+        setRealRecommendations((current) => [retryable, ...current.filter((item) => item.id !== retryable.id)]);
+        setProposal(retryable);
+        setRealDeckComplete(false);
+      }
       return false;
     } finally {
-      orderWorkflowInFlight.current = false;
-      setProcessing(false);
-      setDecisionInFlight(null);
+      orderWorkflowsInFlight.current = Math.max(0, orderWorkflowsInFlight.current - 1);
+      if (!background) {
+        setProcessing(false);
+        setDecisionInFlight(null);
+      }
     }
   }
 
@@ -1663,6 +1678,12 @@ export default function App() {
   }
 
   async function completeDecision(decision: "approved" | "denied") {
+    if (decision === "approved") {
+      const targetProposal = proposal;
+      dismissResolvedLiveCard("approved");
+      void executeDecision("approved", targetProposal, true);
+      return;
+    }
     const succeeded = await executeDecision(decision);
     const replacementCards = decision === "denied" ? recalculatedRecommendations.current : null;
     if (decision === "denied") recalculatedRecommendations.current = null;
@@ -1670,7 +1691,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!submittedProposalId || uiPreview) return;
+    if (submittedProposalIds.length === 0 || uiPreview) return;
     let active = true;
     let checking = false;
     const checkFill = async () => {
@@ -1682,15 +1703,14 @@ export default function App() {
         const response = await fetch(`${API_BASE_URL}/activity`, { headers });
         if (!response.ok) return;
         const result = await response.json() as { items?: ActivityItem[] };
-        const entry = (result.items ?? []).find((item) => item.id === submittedProposalId);
-        if (entry?.status.toLowerCase() !== "filled") return;
-        setSubmittedProposalId(null);
-        setAppToast({ tone: "success", title: "Paper buy filled", message: `${entry.quantity ?? proposal.quantity} ${entry.symbol} filled. The position is now tracked in the app.` });
-        if (proposal.id === submittedProposalId) {
-          const refreshedCards = recalculatedRecommendations.current;
-          recalculatedRecommendations.current = null;
-          dismissResolvedLiveCard("approved", refreshedCards);
-        }
+        const filled = (result.items ?? []).filter((item) =>
+          submittedProposalIds.includes(item.id) && item.status.toLowerCase() === "filled");
+        if (filled.length === 0) return;
+        const filledIds = new Set(filled.map((item) => item.id));
+        setSubmittedProposalIds((current) => current.filter((id) => !filledIds.has(id)));
+        const entry = filled[0];
+        if (!entry) return;
+        setAppToast({ tone: "success", title: "Paper buy filled", message: `${entry.quantity ?? ""} ${entry.symbol} filled. The position is now tracked in the app.` });
       } catch {
         // Reconciliation will retry; a temporary connection failure must not dismiss the card.
       } finally {
@@ -1703,7 +1723,7 @@ export default function App() {
       active = false;
       clearInterval(interval);
     };
-  }, [submittedProposalId, uiPreview, proposal.id]);
+  }, [submittedProposalIds, uiPreview]);
 
   function decide(decision: "approved" | "denied") {
     if (!actionable) return;
@@ -2413,7 +2433,7 @@ export default function App() {
                   />
                 </View>
               ) : (
-                submittedProposalId === proposal.id ? <View style={styles.actions}>
+                submittedProposalIds.includes(proposal.id) ? <View style={styles.actions}>
                   <ActionButton label="Order working…" tone="secondary" pending disabled onPress={() => undefined} />
                 </View> : uiPreview ? <View style={styles.actions}>
                   <ActionButton label="Deny" tone="secondary" onPress={() => animateSampleDecision("denied")} />
