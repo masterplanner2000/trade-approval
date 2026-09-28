@@ -3,12 +3,13 @@ import Constants from "expo-constants";
 import * as Device from "expo-device";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemeProvider } from "@shopify/restyle";
-import { CaretDownIcon, CheckCircleIcon, CircleIcon, ClockIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, XIcon } from "phosphor-react-native";
+import { CheckCircleIcon, CircleIcon, ClockIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, XIcon } from "phosphor-react-native";
 import {
   Alert,
   Animated,
   Easing,
   Image,
+  Linking,
   Modal,
   PanResponder,
   Pressable,
@@ -42,7 +43,7 @@ type BrokerConnectionStatus = "checking" | "connected" | "disconnected";
 type AppToast = { tone: "info" | "success" | "danger"; title: string; message?: string };
 type AppPage = "review" | "activity" | "positions" | "news" | "settings" | "preview";
 type DurableNewsEvent = {
-  eventId: string; headline: string; publisher: string; publishedAt: string; symbols: string[];
+  eventId: string; headline: string; publisher: string; publishedAt: string; symbols: string[]; url: string;
   verificationState: string; sourceTier: string; researchOnly: true;
 };
 type NewsHealth = {
@@ -516,18 +517,45 @@ const UI_PROPOSALS: Proposal[] = [
   },
 ];
 
-const PREVIEW_ACTIVITY: ActivityItem[] = [
-  { id: "activity-1", symbol: "NVDA", side: "buy", status: "Filled", occurredAt: Date.now() - 18 * 60 * 1000, quantity: 5, limitPrice: 183.2, environment: "paper", brokerOrderId: "10478231" },
-  { id: "activity-2", symbol: "AAPL", side: "buy", status: "PreSubmitted", occurredAt: Date.now() - 52 * 60 * 1000, quantity: 4, limitPrice: 229.55, environment: "paper", brokerOrderId: "10478212" },
-  { id: "activity-3", symbol: "MSFT", side: "buy", status: "denied", occurredAt: Date.now() - 3 * 60 * 60 * 1000, quantity: 2, limitPrice: 506.25, environment: "paper", brokerOrderId: null },
-  { id: "activity-4", symbol: "AMZN", side: "sell", status: "Filled", occurredAt: Date.now() - 26 * 60 * 60 * 1000, quantity: 5, limitPrice: 190, environment: "paper", brokerOrderId: "10477008" },
-];
+const PREVIEW_HISTORY_SYMBOLS = ["NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL", "TSLA", "AMD", "AVGO", "CRM", "PLTR", "HOOD", "XOM", "CVX", "JPM", "V", "COST", "WMT", "LLY", "UNH"];
+const PREVIEW_HISTORY_PRICES: Record<string, number> = {
+  NVDA: 183.2, AAPL: 229.55, MSFT: 506.25, AMZN: 190, META: 548.4,
+  GOOGL: 198.1, TSLA: 347.8, AMD: 164.2, AVGO: 328.6, CRM: 241.66,
+  PLTR: 191.81, HOOD: 121.24, XOM: 118.5, CVX: 157.8, JPM: 302.4,
+  V: 351.2, COST: 942.7, WMT: 104.6, LLY: 792.4, UNH: 361.9,
+};
+const PREVIEW_OPEN_STATUSES = ["Submitted", "PreSubmitted", "approved"];
+const PREVIEW_HISTORY_STATUSES = ["Filled", "denied", "expired", "Filled", "denied", "Filled"];
+const PREVIEW_HISTORY_NOW = Date.now();
+
+function buildPreviewActivity(count = 240): ActivityItem[] {
+  return Array.from({ length: count }, (_, index) => {
+    const symbol = PREVIEW_HISTORY_SYMBOLS[index % PREVIEW_HISTORY_SYMBOLS.length]!;
+    const status = index < 6
+      ? PREVIEW_OPEN_STATUSES[index % PREVIEW_OPEN_STATUSES.length]!
+      : PREVIEW_HISTORY_STATUSES[(index - 6) % PREVIEW_HISTORY_STATUSES.length]!;
+    const brokerBacked = !["denied", "expired", "approved"].includes(status.toLowerCase());
+    return {
+      id: `preview-activity-${index + 1}`,
+      symbol,
+      side: index % 5 === 0 ? "sell" : "buy",
+      status,
+      occurredAt: PREVIEW_HISTORY_NOW - (index * 7 + 3) * 60 * 60 * 1000,
+      quantity: (index % 5) + 1,
+      limitPrice: Math.round((PREVIEW_HISTORY_PRICES[symbol]! * (0.97 + (index % 7) * 0.01)) * 100) / 100,
+      environment: "preview",
+      brokerOrderId: brokerBacked ? String(10490000 - index) : null,
+    };
+  });
+}
+
+const PREVIEW_ACTIVITY: ActivityItem[] = buildPreviewActivity();
 
 const PREVIEW_POSITIONS: PositionItem[] = [
   { id: "position-1", symbol: "NVDA", quantity: 5, averageEntryPrice: 182.94, currentPrice: 185.36, protectiveStopPrice: 180.3, profitTargetPrice: 190.5, updatedAt: Date.now() - 12_000, dataState: "preview" },
   { id: "position-2", symbol: "AAPL", quantity: 4, averageEntryPrice: 228.8, currentPrice: 231.14, protectiveStopPrice: 224.9, profitTargetPrice: 238, updatedAt: Date.now() - 18_000, dataState: "preview" },
 ];
-const PREVIEW_TRADES: TradeItem[] = PREVIEW_POSITIONS.map((position) => ({
+const PREVIEW_OPEN_TRADES: TradeItem[] = PREVIEW_POSITIONS.map((position) => ({
   id: position.id, symbol: position.symbol, quantity: position.quantity, status: "open",
   entryPrice: position.averageEntryPrice, exitPrice: null,
   entryValue: position.quantity * position.averageEntryPrice, exitValue: null,
@@ -535,6 +563,26 @@ const PREVIEW_TRADES: TradeItem[] = PREVIEW_POSITIONS.map((position) => ({
   openedAt: position.updatedAt, closedAt: null,
   protectiveStopPrice: position.protectiveStopPrice, profitTargetPrice: position.profitTargetPrice,
 }));
+const PREVIEW_CLOSED_TRADES: TradeItem[] = Array.from({ length: 48 }, (_, index) => {
+  const symbol = PREVIEW_HISTORY_SYMBOLS[index % PREVIEW_HISTORY_SYMBOLS.length]!;
+  const entryPrice = PREVIEW_HISTORY_PRICES[symbol]! * (0.94 + (index % 5) * 0.01);
+  const returnPercent = ((index % 9) - 3) / 100;
+  const exitPrice = entryPrice * (1 + returnPercent);
+  const quantity = (index % 5) + 1;
+  const grossProfit = (exitPrice - entryPrice) * quantity;
+  const entryFee = 0.35;
+  const exitFee = 0.35;
+  return {
+    id: `preview-closed-trade-${index + 1}`, symbol, quantity, status: "closed",
+    entryPrice, exitPrice, entryValue: entryPrice * quantity, exitValue: exitPrice * quantity,
+    entryFee, exitFee, feesComplete: true, grossProfit, netProfit: grossProfit - entryFee - exitFee,
+    exitReason: returnPercent >= 0 ? "profit_target" : "protective_stop",
+    openedAt: PREVIEW_HISTORY_NOW - (index * 4 + 6) * 24 * 60 * 60 * 1000,
+    closedAt: PREVIEW_HISTORY_NOW - (index * 4 + 4) * 24 * 60 * 60 * 1000,
+    protectiveStopPrice: entryPrice * 0.96, profitTargetPrice: entryPrice * 1.04,
+  };
+});
+const PREVIEW_TRADES: TradeItem[] = [...PREVIEW_OPEN_TRADES, ...PREVIEW_CLOSED_TRADES];
 
 const SHADOW_LOADING: Proposal = {
   ...PAPER_PROPOSAL,
@@ -586,11 +634,13 @@ function CompanyMark({ symbol, size = 34 }: { symbol: string; size?: number }) {
   const { styles } = useVisualTheme();
   const [failed, setFailed] = useState(false);
   const domain = COMPANY_DOMAINS[symbol];
+  const avatarColors = ["#1D4ED8", "#6D28D9", "#A23B10", "#047857", "#B4235A", "#0F6F71", "#4338CA"];
+  const avatarColor = avatarColors[[...symbol].reduce((total, character) => total + character.charCodeAt(0), 0) % avatarColors.length];
 
   if (!domain || failed) {
     return (
-      <View style={[styles.logoFallback, { width: size, height: size, borderRadius: size / 2 }]}>
-        <Text style={styles.logoFallbackText}>{symbol.slice(0, 2)}</Text>
+      <View accessibilityLabel={`${symbol} stock avatar`} style={[styles.logoFallback, { width: size, height: size, borderRadius: size / 2, backgroundColor: avatarColor }]}>
+        <Text style={[styles.logoFallbackText, { fontSize: Math.max(14, Math.round(size * 0.44)), lineHeight: Math.max(18, Math.round(size * 0.52)) }]}>{symbol.charAt(0).toUpperCase()}</Text>
       </View>
     );
   }
@@ -861,6 +911,15 @@ function NewsMonitorPage({ apiUrl, appToken }: { apiUrl: string; appToken: strin
   }, [apiUrl, appToken]);
   useEffect(() => { void load(); const timer = setInterval(() => void load(), 30_000); return () => clearInterval(timer); }, [load]);
   const connected = health?.sources.some(source => source.status === "CONNECTED") ?? false;
+  const openArticle = async (event: DurableNewsEvent) => {
+    try {
+      const url = new URL(event.url);
+      if (url.protocol !== "https:" || url.username || url.password) throw new Error("invalid_news_url");
+      await Linking.openURL(url.href);
+    } catch {
+      Alert.alert("Article unavailable", "This article could not be opened in your browser.");
+    }
+  };
   return (
     <View style={styles.settingsPage}>
       <Text accessibilityRole="header" style={styles.settingsTitle}>News monitor</Text>
@@ -874,14 +933,18 @@ function NewsMonitorPage({ apiUrl, appToken }: { apiUrl: string; appToken: strin
       </View>
       {error ? <Text style={styles.historyMessage}>The news collector status is unavailable.</Text> : null}
       {events.map(event => (
-        <View key={event.eventId} style={styles.newsMonitorItem}>
+        <Pressable key={event.eventId} accessibilityRole="link"
+          accessibilityLabel={`${event.headline}. ${event.publisher}. Opens in your browser.`}
+          onPress={() => void openArticle(event)}
+          style={({ pressed }) => [styles.newsMonitorItem, pressed && styles.newsMonitorItemPressed]}>
           <View style={styles.newsMonitorMetaRow}>
             <Text style={styles.newsMonitorSource}>{event.publisher}</Text>
             <Text style={styles.newsMonitorTime}>{new Date(event.publishedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</Text>
           </View>
           <Text style={styles.newsMonitorHeadline}>{event.headline}</Text>
           <Text style={styles.newsMonitorSymbols}>{event.symbols.length ? event.symbols.join(" · ") : "Broad market"} · {event.verificationState.toLowerCase()}</Text>
-        </View>
+          <Text style={styles.newsMonitorLink}>Open article ↗</Text>
+        </Pressable>
       ))}
       {!loading && !error && events.length === 0 ? <Text style={styles.historyMessage}>No events have been captured yet.</Text> : null}
       <Pressable accessibilityRole="button" onPress={() => void load()} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
@@ -930,22 +993,65 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
 }) {
   const { colors, styles } = useVisualTheme();
   const [activitySearch, setActivitySearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [draftTypeFilter, setDraftTypeFilter] = useState("All");
+  const [draftStatusFilter, setDraftStatusFilter] = useState("All");
+  const [selectedActivityDetail, setSelectedActivityDetail] = useState<{ kind: "activity"; item: ActivityItem } | { kind: "trade"; item: TradeItem } | null>(null);
+  const [historyVisibleCount, setHistoryVisibleCount] = useState(50);
   const empty = page === "activity" ? activity.length === 0 : positions.length === 0;
-  const matchingActivity = activity.filter((item) => {
-    const query = activitySearch.trim().toLowerCase();
-    return !query || item.symbol.toLowerCase().includes(query) || item.status.toLowerCase().includes(query) || item.side.toLowerCase().includes(query);
-  });
   const openStatuses = new Set(["presubmitted", "submitted", "pendingsubmit", "pendingcancel"]);
   const pendingStatuses = new Set(["approved", "started", "unknown"]);
+  const decisionStatuses = new Set(["approved", "denied", "expired"]);
+  const normalizeStatus = (status: string) => status.replaceAll("_", "").toLowerCase();
+  const searchMatches = (symbol: string, ...values: string[]) => {
+    const query = activitySearch.trim().toLowerCase();
+    return !query || symbol.toLowerCase().includes(query) || values.some((value) => value.toLowerCase().includes(query));
+  };
+  const matchingActivity = activity.filter((item) => {
+    const status = normalizeStatus(item.status);
+    const typeMatches = typeFilter === "All"
+      || (typeFilter === "Orders" && !decisionStatuses.has(status))
+      || (typeFilter === "Decisions" && decisionStatuses.has(status));
+    const statusMatches = statusFilter === "All"
+      || (statusFilter === "Open" && (openStatuses.has(status) || pendingStatuses.has(status)))
+      || status === statusFilter.toLowerCase();
+    return typeFilter !== "Trades" && typeMatches && statusMatches
+      && searchMatches(item.symbol, item.status, item.side);
+  });
+  const matchingTrades = trades.filter((trade) => {
+    const typeMatches = typeFilter === "All" || typeFilter === "Trades";
+    const statusMatches = statusFilter === "All"
+      || (statusFilter === "Open" && trade.status === "open")
+      || (statusFilter === "Closed" && trade.status === "closed");
+    return typeMatches && statusMatches
+      && searchMatches(trade.symbol, trade.status, trade.exitReason ?? "");
+  });
+  useEffect(() => setHistoryVisibleCount(50), [activitySearch, typeFilter, statusFilter]);
   const decisionActivity = matchingActivity.filter((item) =>
-    item.side.toLowerCase() !== "sell"
-    || !openStatuses.has(item.status.replaceAll("_", "").toLowerCase())
+    item.side.toLowerCase() !== "sell" || !openStatuses.has(normalizeStatus(item.status))
   );
   const tradeIds = new Set(trades.map((trade) => trade.id));
-  const activitySections = [
-    { title: "Pending orders", items: decisionActivity.filter((item) => !tradeIds.has(item.id) && (openStatuses.has(item.status.replaceAll("_", "").toLowerCase()) || pendingStatuses.has(item.status.replaceAll("_", "").toLowerCase()))) },
-    { title: "Recent decisions", items: decisionActivity.filter((item) => !tradeIds.has(item.id) && !openStatuses.has(item.status.replaceAll("_", "").toLowerCase()) && !pendingStatuses.has(item.status.replaceAll("_", "").toLowerCase())) },
-  ].filter((section) => section.items.length > 0);
+  const openActivity = decisionActivity.filter((item) => !tradeIds.has(item.id)
+    && (openStatuses.has(normalizeStatus(item.status)) || pendingStatuses.has(normalizeStatus(item.status))));
+  const historicalActivity = decisionActivity.filter((item) => !tradeIds.has(item.id)
+    && !openStatuses.has(normalizeStatus(item.status)) && !pendingStatuses.has(normalizeStatus(item.status)));
+  const openTrades = matchingTrades.filter((trade) => trade.status === "open");
+  const closedTrades = matchingTrades.filter((trade) => trade.status === "closed");
+  const visibleHistoricalActivity = historicalActivity.slice(0, historyVisibleCount);
+  const visibleClosedTrades = closedTrades.slice(0, historyVisibleCount);
+  const hasMoreHistory = historicalActivity.length > visibleHistoricalActivity.length || closedTrades.length > visibleClosedTrades.length;
+  const openFilters = () => {
+    setDraftTypeFilter(typeFilter);
+    setDraftStatusFilter(statusFilter);
+    setFilterSheetOpen(true);
+  };
+  const applyFilters = () => {
+    setTypeFilter(draftTypeFilter);
+    setStatusFilter(draftStatusFilter);
+    setFilterSheetOpen(false);
+  };
   const friendlyStatus = (status: string) => ({
     presubmitted: "Accepted · waiting",
     submitted: "Working",
@@ -957,6 +1063,33 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
     expired: "Expired",
     replaced: "Updated",
   }[status.replaceAll("_", "").toLowerCase()] ?? status.replaceAll("_", " "));
+  const selectedDetailTitle = selectedActivityDetail
+    ? `${selectedActivityDetail.item.symbol} ${selectedActivityDetail.kind === "trade" ? "trade" : selectedActivityDetail.item.side.toLowerCase()}`
+    : "Activity detail";
+  const selectedDetailRows: Array<{ label: string; value: string }> = selectedActivityDetail?.kind === "activity"
+    ? [
+        { label: "Status", value: friendlyStatus(selectedActivityDetail.item.status) },
+        { label: "Action", value: selectedActivityDetail.item.side.toUpperCase() },
+        { label: "Quantity", value: selectedActivityDetail.item.quantity == null ? "—" : `${selectedActivityDetail.item.quantity} shares` },
+        { label: "Limit price", value: selectedActivityDetail.item.limitPrice == null ? "—" : money(selectedActivityDetail.item.limitPrice) },
+        { label: "Date", value: new Date(selectedActivityDetail.item.occurredAt).toLocaleString() },
+        { label: "Broker order", value: selectedActivityDetail.item.brokerOrderId ?? (previewMode ? "Preview only" : "—") },
+        { label: "Environment", value: selectedActivityDetail.item.environment },
+      ]
+    : selectedActivityDetail?.kind === "trade"
+      ? [
+          { label: "Status", value: selectedActivityDetail.item.status === "open" ? "Position open" : "Trade closed" },
+          { label: "Quantity", value: `${selectedActivityDetail.item.quantity} shares` },
+          { label: "Entry price", value: money(selectedActivityDetail.item.entryPrice) },
+          { label: "Entry value", value: money(selectedActivityDetail.item.entryValue) },
+          { label: "Opened", value: new Date(selectedActivityDetail.item.openedAt).toLocaleString() },
+          ...(selectedActivityDetail.item.exitPrice == null ? [] : [{ label: "Exit price", value: money(selectedActivityDetail.item.exitPrice) }]),
+          ...(selectedActivityDetail.item.closedAt == null ? [] : [{ label: "Closed", value: new Date(selectedActivityDetail.item.closedAt).toLocaleString() }]),
+          ...(selectedActivityDetail.item.grossProfit == null ? [] : [{ label: selectedActivityDetail.item.feesComplete ? "Net profit/loss" : "Gross profit/loss", value: `${selectedActivityDetail.item.grossProfit >= 0 ? "+" : ""}${money(selectedActivityDetail.item.feesComplete && selectedActivityDetail.item.netProfit != null ? selectedActivityDetail.item.netProfit : selectedActivityDetail.item.grossProfit)}` }]),
+          { label: "Protective stop", value: selectedActivityDetail.item.protectiveStopPrice == null ? "—" : money(selectedActivityDetail.item.protectiveStopPrice) },
+          { label: "Profit target", value: selectedActivityDetail.item.profitTargetPrice == null ? "—" : money(selectedActivityDetail.item.profitTargetPrice) },
+        ]
+      : [];
   return (
     <View style={styles.historyPage}>
       <Text accessibilityRole="header" style={styles.settingsTitle}>{page === "activity" ? "Activity" : "Positions"}</Text>
@@ -975,18 +1108,15 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
               onChangeText={setActivitySearch}
               style={styles.activitySearchInput}
             />
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activityFilters}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Open activity filters" style={styles.activityFilterIcon}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open activity filters${typeFilter !== "All" || statusFilter !== "All" ? ", filters active" : ""}`}
+              onPress={openFilters}
+              style={styles.activityFilterIcon}
+            >
               <SlidersHorizontalIcon size={18} color={colors.ink} weight="regular" />
             </Pressable>
-            {["Type", "Status", "Symbol"].map((label) => (
-              <Pressable key={label} accessibilityRole="button" accessibilityLabel={`Filter by ${label}`} style={styles.activityFilterChip}>
-                <Text style={styles.activityFilterText}>{label}</Text>
-                <CaretDownIcon size={14} color={colors.ink} weight="bold" />
-              </Pressable>
-            ))}
-          </ScrollView>
+          </View>
         </>
       ) : null}
       {loading ? <Text style={styles.historyMessage}>Loading…</Text> : error ? <Text style={styles.historyMessage}>Activity service is unavailable.</Text> : null}
@@ -996,11 +1126,11 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
           <Text style={styles.historyMessage}>{page === "activity" ? "Decisions and order updates will appear here." : "A position appears after the ledger observes a filled entry."}</Text>
         </View>
       ) : null}
-      {!loading && !error && page === "activity" && activitySections.map((section) => (
-        <View key={section.title} style={styles.activitySection}>
-          <Text style={styles.activitySectionTitle}>{section.title} ({section.items.length})</Text>
-          {section.items.map((item) => (
-            <View key={item.id} style={styles.activityRow}>
+      {!loading && !error && page === "activity" && openActivity.length > 0 ? (
+        <View style={styles.activitySection}>
+          <Text style={styles.activitySectionTitle}>Open orders ({openActivity.length})</Text>
+          {openActivity.map((item) => (
+            <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`Open ${item.symbol} order details`} onPress={() => setSelectedActivityDetail({ kind: "activity", item })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
               <CompanyMark symbol={item.symbol} size={36} />
               <View style={styles.historyRowMain}>
                 <Text style={styles.historySymbol}>{item.symbol} {item.side.toLowerCase()}</Text>
@@ -1010,15 +1140,15 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
                 <Text style={styles.historyStatus}>{friendlyStatus(item.status)}</Text>
                 <Text style={styles.historyTime}>{item.limitPrice ? money(item.limitPrice) : previewMode ? "Preview" : "—"}</Text>
               </View>
-            </View>
+            </Pressable>
           ))}
         </View>
-      ))}
-      {!loading && !error && page === "activity" && trades.filter((trade) => trade.status === "open").length > 0 ? (
+      ) : null}
+      {!loading && !error && page === "activity" && openTrades.length > 0 ? (
         <View style={styles.activitySection}>
-          <Text style={styles.activitySectionTitle}>Open trades ({trades.filter((trade) => trade.status === "open").length})</Text>
-          {trades.filter((trade) => trade.status === "open").map((trade) => (
-            <View key={trade.id} style={styles.activityRow}>
+          <Text style={styles.activitySectionTitle}>Open positions ({openTrades.length})</Text>
+          {openTrades.map((trade) => (
+            <Pressable key={trade.id} accessibilityRole="button" accessibilityLabel={`Open ${trade.symbol} position details`} onPress={() => setSelectedActivityDetail({ kind: "trade", item: trade })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
               <CompanyMark symbol={trade.symbol} size={36} />
               <View style={styles.historyRowMain}>
                 <Text style={styles.historySymbol}>{trade.symbol}</Text>
@@ -1028,17 +1158,35 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
                 <Text style={styles.historyStatus}>Position open</Text>
                 <Text style={styles.historyTime}>{money(trade.entryValue)} invested</Text>
               </View>
-            </View>
+            </Pressable>
           ))}
         </View>
       ) : null}
-      {!loading && !error && page === "activity" && trades.filter((trade) => trade.status === "closed").length > 0 ? (
+      {!loading && !error && page === "activity" && visibleHistoricalActivity.length > 0 ? (
         <View style={styles.activitySection}>
-          <Text style={styles.activitySectionTitle}>Closed trades ({trades.filter((trade) => trade.status === "closed").length})</Text>
-          {trades.filter((trade) => trade.status === "closed").map((trade) => {
+          <Text style={styles.activitySectionTitle}>History ({historicalActivity.length})</Text>
+          {visibleHistoricalActivity.map((item) => (
+            <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`Open ${item.symbol} activity details`} onPress={() => setSelectedActivityDetail({ kind: "activity", item })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
+              <CompanyMark symbol={item.symbol} size={36} />
+              <View style={styles.historyRowMain}>
+                <Text style={styles.historySymbol}>{item.symbol} {item.side.toLowerCase()}</Text>
+                <Text style={styles.historyMeta}>{item.quantity ?? "—"} shares · {new Date(item.occurredAt).toLocaleDateString()}</Text>
+              </View>
+              <View style={styles.historyRowEnd}>
+                <Text style={styles.historyStatus}>{friendlyStatus(item.status)}</Text>
+                <Text style={styles.historyTime}>{item.limitPrice ? money(item.limitPrice) : previewMode ? "Preview" : "—"}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {!loading && !error && page === "activity" && visibleClosedTrades.length > 0 ? (
+        <View style={styles.activitySection}>
+          <Text style={styles.activitySectionTitle}>Closed trades ({closedTrades.length})</Text>
+          {visibleClosedTrades.map((trade) => {
             const profit = trade.feesComplete ? trade.netProfit : trade.grossProfit;
             return (
-              <View key={trade.id} style={styles.activityRow}>
+              <Pressable key={trade.id} accessibilityRole="button" accessibilityLabel={`Open ${trade.symbol} closed trade details`} onPress={() => setSelectedActivityDetail({ kind: "trade", item: trade })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
                 <CompanyMark symbol={trade.symbol} size={36} />
                 <View style={styles.historyRowMain}>
                   <Text style={styles.historySymbol}>{trade.symbol}</Text>
@@ -1048,17 +1196,23 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
                   <Text style={[styles.historyStatus, { color: (profit ?? 0) >= 0 ? colors.actionApprove : colors.danger }]}>{profit == null ? "—" : `${profit >= 0 ? "+" : ""}${money(profit)}`}</Text>
                   <Text style={styles.historyTime}>{trade.feesComplete ? "Net profit/loss" : "Gross · fees pending"}</Text>
                 </View>
-              </View>
+              </Pressable>
             );
           })}
         </View>
       ) : null}
-      {!loading && !error && page === "activity" && !empty && matchingActivity.length === 0 ? (
+      {!loading && !error && page === "activity" && hasMoreHistory ? (
+        <Pressable accessibilityRole="button" onPress={() => setHistoryVisibleCount((count) => count + 50)} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
+          <Text style={styles.previewProposalButtonText}>Load older activity</Text>
+        </Pressable>
+      ) : null}
+      {!loading && !error && page === "activity" && !empty && matchingActivity.length === 0 && matchingTrades.length === 0 ? (
         <Text style={styles.historyMessage}>No activity matches your search.</Text>
       ) : null}
       {!loading && !error && page === "positions" && positions.map((item) => (
         <View key={item.id} style={styles.positionCard}>
           <View style={styles.historyRow}>
+            <CompanyMark symbol={item.symbol} size={40} />
             <View style={styles.historyRowMain}><Text style={styles.historySymbol}>{item.symbol}</Text><Text style={styles.historyMeta}>{item.quantity} shares</Text></View>
             <Text style={styles.historyStatus}>{money(item.quantity * item.averageEntryPrice)}</Text>
           </View>
@@ -1076,6 +1230,66 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
       {!previewMode ? <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
         <Text style={styles.previewProposalButtonText}>Refresh</Text>
       </Pressable> : null}
+      <Modal visible={filterSheetOpen} transparent animationType="fade" onRequestClose={() => setFilterSheetOpen(false)}>
+        <View style={styles.filterSheetLayer}>
+          <Pressable accessibilityLabel="Close filters" onPress={() => setFilterSheetOpen(false)} style={styles.filterSheetBackdrop} />
+          <SafeAreaView style={styles.filterSheet} edges={["bottom"]}>
+            <View style={styles.filterSheetHandle} />
+            <View style={styles.filterSheetHeader}>
+              <Text style={styles.filterSheetTitle}>Filters</Text>
+              <Pressable accessibilityRole="button" onPress={() => { setDraftTypeFilter("All"); setDraftStatusFilter("All"); }} hitSlop={8}>
+                <Text style={styles.filterSheetClear}>Clear</Text>
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.filterSheetContent} showsVerticalScrollIndicator={false}>
+              {([
+                { label: "Type", options: ["All", "Orders", "Decisions", "Trades"], value: draftTypeFilter, setValue: setDraftTypeFilter },
+                { label: "Status", options: ["All", "Open", "Filled", "Denied", "Expired", "Closed"], value: draftStatusFilter, setValue: setDraftStatusFilter },
+              ] as const).map((section) => (
+                <View key={section.label} style={styles.filterSheetSection}>
+                  <Text style={styles.filterSheetSectionTitle}>{section.label}</Text>
+                  <View style={styles.filterSheetChoices}>
+                    {section.options.map((option) => {
+                      const selected = section.value === option;
+                      return <Pressable key={option} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => section.setValue(option)} style={[styles.filterSheetChoice, selected && styles.filterSheetChoiceSelected]}>
+                        <Text style={[styles.filterSheetChoiceText, selected && styles.filterSheetChoiceTextSelected]}>{option}</Text>
+                      </Pressable>;
+                    })}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+            <Pressable accessibilityRole="button" onPress={applyFilters} style={({ pressed }) => [styles.filterSheetApply, pressed && styles.homeActionPressed]}>
+              <Text style={styles.filterSheetApplyText}>Apply filters</Text>
+            </Pressable>
+          </SafeAreaView>
+        </View>
+      </Modal>
+      <Modal visible={selectedActivityDetail !== null} transparent animationType="fade" onRequestClose={() => setSelectedActivityDetail(null)}>
+        <View style={styles.filterSheetLayer}>
+          <Pressable accessibilityLabel="Close activity details" onPress={() => setSelectedActivityDetail(null)} style={styles.filterSheetBackdrop} />
+          <SafeAreaView style={styles.activityDetailSheet} edges={["bottom"]}>
+            <View style={styles.filterSheetHandle} />
+            <View style={styles.filterSheetHeader}>
+              <View style={styles.activityDetailTitleRow}>
+                {selectedActivityDetail ? <CompanyMark symbol={selectedActivityDetail.item.symbol} size={40} /> : null}
+                <Text style={styles.filterSheetTitle}>{selectedDetailTitle}</Text>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close activity details" onPress={() => setSelectedActivityDetail(null)} style={styles.sheetClose}>
+                <XIcon size={20} color={colors.ink} weight="regular" />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.activityDetailContent} showsVerticalScrollIndicator={false}>
+              {selectedDetailRows.map((row) => (
+                <View key={row.label} style={styles.activityDetailRow}>
+                  <Text style={styles.tradeTermLabel}>{row.label}</Text>
+                  <Text style={styles.activityDetailValue}>{row.value}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1728,8 +1942,18 @@ export default function App() {
       }
       requestAnimationFrame(() => {
         cardPosition.setValue({ x: 0, y: 0 });
-        cardEntryProgress.setValue(1);
-        requestAnimationFrame(() => {
+        if (!next) {
+          cardEntryProgress.setValue(1);
+          setTransitionCard(null);
+          cardAnimating.current = false;
+          return;
+        }
+        Animated.timing(cardEntryProgress, {
+          toValue: 1,
+          duration: 160,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }).start(() => {
           setTransitionCard(null);
           cardAnimating.current = false;
         });
@@ -1896,7 +2120,16 @@ export default function App() {
 
   function animateSampleDecision(decision: "approved" | "denied") {
     if (cardAnimating.current) return;
+    const reviewed = [...reviewedExampleIds, proposal.id];
+    const nextIndex = UI_PROPOSALS.findIndex((item) => !reviewed.includes(item.id));
+    const next = nextIndex === -1 ? null : UI_PROPOSALS[nextIndex]!;
+    const preparedNext = next ? {
+      ...next,
+      decision: next.decision === "expired" ? "expired" as const : "pending" as const,
+      expiresAt: next.decision === "expired" ? Date.now() - 30 * 1000 : Date.now() + (nextIndex + 3) * 60 * 1000,
+    } : null;
     cardAnimating.current = true;
+    setTransitionCard(preparedNext);
     Animated.timing(cardPosition, {
       toValue: { x: decision === "approved" ? 520 : -520, y: 18 },
       duration: 280,
@@ -1907,12 +2140,21 @@ export default function App() {
       cardPosition.setValue({ x: 0, y: 0 });
       finishSampleDecision(decision);
       requestAnimationFrame(() => {
+        if (!preparedNext) {
+          cardEntryProgress.setValue(1);
+          setTransitionCard(null);
+          cardAnimating.current = false;
+          return;
+        }
         Animated.timing(cardEntryProgress, {
           toValue: 1,
-          duration: 220,
+          duration: 160,
           easing: Easing.bezier(0.22, 1, 0.36, 1),
           useNativeDriver: true,
-        }).start(() => { cardAnimating.current = false; });
+        }).start(() => {
+          setTransitionCard(null);
+          cardAnimating.current = false;
+        });
       });
     });
   }
@@ -1953,8 +2195,12 @@ export default function App() {
         setProposal(preparedNext);
         requestAnimationFrame(() => {
           cardPosition.setValue({ x: 0, y: 0 });
-          cardEntryProgress.setValue(1);
-          requestAnimationFrame(() => {
+          Animated.timing(cardEntryProgress, {
+            toValue: 1,
+            duration: 160,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }).start(() => {
             setTransitionCard(null);
             cardAnimating.current = false;
           });
@@ -2346,17 +2592,17 @@ export default function App() {
 
         {!proposal.shadowMode && !sampleDeckComplete && !realDeckComplete && (
           <View style={[styles.deckStage, { height: Math.max(420, viewportHeight - 150) }]}>
-            {backPreviewCard && (
+            {!transitionCard && backPreviewCard && (
               <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardBack]}>
                 <PreviewCardFace proposal={backPreviewCard} />
               </Animated.View>
             )}
-            {nextPreviewCard && (
+            {!transitionCard && nextPreviewCard && (
               <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: nextCardOpacity }]}>
                 <PreviewCardFace proposal={nextPreviewCard} />
               </Animated.View>
             )}
-            {previousPreviewCard && previousPreviewCard.id !== nextPreviewCard?.id && (
+            {!transitionCard && previousPreviewCard && previousPreviewCard.id !== nextPreviewCard?.id && (
               <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: previousCardOpacity }]}>
                 <PreviewCardFace proposal={previousPreviewCard} />
               </Animated.View>
@@ -2669,15 +2915,35 @@ return StyleSheet.create({
   policySave: { minHeight: 56, alignItems: "center", justifyContent: "center", backgroundColor: colors.actionApprove, borderRadius: radius.pill, marginTop: 12, paddingHorizontal: 20 },
   policySaveText: { color: colors.actionApproveText, fontSize: 16, lineHeight: 22, fontWeight: "400" },
   historyPage: { flex: 1, paddingTop: 10, paddingBottom: 30 },
-  activitySearch: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 16, marginTop: 18 },
-  activitySearchInput: { flex: 1, minHeight: 48, color: colors.ink, ...typeRamp.body, paddingVertical: 0 },
-  activityFilters: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 14, paddingBottom: 8 },
-  activityFilterIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, borderRadius: radius.pill },
-  activityFilterChip: { height: 42, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 15 },
-  activityFilterText: { color: colors.ink, ...typeRamp.caption, fontWeight: "500" },
+  activitySearch: { height: 50, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingLeft: 16, paddingRight: 4, marginTop: 18 },
+  activitySearchInput: { flex: 1, height: 50, color: colors.ink, ...typeRamp.body, paddingTop: 0, paddingBottom: 0, textAlignVertical: "center" },
+  activityFilterIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  filterSheetLayer: { flex: 1, justifyContent: "flex-end" },
+  filterSheetBackdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(12, 18, 28, 0.38)" },
+  filterSheet: { maxHeight: "64%", minHeight: "52%", backgroundColor: colors.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 8 },
+  filterSheetHandle: { width: 38, height: 5, borderRadius: 3, backgroundColor: colors.border, alignSelf: "center", marginBottom: 12 },
+  filterSheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 42 },
+  filterSheetTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600" },
+  filterSheetClear: { color: colors.accent, ...typeRamp.body, fontWeight: "500" },
+  filterSheetContent: { paddingBottom: 14 },
+  filterSheetSection: { paddingTop: 13 },
+  filterSheetSectionTitle: { color: colors.muted, ...typeRamp.caption, marginBottom: 9 },
+  filterSheetChoices: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  filterSheetChoice: { minHeight: 38, justifyContent: "center", paddingHorizontal: 14, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  filterSheetChoiceSelected: { borderColor: colors.ink, backgroundColor: colors.ink },
+  filterSheetChoiceText: { color: colors.text, ...typeRamp.caption, fontWeight: "500" },
+  filterSheetChoiceTextSelected: { color: colors.surface },
+  filterSheetApply: { minHeight: 52, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.ink, marginTop: 6, marginBottom: 8 },
+  filterSheetApplyText: { color: colors.surface, fontSize: 16, lineHeight: 22, fontWeight: "600" },
   activitySection: { marginTop: 22, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   activitySectionTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600", marginBottom: 7 },
   activityRow: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 12 },
+  activityRowPressed: { opacity: 0.62 },
+  activityDetailSheet: { maxHeight: "72%", minHeight: "44%", backgroundColor: colors.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 8 },
+  activityDetailTitleRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  activityDetailContent: { paddingTop: 10, paddingBottom: 24 },
+  activityDetailRow: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  activityDetailValue: { flex: 1, color: colors.ink, ...typeRamp.body, textAlign: "right" },
   historyMessage: { color: colors.muted, ...typeRamp.body, marginTop: 8 },
   historyEmpty: { backgroundColor: colors.surfaceMuted, borderRadius: radius.medium, padding: 20, marginTop: 24 },
   historyEmptyTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600" },
@@ -2691,11 +2957,13 @@ return StyleSheet.create({
   positionCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.medium, paddingHorizontal: 16, marginTop: 18, overflow: "hidden" },
   newsHealthCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.medium, padding: 16, marginTop: 20, backgroundColor: colors.surface },
   newsMonitorItem: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 15 },
+  newsMonitorItemPressed: { opacity: 0.62 },
   newsMonitorMetaRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginBottom: 5 },
   newsMonitorSource: { color: colors.ink, ...typeRamp.caption, fontWeight: "700", textTransform: "capitalize" },
   newsMonitorTime: { color: colors.muted, ...typeRamp.caption },
   newsMonitorHeadline: { color: colors.text, ...typeRamp.body, fontWeight: "600" },
   newsMonitorSymbols: { color: colors.muted, ...typeRamp.caption, marginTop: 6, textTransform: "capitalize" },
+  newsMonitorLink: { color: colors.accent, ...typeRamp.caption, fontWeight: "500", marginTop: 7 },
   positionTerms: { paddingVertical: 8 },
   positionNotice: { color: colors.warning, ...typeRamp.caption, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingVertical: 12 },
   menuButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 20 },
@@ -2760,8 +3028,8 @@ return StyleSheet.create({
   symbolChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 18 },
   symbolChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingLeft: 5, paddingRight: 12, paddingVertical: 5 },
   symbolChipText: { color: colors.ink, ...typeRamp.caption, fontWeight: "400" },
-  logoFallback: { alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  logoFallbackText: { color: colors.ink, fontSize: 9, lineHeight: 12, fontWeight: "800" },
+  logoFallback: { alignItems: "center", justifyContent: "center" },
+  logoFallbackText: { color: "#FFFFFF", fontWeight: "800" },
   previewProposalButton: { alignItems: "center", justifyContent: "center", minHeight: 46, borderWidth: 1, borderColor: colors.border, borderRadius: radius.medium, marginTop: 20, paddingHorizontal: 14 },
   previewProposalButtonText: { color: colors.ink, ...typeRamp.label, fontWeight: "700" },
   previewNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
