@@ -13,9 +13,12 @@ from ibapi.client import EClient
 from ibapi.execution import ExecutionFilter
 from ibapi.wrapper import EWrapper
 
+from ibkr_connection import paper_connection
 
-HOST = "127.0.0.1"
-PAPER_PORT = 7497
+
+CONNECTION = paper_connection()
+HOST = CONNECTION.host
+PAPER_PORT = CONNECTION.port
 CLIENT_ID = int(os.environ.get("IBKR_RECON_CLIENT_ID", "75"))
 IGNORED_ERROR_CODES = {2104, 2106, 2107, 2108, 2158, 2176}
 

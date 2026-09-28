@@ -172,9 +172,12 @@ The read-only ownership check requires the total linked active stop quantity to 
 
 ## Verify the local IBKR paper connection
 
-Keep TWS open, logged into Paper Trading, with API socket clients enabled on port
-`7497`. Read-Only API may stay enabled for connection testing and must be disabled
-only when intentionally testing paper submission. Then run:
+Keep IB Gateway open, logged into Paper Trading, with API socket clients enabled
+on port `4002`. Read-Only API may stay enabled for connection testing and must be
+disabled only when intentionally testing paper submission. All broker scripts use
+the centralized, localhost-only settings in `ibkr_connection.py`. To use TWS as a
+temporary fallback, set `IBKR_APPLICATION=tws` and omit `IBKR_PAPER_PORT`; its
+Paper default is `7497`. Then run:
 
 ```sh
 .venv-ibkr-10.49/bin/python service/ibkr_readonly_check.py

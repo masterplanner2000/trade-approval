@@ -1664,7 +1664,7 @@ export default function App() {
     } catch {
       Alert.alert(
         "Paper recommendation unavailable",
-        "Confirm TWS is open in Paper Trading, API access is enabled, and the local trade service is running.",
+        "Confirm IB Gateway is open in Paper Trading, API access is enabled, and the local trade service is running.",
       );
     } finally {
       recommendationScanInFlight.current = false;
@@ -1901,7 +1901,7 @@ export default function App() {
         : code === "final_safety_check_blocked"
           ? "The price, account, or order no longer matched the approved safety limits."
           : code === "ibkr_unavailable_approval_consumed"
-            ? "IBKR became unavailable during submission. Check TWS before requesting a new recommendation."
+            ? "IBKR became unavailable during submission. Check IB Gateway before requesting a new recommendation."
             : `The order was not sent. ${code.replaceAll("_", " ")}.`;
       setWorkflowError(message);
       setAppToast({ tone: "danger", title: "Paper order not submitted", message });
@@ -2033,7 +2033,7 @@ export default function App() {
     try {
       await createShadowObservation();
     } catch {
-      Alert.alert("Unable to scan", "Completed daily history is unavailable. Confirm TWS paper is open and historical data is permitted.");
+      Alert.alert("Unable to scan", "Completed daily history is unavailable. Confirm IB Gateway Paper is open and historical data is permitted.");
     }
     setDetailsOpen(false);
     setRationaleOpen(false);
@@ -2494,7 +2494,7 @@ export default function App() {
                 : noEligibleRecommendation
                   ? "Paper is connected and the scanner is still monitoring. Nothing currently passes every momentum, liquidity, and risk rule."
                 : brokerConnectionStatus === "disconnected"
-                  ? "Open TWS Paper and the local service. Recommendations will appear automatically after they reconnect."
+                  ? "Open IB Gateway Paper and the local service. Recommendations will appear automatically after they reconnect."
                   : "Paper is connected. The scanner is reviewing the market now; a card appears only when a setup passes every rule."}
             </Text>
 

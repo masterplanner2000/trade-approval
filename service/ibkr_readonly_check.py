@@ -8,9 +8,12 @@ from decimal import Decimal
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 
+from ibkr_connection import paper_connection
 
-HOST = "127.0.0.1"
-PAPER_PORT = 7497
+
+CONNECTION = paper_connection()
+HOST = CONNECTION.host
+PAPER_PORT = CONNECTION.port
 CLIENT_ID = 71
 
 
@@ -30,7 +33,7 @@ class ReadOnlyCheck(EWrapper, EClient):
         self.failure: str | None = None
 
     def nextValidId(self, orderId: int) -> None:  # noqa: N802 (IBKR callback name)
-        print("Connected to TWS paper API.")
+        print(f"Connected to IBKR {CONNECTION.application} paper API.")
         self.ready.set()
 
     def managedAccounts(self, accountsList: str) -> None:  # noqa: N802

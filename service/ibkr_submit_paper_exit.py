@@ -7,8 +7,10 @@ from ibapi.client import EClient
 from ibapi.contract import Contract
 from ibapi.order import Order
 from ibapi.wrapper import EWrapper
+from ibkr_connection import paper_connection
 
-HOST, PAPER_PORT, CLIENT_ID = "127.0.0.1", 7497, 76
+CONNECTION = paper_connection()
+HOST, PAPER_PORT, CLIENT_ID = CONNECTION.host, CONNECTION.port, 76
 MAX_QUANTITY = 1000
 EXIT_ADAPTER_RELEASE_READY = False
 US_STOCK_SYMBOL = re.compile(r"^[A-Z][A-Z0-9.-]{0,9}$")

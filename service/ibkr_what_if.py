@@ -13,9 +13,12 @@ from ibapi.contract import Contract
 from ibapi.order import Order
 from ibapi.wrapper import EWrapper
 
+from ibkr_connection import paper_connection
 
-HOST = "127.0.0.1"
-PAPER_PORT = 7497
+
+CONNECTION = paper_connection()
+HOST = CONNECTION.host
+PAPER_PORT = CONNECTION.port
 CLIENT_ID = 73
 MAX_QUANTITY = 5
 MAX_NOTIONAL = Decimal("1500")

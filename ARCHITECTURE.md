@@ -1,7 +1,7 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.18
-**Last updated:** 2026-09-24
+**Current architecture version:** 5.24
+**Last updated:** 2026-09-28
 **Status:** Living source of truth
 
 This document explains the major application components, their responsibilities, and how information moves from research to recommendations, approval, broker execution, reconciliation, and performance evaluation.
@@ -52,7 +52,7 @@ flowchart LR
         validate{"Safety checks pass?"}
         blocked["Return the exact blocked reason"]
         submit["Submit buy and protective stop"]
-        broker["IBKR Paper or Live"]
+        broker["IB Gateway<br/>IBKR Paper execution"]
 
         validate -->|"No"| blocked
         validate ==>|"Yes"| submit
@@ -149,7 +149,7 @@ flowchart LR
 |---|---|---|---|
 | Mobile app | Review recommendations and approve or deny decisions | Prototype | Activity and Positions added; enrich with reconciled broker state |
 | Secure application API | Coordinate the mobile client and local services | Prototype | Ledger-backed lifecycle and read APIs integrated; add clearer service health |
-| IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
+| IBKR adapter | Gateway-first localhost connection for quotes, account data, validation, and paper orders; explicit TWS fallback | Prototype | Install/configure Gateway, prove weekly restart behavior, then add disconnect alerts and recovery |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
 | Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Seven-symbol frozen forward universe with capture, outcomes, profiles, Paper context, exposure, data readiness and session health | Accumulate 20 qualified sessions and resolve consolidated-data entitlement; actionable use remains blocked |
@@ -167,6 +167,12 @@ flowchart LR
 | Notifications | Deliver proposals, fills, exits, and safety alerts | Planned | Add after reliable event states exist |
 | Web app | Cross-platform account and review experience | Planned | Reuse API after mobile workflow is reliable |
 | Production operations | Authentication, secrets, hosting, monitoring, recovery | Planned | Required before external users or live trading |
+
+## Local IBKR execution connector
+
+The local service defaults to IB Gateway Paper on localhost port 4002. All Python broker operations resolve the same fail-closed connection configuration from `service/ibkr_connection.py`; a deliberate `IBKR_APPLICATION=tws` fallback selects TWS Paper port 7497. A custom paper port may be supplied explicitly, but remote socket hosts are rejected so broker credentials and socket authority remain on the Mac.
+
+Gateway improves the runtime footprint and supports IBKR's daily auto-restart behavior, but it does not remove interactive authentication. The user must establish and periodically renew the IBKR session, including after the weekend reset. Loss of Gateway authentication blocks new submissions; broker-native protective orders remain at IBKR. Connection supervision, mobile alerts and remote recovery remain incomplete and must not be represented as available.
 
 ## Stock news context
 
@@ -452,6 +458,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 5.24 — 2026-09-28
+
+- Changed the local IBKR execution connector to Gateway-first Paper operation on port 4002.
+- Centralized connection configuration across broker scripts and retained an explicit TWS Paper fallback.
+- Recorded that Gateway reduces runtime overhead but does not remove periodic interactive authentication; monitoring and remote recovery remain pending.
 
 ### Version 3.26 — 2026-09-17
 

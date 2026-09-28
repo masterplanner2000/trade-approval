@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-24.15 · **Corresponding architecture:** 5.23
+**Log revision:** 2026-09-28.1 · **Corresponding architecture:** 5.24
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -92,10 +92,19 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-073 | Archive one immutable performance report after each daily collection | Confirmed; scheduled path integrated | 2026-09-23 |
 | D-074 | Process approved Paper orders in the background | Confirmed; failure restores the card | 2026-09-24 |
 | D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; seven-symbol frozen forward universe installed | 2026-09-24 |
+| D-076 | Use IB Gateway as the default local IBKR Paper connector | Configuration implemented; installation and runtime validation pending | 2026-09-28 |
 
 ---
 
 ## Detailed decisions
+
+### D-076 — Use IB Gateway as the default local IBKR Paper connector
+
+**Decision:** Run the Mac execution service against IB Gateway Paper by default on localhost port 4002. Keep TWS Paper available only as an explicit configuration fallback on port 7497. Resolve every broker script through one validated connection configuration and reject remote socket hosts.
+
+**Reason:** Gateway exposes the same socket API with a smaller long-running footprint and is better aligned with the local execution-service role. A single configuration prevents snapshot, scanner, validation, reconciliation and submission processes from silently targeting different broker applications.
+
+**Operational boundary:** This change does not automate IBKR credentials, remove two-factor authentication or guarantee continuous access across the weekend reset. Gateway installation, Paper login, API configuration, daily auto-restart and a fresh read-only reconciliation must still be completed. New orders fail closed when the connector is unavailable; broker-native protective orders remain at IBKR. Connection monitoring, phone alerts and remote recovery are separate unfinished milestones. No live-trading authority is added.
 
 ### D-075 — Isolated intraday-volatility recommendation workstream
 

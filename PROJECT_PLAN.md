@@ -3,6 +3,13 @@
 **Last updated:** 2026-09-27
 **Current objective:** Establish a trustworthy paper-trading and learning loop—owned positions, protection, execution state, measured selections and measured missed opportunities—before promoting strategy changes or enabling automatic exits.
 
+## Gateway migration — 2026-09-28
+
+1. **Completed:** Centralized the local IBKR Paper socket configuration and made IB Gateway on localhost port 4002 the default. Retained an explicit TWS Paper fallback on port 7497.
+2. **Pending on this Mac:** Install IB Gateway, sign into Paper, enable socket clients on port 4002 and configure daily auto-restart.
+3. **Acceptance test:** Obtain a complete read-only Paper reconciliation through Gateway, verify the scanner and What-If path, restart the local service, and confirm TWS is not required.
+4. **Next reliability milestone:** Add connection supervision and a phone alert for lost authentication, while failing closed for new orders and preserving broker-native protection.
+
 ## Forward-test week — 2026-09-28 through 2026-10-02
 
 The strategy, intraday rules, frozen seven-symbol research universe and news classifier remain unchanged for the full week unless a reproducible implementation or evidence-integrity defect requires repair. The objective is a clean prospective dataset, not more recommendations or midweek threshold tuning.
