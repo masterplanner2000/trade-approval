@@ -10,6 +10,8 @@
     "web": "expo start --web",
     "service": "node service/server.mjs",
     "service:phone": "node --env-file=.env.local service/server.mjs",
+    "news:stream": "node --env-file=.env.local service/run_news_stream.mjs",
+    "news:status": "node --env-file=.env.local service/news_status.mjs",
     "market:refresh": ".venv-ibkr-10.49/bin/python service/alpaca_market_cache.py refresh",
     "market:status": ".venv-ibkr-10.49/bin/python service/alpaca_market_cache.py status",
     "market:scan": ".venv-ibkr-10.49/bin/python service/alpaca_market_cache.py scan",

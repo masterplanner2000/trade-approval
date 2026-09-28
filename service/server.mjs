@@ -7,6 +7,8 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { getSecCompanyResearch, summarizeSecResearch } from "./sec_edgar.mjs";
 import { getStockNews, stockNewsSymbol } from "./stock_news.mjs";
+import { classifyStockCatalysts } from "./stock_catalyst.mjs";
+import { GlobalNewsJournal } from "./global_news_journal.mjs";
 import { authoritativePortfolio, BrokerReconciliationStore, reconcileSnapshotToLedger } from "./broker_reconciliation.mjs";
 import { TradingLedger } from "./trading_ledger.mjs";
 import { reconcilePositionOwnership } from "./position_ownership.mjs";
@@ -56,8 +58,10 @@ const riskPolicyPath = process.env.RISK_POLICY_PATH ?? join(serviceDirectory, "d
 const historicalEvidencePath = process.env.HISTORICAL_BROKER_EVIDENCE_PATH ?? join(serviceDirectory, "data", "paper-transaction-history.json");
 const paperFlexEvidencePath = process.env.PAPER_FLEX_EVIDENCE_PATH ?? join(serviceDirectory, "data", "paper-flex-attribution.json");
 const dailyEvidencePath = process.env.DAILY_EVIDENCE_PATH ?? join(serviceDirectory, "data", "daily-forward-evidence.sqlite3");
+const globalNewsPath = process.env.GLOBAL_NEWS_DB_PATH ?? join(serviceDirectory, "data", "global-news.sqlite3");
 let tradingLedger = null;
 let reconciliationStore = null;
+let globalNewsJournal = null;
 const strategy = JSON.parse(readFileSync(strategyStatePath, "utf8"));
 const simulatedBroker = brokerMode === "simulated"
   ? new DeterministicBroker({ account: "SIM-PAPER", cash: 100_000, now: Date.now() })
@@ -91,6 +95,19 @@ function ledger() {
 function reconciliations() {
   if (!reconciliationStore) reconciliationStore = new BrokerReconciliationStore(tradingLedgerPath);
   return reconciliationStore;
+}
+
+function newsJournal() {
+  if (!globalNewsJournal) globalNewsJournal = new GlobalNewsJournal(globalNewsPath);
+  return globalNewsJournal;
+}
+
+function durableNewsResearch(symbol, limit = 50) {
+  const events = newsJournal().listRecent({ symbol, limit });
+  const articles = events.map(event => ({ id: event.sourceRecordId, headline: event.headline,
+    source: event.publisher, url: event.url, symbols: event.symbols, publishedAt: event.publishedAt, updatedAt: event.updatedAt }));
+  return { status: events.length ? "available" : "empty", symbol, researchOnly: true, rankingAdjustmentAllowed: false,
+    orderSubmissionAllowed: false, events, catalystResearch: classifyStockCatalysts({ symbol, articles }) };
 }
 
 function proposalLedgerRecord(proposal) {
@@ -1002,6 +1019,24 @@ async function route(request, response) {
     catch { return json(response, 400, { error: "invalid_symbol" }); }
     const news = await getStockNews(symbol);
     return json(response, news.status === "unavailable" ? 503 : 200, news);
+  }
+
+  if (request.method === "GET" && url.pathname === "/research/news-health") {
+    return json(response, 200, { researchOnly: true, rankingAdjustmentAllowed: false,
+      orderSubmissionAllowed: false, ...newsJournal().status() });
+  }
+
+  if (request.method === "GET" && url.pathname === "/research/news-feed") {
+    const rawSymbol = url.searchParams.get("symbol");
+    let symbol = null;
+    if (rawSymbol) {
+      try { symbol = stockNewsSymbol(rawSymbol); }
+      catch { return json(response, 400, { error: "invalid_symbol" }); }
+    }
+    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit")) || 30));
+    if (symbol) return json(response, 200, durableNewsResearch(symbol, limit));
+    return json(response, 200, { status: "available", researchOnly: true, rankingAdjustmentAllowed: false,
+      orderSubmissionAllowed: false, events: newsJournal().listRecent({ limit }) });
   }
 
   if (request.method === "GET" && url.pathname === "/proposals") {

@@ -1,7 +1,19 @@
 # Trade Approval — Project Plan
 
-**Last updated:** 2026-09-24
+**Last updated:** 2026-09-27
 **Current objective:** Establish a trustworthy paper-trading and learning loop—owned positions, protection, execution state, measured selections and measured missed opportunities—before promoting strategy changes or enabling automatic exits.
+
+## Forward-test week — 2026-09-28 through 2026-10-02
+
+The strategy, intraday rules, frozen seven-symbol research universe and news classifier remain unchanged for the full week unless a reproducible implementation or evidence-integrity defect requires repair. The objective is a clean prospective dataset, not more recommendations or midweek threshold tuning.
+
+1. **Monday — clean-session qualification:** require the pre-open profile refresh, five-minute intraday collection, complete Paper portfolio context, news-source health and post-close evidence archive. A qualified intraday session requires at least 90% slot coverage, 95% record completeness, complete portfolio context for all evaluable records and an intersecting completed forward-outcome session.
+2. **Tuesday — discovery audit:** compare observed movers with the frozen universe, preserve every pass/rejection reason and record apparent missed opportunities without changing rules from individual examples.
+3. **Wednesday — outcome comparison:** review pass versus rejected 5-/30-minute after-cost outcomes, score bands, adverse/favorable excursion, news-associated versus price/volume-only observations and matched market context. Conclusions remain insufficient until the predeclared session gates pass.
+4. **Thursday — recovery exercise:** verify disconnect/reconnect, stale-quote failure, service restart, news backfill, duplicate-approval protection, failed background-submission recovery and broker reconciliation without fabricating success or blindly resubmitting uncertain orders.
+5. **Friday — weekly scorecard:** report collection quality, candidate dispositions, measured outcomes, news health, proposal/decision/order lifecycle, Paper P/L, protection, execution quality and cash/QQQ comparisons. Any proposed strategy change must become a frozen forward experiment rather than an immediate production edit.
+
+**Weekend readiness, 2026-09-27:** Full QA passes (TypeScript, 123 Node tests and 224 Python tests). The news collector is running with all three active sources healthy and no reported source error; the weekday intraday capture, 8:45 a.m. profile refresh and 4:30 p.m. evidence archive are loaded with last exit code 0. TWS Paper is not accepting API connections during this check, so Monday must obtain a fresh complete reconciliation before treating Friday's recorded stop/target coverage as current broker truth.
 
 ## Current work — performance feedback loop
 
@@ -458,3 +470,34 @@ Crypto acceptance requires no production credentials or network orders; fresh ex
 - Added the append-only daily forward-evidence collector. It freezes complete baseline and volatile universes plus every pass/fail evaluation, then appends 1-, 5- and 10-session outcomes only as future sessions become available.
 - Captured the first completed-session snapshot for September 18: 500 baseline/22 eligible and 1,721 shadow/63 eligible, with all 255 candidate-horizon outcomes correctly pending. `npm run market:daily` now refreshes both caches and captures the session; host scheduling and market-wide catalyst capture remain next operational work.
 - Installed and live-tested the macOS weekday 4:30 PM LaunchAgent. It sources the ignored local credentials, prevents overlapping runs and logs locally. The live test also verified that a changed refresh for an already frozen session preserves the original evidence, emits a warning and continues outcome processing instead of overwriting or falsely failing.
+
+### Plan change history — 2026-09-24
+
+- Added the sequential global news and event intelligence workstream in `GLOBAL_NEWS_PLAN.md`.
+- Recorded the current boundary: Alpaca/Benzinga is one partial, headline-only U.S. feed; SEC, Fed and BLS coverage is narrow; catalyst classification remains research-only and cannot affect ranking or orders.
+- Selected a layered source strategy: official primary sources for verification, one licensed global financial wire, GDELT as bounded multilingual discovery, a point-in-time consensus/calendar provider, and market data for reaction confirmation.
+- Prioritized the first build slice: provider-neutral source registry and event contract, bounded GDELT discovery, primary verification for AI infrastructure/power/water, energy/commodities and geopolitical/shipping themes, then two weeks of immutable shadow capture.
+- Kept all news-derived output outside recommendation, sizing, exit and execution authority until forward evaluation and an explicit promotion review pass.
+- Split news ingestion into frequency lanes: seconds-level company news, one-minute market halts, near-real-time filings, exact-time scheduled releases, primary verification, 15-minute global discovery and slower thematic research.
+- Made current Alpaca/Benzinga streaming entitlement and reconnect/gap behavior the first implementation check; durable continuous server-side collection follows before adding more providers.
+- Implemented the immutable global-news event journal, versioned source registry, operational source health and continuous all-symbol Alpaca/Benzinga WebSocket collector.
+- Verified the current credentials authenticate and subscribe to all available news; fixture tests cover authorization flow, persistence, deduplication, immutability and research-only authority, and all 116 Node service tests pass.
+- Next: add REST backfill/gap recovery and supervision, observe real headline persistence during an active period, then connect stored events to classification without granting ranking authority.
+
+### Plan change history — 2026-09-25
+
+- Completed the first market-day global-news test slice: 24-hour paginated Alpaca/Benzinga recovery, continuous WebSocket capture, bounded reconnect and macOS LaunchAgent supervision.
+- Added one-minute Nasdaq Trader halt and important SEC EDGAR filing monitors with explicit market-safety and primary-source provenance.
+- Added immutable research-only catalyst signals and 5-/30-minute IEX-bar outcome measurement using a frozen 20-basis-point round-trip cost assumption.
+- Added app-visible News Monitor and authenticated health/feed endpoints. None of these paths can modify candidate rank, sizing, exits or orders.
+- Live validation captured more than 700 unique source events and produced the first measured outcomes. Initial broad-classifier aggregates are mixed/mostly negative after assumed costs, confirming that promotion would be premature.
+- Fixed source-record duplication caused by REST second-level versus WebSocket millisecond timestamps, retained the original journal in a local audit archive and rebuilt the active journal from the recovery window.
+- GDELT global discovery remains pending because its public endpoint rate-limited the implementation check. Licensed global wire, multilingual entity/exposure mapping, economic consensus and data-rights decisions remain future work.
+
+### Plan change history — 2026-09-27
+
+- Froze the daily strategy, intraday research rules, seven-symbol universe and news classifier for the September 28–October 2 forward-test week; only reproducible operational or evidence-integrity defects justify an in-week repair.
+- Recorded daily acceptance goals for clean collection, discovery review, outcome comparison, recovery testing and the Friday scorecard.
+- Re-ran full QA successfully: TypeScript, 123 Node tests and 224 Python tests.
+- Verified the supervised news collector is running with Alpaca/Benzinga, Nasdaq Trader and SEC EDGAR healthy; weekday intraday/profile/evidence jobs are loaded with clean prior exits.
+- Preserved the broker boundary: Sunday TWS API connection failed, so Monday requires a fresh complete Paper reconciliation before Friday's protection state may be treated as current.

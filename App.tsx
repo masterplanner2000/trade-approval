@@ -40,7 +40,15 @@ function useVisualTheme() {
 type Decision = "pending" | "approved" | "denied" | "expired";
 type BrokerConnectionStatus = "checking" | "connected" | "disconnected";
 type AppToast = { tone: "info" | "success" | "danger"; title: string; message?: string };
-type AppPage = "review" | "activity" | "positions" | "settings" | "preview";
+type AppPage = "review" | "activity" | "positions" | "news" | "settings" | "preview";
+type DurableNewsEvent = {
+  eventId: string; headline: string; publisher: string; publishedAt: string; symbols: string[];
+  verificationState: string; sourceTier: string; researchOnly: true;
+};
+type NewsHealth = {
+  eventCount: number; shadowSignalCount: number; shadowOutcomeCount: number; sources: Array<{ sourceKey: string; publisher: string; status: string | null;
+    lastMessageAt: number | null; reconnectCount: number | null }>;
+};
 type ActivityItem = {
   id: string; symbol: string; side: string; status: string; occurredAt: number;
   quantity: number | null; limitPrice: number | null; environment: string; brokerOrderId: string | null;
@@ -826,6 +834,58 @@ function SettingsPage({ policy, operatingPercent, operatingReason, saving, onCha
 
       <Pressable accessibilityRole="button" accessibilityLabel="Save paper risk policy" accessibilityState={{ disabled: saving, busy: saving }} disabled={saving} onPress={onSave} style={({ pressed }) => [styles.policySave, saving && styles.homeActionDisabled, pressed && styles.homeActionPressed]}>
         <Text style={styles.policySaveText}>{saving ? "Saving…" : "Save paper policy"}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function NewsMonitorPage({ apiUrl, appToken }: { apiUrl: string; appToken: string }) {
+  const { styles } = useVisualTheme();
+  const [health, setHealth] = useState<NewsHealth | null>(null);
+  const [events, setEvents] = useState<DurableNewsEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const load = useCallback(async () => {
+    setLoading(true); setError(false);
+    try {
+      const headers = { "x-app-token": appToken };
+      const [healthResponse, feedResponse] = await Promise.all([
+        fetch(`${apiUrl}/research/news-health`, { headers }),
+        fetch(`${apiUrl}/research/news-feed?limit=40`, { headers }),
+      ]);
+      if (!healthResponse.ok || !feedResponse.ok) throw new Error("news_monitor_unavailable");
+      const healthPayload = await healthResponse.json() as NewsHealth;
+      const feedPayload = await feedResponse.json() as { events?: DurableNewsEvent[] };
+      setHealth(healthPayload); setEvents(feedPayload.events ?? []);
+    } catch { setError(true); } finally { setLoading(false); }
+  }, [apiUrl, appToken]);
+  useEffect(() => { void load(); const timer = setInterval(() => void load(), 30_000); return () => clearInterval(timer); }, [load]);
+  const connected = health?.sources.some(source => source.status === "CONNECTED") ?? false;
+  return (
+    <View style={styles.settingsPage}>
+      <Text accessibilityRole="header" style={styles.settingsTitle}>News monitor</Text>
+      <Text style={styles.settingsIntro}>Live research events collected by the Mac service. These do not change recommendations or place orders.</Text>
+      <View style={styles.newsHealthCard}>
+        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Collector</Text><Text style={styles.tradeTermValue}>{connected ? "Connected" : loading ? "Checking…" : "Needs attention"}</Text></View>
+        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Stored events</Text><Text style={styles.tradeTermValue}>{health?.eventCount ?? "—"}</Text></View>
+        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Shadow signals</Text><Text style={styles.tradeTermValue}>{health?.shadowSignalCount ?? "—"}</Text></View>
+        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Measured outcomes</Text><Text style={styles.tradeTermValue}>{health?.shadowOutcomeCount ?? "—"}</Text></View>
+        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Authority</Text><Text style={styles.tradeTermValue}>Research only</Text></View>
+      </View>
+      {error ? <Text style={styles.historyMessage}>The news collector status is unavailable.</Text> : null}
+      {events.map(event => (
+        <View key={event.eventId} style={styles.newsMonitorItem}>
+          <View style={styles.newsMonitorMetaRow}>
+            <Text style={styles.newsMonitorSource}>{event.publisher}</Text>
+            <Text style={styles.newsMonitorTime}>{new Date(event.publishedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</Text>
+          </View>
+          <Text style={styles.newsMonitorHeadline}>{event.headline}</Text>
+          <Text style={styles.newsMonitorSymbols}>{event.symbols.length ? event.symbols.join(" · ") : "Broad market"} · {event.verificationState.toLowerCase()}</Text>
+        </View>
+      ))}
+      {!loading && !error && events.length === 0 ? <Text style={styles.historyMessage}>No events have been captured yet.</Text> : null}
+      <Pressable accessibilityRole="button" onPress={() => void load()} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
+        <Text style={styles.previewProposalButtonText}>Refresh</Text>
       </Pressable>
     </View>
   );
@@ -2030,6 +2090,7 @@ export default function App() {
     ...(activePage !== "review" ? [{ label: "Recommendations", onPress: () => setActivePage("review") }] : []),
     ...(activePage !== "activity" ? [{ label: "Activity", onPress: () => openHistory("activity") }] : []),
     ...(activePage !== "positions" ? [{ label: "Positions", onPress: () => openHistory("positions") }] : []),
+    ...(activePage !== "news" ? [{ label: "News monitor", onPress: () => setActivePage("news") }] : []),
     ...(activePage !== "settings" ? [{ label: "Settings", onPress: () => setActivePage("settings") }] : []),
     ...(activePage !== "preview" ? [{ label: "Preview mode", onPress: () => setActivePage("preview"), emphasized: uiPreview }] : []),
   ];
@@ -2103,6 +2164,8 @@ export default function App() {
 
         {activePage === "preview" ? (
           <PreviewModePage enabled={uiPreview} onChange={setPreviewMode} />
+        ) : activePage === "news" ? (
+          <NewsMonitorPage apiUrl={API_BASE_URL} appToken={APP_TOKEN} />
         ) : activePage === "settings" ? (
           <SettingsPage
             policy={riskPolicy}
@@ -2626,6 +2689,13 @@ return StyleSheet.create({
   historyStatus: { color: colors.ink, ...typeRamp.body, fontWeight: "500", textTransform: "capitalize", textAlign: "right" },
   historyTime: { color: colors.muted, ...typeRamp.caption, marginTop: 3 },
   positionCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.medium, paddingHorizontal: 16, marginTop: 18, overflow: "hidden" },
+  newsHealthCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.medium, padding: 16, marginTop: 20, backgroundColor: colors.surface },
+  newsMonitorItem: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 15 },
+  newsMonitorMetaRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginBottom: 5 },
+  newsMonitorSource: { color: colors.ink, ...typeRamp.caption, fontWeight: "700", textTransform: "capitalize" },
+  newsMonitorTime: { color: colors.muted, ...typeRamp.caption },
+  newsMonitorHeadline: { color: colors.text, ...typeRamp.body, fontWeight: "600" },
+  newsMonitorSymbols: { color: colors.muted, ...typeRamp.caption, marginTop: 6, textTransform: "capitalize" },
   positionTerms: { paddingVertical: 8 },
   positionNotice: { color: colors.warning, ...typeRamp.caption, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingVertical: 12 },
   menuButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 20 },

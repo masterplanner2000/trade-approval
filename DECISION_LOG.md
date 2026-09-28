@@ -994,3 +994,18 @@ Review [CRYPTO_DESIGN.md](./CRYPTO_DESIGN.md): Coinbase Exchange/Gemini sandbox 
 **Record:** Permit reject/archive, revise/repeat, continue-observation or approve-bounded-ranking. Require a named approver, timestamp, attestation, change-control ID and rationale. Store one immutable, idempotent decision per assessment. A conflicting decision or database mutation fails closed.
 **Release boundary:** Only a valid approval may generate the `macroBoundedRankingEnabled` manifest. It defaults off, remains capped at five ranking points, requires shadow-versus-active comparison and separate integration tests, and provides no automatic or general order authority. Manifest generation is not activation.
 **Current outcome:** No real Stage 12 report or complete production dossier exists, and the user has not made a Stage 13 product decision. No decision record or manifest was created. The feature remains research-only and disabled.
+
+## D-042 — Build global news as a verified event pipeline
+
+**Status:** Plan approved for implementation sequencing; no ranking or order authority, 2026-09-24.
+**Decision:** Expand beyond the current Alpaca/Benzinga, SEC, Fed and BLS inputs with a provider-neutral global event pipeline. Use broad multilingual media only for discovery, authoritative primary sources for verification, a reviewed versioned exposure graph for symbol mapping, fresh market data for reaction confirmation, and immutable forward evidence for evaluation.
+**Provider approach:** Preserve Benzinga for U.S. company context; evaluate GDELT for bounded research-only global discovery; evaluate Reuters/LSEG and Dow Jones/Factiva for a licensed global financial wire; and separately evaluate a point-in-time economic calendar/consensus provider. No subscription or commercial terms are authorized by this decision.
+**Safety boundary:** All new sources default to research-only. Unverified or indirectly mapped news cannot create a recommendation, alter size, bypass liquidity/risk/protection/portfolio controls, trigger an automatic exit, or submit an order. Full-text storage and redistribution require explicit provider rights.
+**Evidence gate:** Implement source registry, immutable event contract, correction/retraction handling, clustering, multilingual entity resolution, reviewed exposure mapping, shadow scoring and chronological matched-control outcomes before any promotion review. See `GLOBAL_NEWS_PLAN.md`.
+
+## D-043 — Operate the first live news lane as measured shadow research
+
+**Status:** Implemented and running for market-hours observation, 2026-09-25.
+**Decision:** Continuously collect Alpaca/Benzinga company news with a 24-hour recovery window, Nasdaq Trader halts and important SEC EDGAR filings into the immutable local journal. Keep the collector supervised independently of the app and expose its health and recent feed in the app.
+**Measurement:** Freeze deterministic catalyst classifications as research-only signals and measure signed 5- and 30-minute Alpaca IEX returns after a fixed 20-basis-point round-trip cost assumption. Preserve source, timestamps, event identity and classifier version so results can be reproduced. These are headline-response diagnostics, not trades or a profitability claim.
+**Boundary:** News has no recommendation, ranking, sizing, exit or order authority. GDELT was rate-limited during implementation and is not an active source; a commercial global wire, multilingual discovery, entity/exposure mapping, exact economic consensus and redistribution rights remain unresolved provider/product decisions.
