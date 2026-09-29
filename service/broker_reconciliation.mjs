@@ -134,6 +134,16 @@ export function authoritativePortfolio(snapshot, { maximumAgeMs = 30_000, now = 
   if (typeof snapshot.capturedAt !== "number" || snapshot.capturedAt > now + 1_000 || now - snapshot.capturedAt > maximumAgeMs) {
     missing.push("freshSnapshot");
   }
+  const positionsByIdentity = new Map();
+  for (const position of Array.isArray(snapshot.positions) ? snapshot.positions : []) {
+    const identity = [
+      position.account ?? snapshot.account ?? "",
+      position.contractId ?? position.symbol ?? "",
+      position.securityType ?? "",
+      position.currency ?? "",
+    ].join(":");
+    positionsByIdentity.set(identity, position);
+  }
   return {
     status: missing.length ? "INCOMPLETE" : "COMPLETE",
     environment: snapshot.environment ?? null,
@@ -143,7 +153,7 @@ export function authoritativePortfolio(snapshot, { maximumAgeMs = 30_000, now = 
     settledCash: summaryNumber(snapshot, "SettledCash"),
     unrealizedPnl: summaryNumber(snapshot, "UnrealizedPnL"),
     realizedPnl: summaryNumber(snapshot, "RealizedPnL"),
-    positions: Array.isArray(snapshot.positions) ? snapshot.positions : [],
+    positions: [...positionsByIdentity.values()],
     openOrders: Array.isArray(snapshot.openOrders) ? snapshot.openOrders : [],
     executions: Array.isArray(snapshot.executions) ? snapshot.executions : [],
     missing,

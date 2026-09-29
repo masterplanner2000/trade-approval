@@ -417,14 +417,16 @@ export class TradingLedger {
       const orders = this.listBrokerOrders(row.id);
       const entry = orders.find((order) => order.role === "entry");
       const status = entry?.status ?? row.submission_status ?? row.decision ?? row.status;
+      const terms = parseJson(row.terms_json);
       return {
         id: row.id,
         symbol: row.symbol,
+        company: terms?.company ?? row.symbol,
         side: row.side,
         status,
         occurredAt: row.decided_at ?? row.created_at,
-        quantity: parseJson(row.terms_json)?.quantity ?? null,
-        limitPrice: parseJson(row.terms_json)?.limitPrice ?? null,
+        quantity: terms?.quantity ?? null,
+        limitPrice: terms?.limitPrice ?? null,
         environment: row.environment,
         brokerOrderId: entry?.brokerOrderId ?? null,
       };

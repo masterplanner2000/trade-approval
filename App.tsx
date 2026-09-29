@@ -3,13 +3,12 @@ import Constants from "expo-constants";
 import * as Device from "expo-device";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemeProvider } from "@shopify/restyle";
-import { CheckCircleIcon, CircleIcon, ClockIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, XIcon } from "phosphor-react-native";
+import { CheckCircleIcon, CircleIcon, ClockCounterClockwiseIcon, ClockIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, XIcon } from "phosphor-react-native";
 import {
   Alert,
   Animated,
   Easing,
   Image,
-  Linking,
   Modal,
   PanResponder,
   Pressable,
@@ -22,7 +21,6 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ActionButton, Toast } from "./src/components/ui";
-import { StockNews } from "./src/components/StockNews";
 import { AppText as Text, Box as View, darkPalette, darkTheme, palette, radius, spacing, theme, type AppPalette, typeRamp } from "./src/design-system";
 
 type VisualThemeContextValue = {
@@ -41,17 +39,9 @@ function useVisualTheme() {
 type Decision = "pending" | "approved" | "denied" | "expired";
 type BrokerConnectionStatus = "checking" | "connected" | "disconnected";
 type AppToast = { tone: "info" | "success" | "danger"; title: string; message?: string };
-type AppPage = "review" | "activity" | "positions" | "news" | "settings" | "preview";
-type DurableNewsEvent = {
-  eventId: string; headline: string; publisher: string; publishedAt: string; symbols: string[]; url: string;
-  verificationState: string; sourceTier: string; researchOnly: true;
-};
-type NewsHealth = {
-  eventCount: number; shadowSignalCount: number; shadowOutcomeCount: number; sources: Array<{ sourceKey: string; publisher: string; status: string | null;
-    lastMessageAt: number | null; reconnectCount: number | null }>;
-};
+type AppPage = "review" | "recommendationHistory" | "activity" | "positions" | "settings";
 type ActivityItem = {
-  id: string; symbol: string; side: string; status: string; occurredAt: number;
+  id: string; symbol: string; company?: string | null; side: string; status: string; occurredAt: number;
   quantity: number | null; limitPrice: number | null; environment: string; brokerOrderId: string | null;
 };
 type TradeItem = {
@@ -630,6 +620,20 @@ const COMPANY_DOMAINS: Record<string, string> = {
   TSLA: "tesla.com",
 };
 
+const COMPANY_NAMES: Record<string, string> = {
+  AAPL: "Apple Inc.", AMD: "Advanced Micro Devices, Inc.", AMZN: "Amazon.com, Inc.",
+  AVGO: "Broadcom Inc.", COST: "Costco Wholesale Corporation", CRM: "Salesforce, Inc.",
+  CVX: "Chevron Corporation", GOOGL: "Alphabet Inc.", HOOD: "Robinhood Markets, Inc.",
+  IWM: "iShares Russell 2000 ETF", JPM: "JPMorgan Chase & Co.", LLY: "Eli Lilly and Company", META: "Meta Platforms, Inc.",
+  MSFT: "Microsoft Corporation", NVDA: "NVIDIA Corporation", PLTR: "Palantir Technologies Inc.",
+  QQQ: "Invesco QQQ Trust", SPY: "SPDR S&P 500 ETF Trust", TSLA: "Tesla, Inc.",
+  UNH: "UnitedHealth Group Incorporated", V: "Visa Inc.", WMT: "Walmart Inc.", XOM: "Exxon Mobil Corporation",
+};
+
+function companyName(item: Pick<ActivityItem, "symbol" | "company">) {
+  return item.company && item.company !== item.symbol ? item.company : COMPANY_NAMES[item.symbol] ?? item.symbol;
+}
+
 function CompanyMark({ symbol, size = 34 }: { symbol: string; size?: number }) {
   const { styles } = useVisualTheme();
   const [failed, setFailed] = useState(false);
@@ -889,106 +893,8 @@ function SettingsPage({ policy, operatingPercent, operatingReason, saving, onCha
   );
 }
 
-function NewsMonitorPage({ apiUrl, appToken }: { apiUrl: string; appToken: string }) {
-  const { styles } = useVisualTheme();
-  const [health, setHealth] = useState<NewsHealth | null>(null);
-  const [events, setEvents] = useState<DurableNewsEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const load = useCallback(async () => {
-    setLoading(true); setError(false);
-    try {
-      const headers = { "x-app-token": appToken };
-      const [healthResponse, feedResponse] = await Promise.all([
-        fetch(`${apiUrl}/research/news-health`, { headers }),
-        fetch(`${apiUrl}/research/news-feed?limit=40`, { headers }),
-      ]);
-      if (!healthResponse.ok || !feedResponse.ok) throw new Error("news_monitor_unavailable");
-      const healthPayload = await healthResponse.json() as NewsHealth;
-      const feedPayload = await feedResponse.json() as { events?: DurableNewsEvent[] };
-      setHealth(healthPayload); setEvents(feedPayload.events ?? []);
-    } catch { setError(true); } finally { setLoading(false); }
-  }, [apiUrl, appToken]);
-  useEffect(() => { void load(); const timer = setInterval(() => void load(), 30_000); return () => clearInterval(timer); }, [load]);
-  const connected = health?.sources.some(source => source.status === "CONNECTED") ?? false;
-  const openArticle = async (event: DurableNewsEvent) => {
-    try {
-      const url = new URL(event.url);
-      if (url.protocol !== "https:" || url.username || url.password) throw new Error("invalid_news_url");
-      await Linking.openURL(url.href);
-    } catch {
-      Alert.alert("Article unavailable", "This article could not be opened in your browser.");
-    }
-  };
-  return (
-    <View style={styles.settingsPage}>
-      <Text accessibilityRole="header" style={styles.settingsTitle}>News monitor</Text>
-      <Text style={styles.settingsIntro}>Live research events collected by the Mac service. These do not change recommendations or place orders.</Text>
-      <View style={styles.newsHealthCard}>
-        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Collector</Text><Text style={styles.tradeTermValue}>{connected ? "Connected" : loading ? "Checking…" : "Needs attention"}</Text></View>
-        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Stored events</Text><Text style={styles.tradeTermValue}>{health?.eventCount ?? "—"}</Text></View>
-        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Shadow signals</Text><Text style={styles.tradeTermValue}>{health?.shadowSignalCount ?? "—"}</Text></View>
-        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Measured outcomes</Text><Text style={styles.tradeTermValue}>{health?.shadowOutcomeCount ?? "—"}</Text></View>
-        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Authority</Text><Text style={styles.tradeTermValue}>Research only</Text></View>
-      </View>
-      {error ? <Text style={styles.historyMessage}>The news collector status is unavailable.</Text> : null}
-      {events.map(event => (
-        <Pressable key={event.eventId} accessibilityRole="link"
-          accessibilityLabel={`${event.headline}. ${event.publisher}. Opens in your browser.`}
-          onPress={() => void openArticle(event)}
-          style={({ pressed }) => [styles.newsMonitorItem, pressed && styles.newsMonitorItemPressed]}>
-          <View style={styles.newsMonitorMetaRow}>
-            <Text style={styles.newsMonitorSource}>{event.publisher}</Text>
-            <Text style={styles.newsMonitorTime}>{new Date(event.publishedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</Text>
-          </View>
-          <Text style={styles.newsMonitorHeadline}>{event.headline}</Text>
-          <Text style={styles.newsMonitorSymbols}>{event.symbols.length ? event.symbols.join(" · ") : "Broad market"} · {event.verificationState.toLowerCase()}</Text>
-          <Text style={styles.newsMonitorLink}>Open article ↗</Text>
-        </Pressable>
-      ))}
-      {!loading && !error && events.length === 0 ? <Text style={styles.historyMessage}>No events have been captured yet.</Text> : null}
-      <Pressable accessibilityRole="button" onPress={() => void load()} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
-        <Text style={styles.previewProposalButtonText}>Refresh</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-function PreviewModePage({ enabled, onChange }: { enabled: boolean; onChange: (enabled: boolean) => void }) {
-  const { colors, styles } = useVisualTheme();
-  return (
-    <View style={styles.settingsPage}>
-      <Text style={styles.settingsEyebrow}>DEMO WORKSPACE</Text>
-      <Text accessibilityRole="header" style={styles.settingsTitle}>Preview mode</Text>
-      <Text style={styles.settingsIntro}>Explore the complete app with realistic sample recommendations, positions, and activity. Nothing is sent to a broker.</Text>
-
-      <View style={styles.policySection}>
-        <View style={styles.adaptiveRow}>
-          <View style={styles.adaptiveCopy}>
-            <Text style={styles.policySectionTitle}>Use preview data</Text>
-            <Text style={styles.policyHelp}>{enabled ? "Sample data is active throughout the app." : "Paper account data is active."}</Text>
-          </View>
-          <Switch
-            accessibilityLabel="Use preview data"
-            accessibilityHint="Replaces brokerage information throughout the app with simulated sample data"
-            value={enabled}
-            onValueChange={onChange}
-            trackColor={{ false: colors.border, true: colors.actionApprove }}
-            thumbColor="#FFFFFF"
-          />
-        </View>
-      </View>
-
-      <View style={styles.previewExplanation}>
-        <Text style={styles.policySectionTitle}>What changes</Text>
-        <Text style={styles.previewExplanationText}>Recommendations become sample cards. Approvals create simulated positions and activity; denials appear in activity. Broker submission is always disabled.</Text>
-      </View>
-    </View>
-  );
-}
-
 function HistoryPage({ page, activity, positions, trades, loading, error, onRefresh, previewMode }: {
-  page: "activity" | "positions"; activity: ActivityItem[]; positions: PositionItem[]; trades: TradeItem[];
+  page: "recommendationHistory" | "activity" | "positions"; activity: ActivityItem[]; positions: PositionItem[]; trades: TradeItem[];
   loading: boolean; error: string | null; onRefresh: () => void; previewMode: boolean;
 }) {
   const { colors, styles } = useVisualTheme();
@@ -1000,16 +906,24 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
   const [draftStatusFilter, setDraftStatusFilter] = useState("All");
   const [selectedActivityDetail, setSelectedActivityDetail] = useState<{ kind: "activity"; item: ActivityItem } | { kind: "trade"; item: TradeItem } | null>(null);
   const [historyVisibleCount, setHistoryVisibleCount] = useState(50);
-  const empty = page === "activity" ? activity.length === 0 : positions.length === 0;
   const openStatuses = new Set(["presubmitted", "submitted", "pendingsubmit", "pendingcancel"]);
   const pendingStatuses = new Set(["approved", "started", "unknown"]);
   const decisionStatuses = new Set(["approved", "denied", "expired"]);
+  const scannerOnlyStatuses = new Set(["pending", "replaced"]);
   const normalizeStatus = (status: string) => status.replaceAll("_", "").toLowerCase();
+  const recommendationActivity = activity.filter((item) => decisionStatuses.has(normalizeStatus(item.status)));
+  const brokerActivity = activity.filter((item) => item.brokerOrderId !== null && !decisionStatuses.has(normalizeStatus(item.status)));
+  const activitySource = page === "recommendationHistory" ? recommendationActivity : brokerActivity;
+  const empty = page === "recommendationHistory"
+    ? recommendationActivity.length === 0
+    : page === "activity"
+      ? brokerActivity.length === 0 && trades.length === 0
+      : positions.length === 0;
   const searchMatches = (symbol: string, ...values: string[]) => {
     const query = activitySearch.trim().toLowerCase();
     return !query || symbol.toLowerCase().includes(query) || values.some((value) => value.toLowerCase().includes(query));
   };
-  const matchingActivity = activity.filter((item) => {
+  const matchingActivity = activitySource.filter((item) => {
     const status = normalizeStatus(item.status);
     const typeMatches = typeFilter === "All"
       || (typeFilter === "Orders" && !decisionStatuses.has(status))
@@ -1034,9 +948,10 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
   );
   const tradeIds = new Set(trades.map((trade) => trade.id));
   const openActivity = decisionActivity.filter((item) => !tradeIds.has(item.id)
-    && (openStatuses.has(normalizeStatus(item.status)) || pendingStatuses.has(normalizeStatus(item.status))));
+    && item.brokerOrderId !== null && openStatuses.has(normalizeStatus(item.status)));
   const historicalActivity = decisionActivity.filter((item) => !tradeIds.has(item.id)
-    && !openStatuses.has(normalizeStatus(item.status)) && !pendingStatuses.has(normalizeStatus(item.status)));
+    && !openStatuses.has(normalizeStatus(item.status))
+    && !scannerOnlyStatuses.has(normalizeStatus(item.status)));
   const openTrades = matchingTrades.filter((trade) => trade.status === "open");
   const closedTrades = matchingTrades.filter((trade) => trade.status === "closed");
   const visibleHistoricalActivity = historicalActivity.slice(0, historyVisibleCount);
@@ -1092,38 +1007,38 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
       : [];
   return (
     <View style={styles.historyPage}>
-      <Text accessibilityRole="header" style={styles.settingsTitle}>{page === "activity" ? "Activity" : "Positions"}</Text>
+      <Text accessibilityRole="header" style={styles.settingsTitle}>{page === "recommendationHistory" ? "Recommendation history" : page === "activity" ? "Activity" : "Positions"}</Text>
       {page === "positions" ? <Text style={styles.settingsIntro}>
         {previewMode ? "Sample positions created while you explore the app." : "Current IBKR Paper positions and ownership checks."}
       </Text> : null}
-      {page === "activity" ? (
+      {page === "activity" || page === "recommendationHistory" ? (
         <>
           <View style={styles.activitySearch}>
             <MagnifyingGlassIcon size={19} color={colors.muted} weight="regular" />
             <TextInput
-              accessibilityLabel="Search activity"
-              placeholder="Search activity"
+              accessibilityLabel={page === "recommendationHistory" ? "Search recommendation history" : "Search activity"}
+              placeholder={page === "recommendationHistory" ? "Search recommendations" : "Search activity"}
               placeholderTextColor={colors.muted}
               value={activitySearch}
               onChangeText={setActivitySearch}
               style={styles.activitySearchInput}
             />
-            <Pressable
+            {page === "activity" ? <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Open activity filters${typeFilter !== "All" || statusFilter !== "All" ? ", filters active" : ""}`}
               onPress={openFilters}
               style={styles.activityFilterIcon}
             >
               <SlidersHorizontalIcon size={18} color={colors.ink} weight="regular" />
-            </Pressable>
+            </Pressable> : null}
           </View>
         </>
       ) : null}
       {loading ? <Text style={styles.historyMessage}>Loading…</Text> : error ? <Text style={styles.historyMessage}>Activity service is unavailable.</Text> : null}
       {!loading && !error && empty ? (
         <View style={styles.historyEmpty}>
-          <Text style={styles.historyEmptyTitle}>{page === "activity" ? "No activity yet" : "No recorded positions"}</Text>
-          <Text style={styles.historyMessage}>{page === "activity" ? "Decisions and order updates will appear here." : "A position appears after the ledger observes a filled entry."}</Text>
+          <Text style={styles.historyEmptyTitle}>{page === "recommendationHistory" ? "No completed recommendations" : page === "activity" ? "No activity yet" : "No recorded positions"}</Text>
+          <Text style={styles.historyMessage}>{page === "recommendationHistory" ? "Recommendations appear here after they are approved, denied, or expire." : page === "activity" ? "Broker orders and completed trades will appear here." : "A position appears after the ledger observes a filled entry."}</Text>
         </View>
       ) : null}
       {!loading && !error && page === "activity" && openActivity.length > 0 ? (
@@ -1133,7 +1048,7 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
             <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`Open ${item.symbol} order details`} onPress={() => setSelectedActivityDetail({ kind: "activity", item })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
               <CompanyMark symbol={item.symbol} size={36} />
               <View style={styles.historyRowMain}>
-                <Text style={styles.historySymbol}>{item.symbol} {item.side.toLowerCase()}</Text>
+                <Text style={styles.historySymbol}>{item.symbol} {item.side.toLowerCase()} order</Text>
                 <Text style={styles.historyMeta}>{item.quantity ?? "—"} shares · {new Date(item.occurredAt).toLocaleDateString()}</Text>
               </View>
               <View style={styles.historyRowEnd}>
@@ -1162,11 +1077,28 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
           ))}
         </View>
       ) : null}
-      {!loading && !error && page === "activity" && visibleHistoricalActivity.length > 0 ? (
+      {!loading && !error && page === "recommendationHistory" && visibleHistoricalActivity.length > 0 ? (
         <View style={styles.activitySection}>
           <Text style={styles.activitySectionTitle}>History ({historicalActivity.length})</Text>
           {visibleHistoricalActivity.map((item) => (
-            <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`Open ${item.symbol} activity details`} onPress={() => setSelectedActivityDetail({ kind: "activity", item })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
+            <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`Open ${item.side} ${item.quantity ?? ""} ${item.symbol} details`} onPress={() => setSelectedActivityDetail({ kind: "activity", item })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
+              <CompanyMark symbol={item.symbol} size={36} />
+              <View style={styles.historyRowMain}>
+                <Text numberOfLines={1} style={styles.historySymbol}>{item.side.charAt(0).toUpperCase()}{item.side.slice(1).toLowerCase()} {item.quantity ?? "—"} {item.symbol}</Text>
+                <Text numberOfLines={1} style={styles.historyMeta}>{item.symbol} · {companyName(item)}</Text>
+              </View>
+              <View style={styles.historyRowEnd}>
+                <Text numberOfLines={1} style={styles.historyStatus}>{friendlyStatus(item.status)}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {!loading && !error && page === "activity" && visibleHistoricalActivity.length > 0 ? (
+        <View style={styles.activitySection}>
+          <Text style={styles.activitySectionTitle}>Order history ({historicalActivity.length})</Text>
+          {visibleHistoricalActivity.map((item) => (
+            <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`Open ${item.symbol} order details`} onPress={() => setSelectedActivityDetail({ kind: "activity", item })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
               <CompanyMark symbol={item.symbol} size={36} />
               <View style={styles.historyRowMain}>
                 <Text style={styles.historySymbol}>{item.symbol} {item.side.toLowerCase()}</Text>
@@ -1201,13 +1133,13 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
           })}
         </View>
       ) : null}
-      {!loading && !error && page === "activity" && hasMoreHistory ? (
+      {!loading && !error && (page === "activity" || page === "recommendationHistory") && hasMoreHistory ? (
         <Pressable accessibilityRole="button" onPress={() => setHistoryVisibleCount((count) => count + 50)} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
-          <Text style={styles.previewProposalButtonText}>Load older activity</Text>
+          <Text style={styles.previewProposalButtonText}>{page === "recommendationHistory" ? "Load older recommendations" : "Load older activity"}</Text>
         </Pressable>
       ) : null}
-      {!loading && !error && page === "activity" && !empty && matchingActivity.length === 0 && matchingTrades.length === 0 ? (
-        <Text style={styles.historyMessage}>No activity matches your search.</Text>
+      {!loading && !error && (page === "activity" || page === "recommendationHistory") && !empty && matchingActivity.length === 0 && (page === "recommendationHistory" || matchingTrades.length === 0) ? (
+        <Text style={styles.historyMessage}>{page === "recommendationHistory" ? "No recommendations match your search." : "No activity matches your search."}</Text>
       ) : null}
       {!loading && !error && page === "positions" && positions.map((item) => (
         <View key={item.id} style={styles.positionCard}>
@@ -1339,7 +1271,7 @@ export default function App() {
   const [realRecommendations, setRealRecommendations] = useState<Proposal[]>([]);
   const [realDeckComplete, setRealDeckComplete] = useState(false);
   const [transitionCard, setTransitionCard] = useState<Proposal | null>(null);
-  const [openSection, setOpenSection] = useState<"rationale" | "strategy" | "news" | null>(null);
+  const [openSection, setOpenSection] = useState<"rationale" | "strategy" | null>(null);
   const [cardWidth, setCardWidth] = useState(0);
   const [cardBodyHeight, setCardBodyHeight] = useState(0);
   const [rationaleTop, setRationaleTop] = useState(0);
@@ -1354,6 +1286,7 @@ export default function App() {
   const brokerFailureCount = useRef(0);
   const orderWorkflowsInFlight = useRef(0);
   const recommendationScanInFlight = useRef(false);
+  const expiredRefreshInFlight = useRef(false);
   const recalculatedRecommendations = useRef<Proposal[] | null>(null);
   const uiPreviewRef = useRef(false);
   const dismissToast = useCallback(() => setAppToast(null), []);
@@ -1468,7 +1401,7 @@ export default function App() {
     }
   }
 
-  function openHistory(page: "activity" | "positions") {
+  function openHistory(page: "recommendationHistory" | "activity" | "positions") {
     setActivePage(page);
     if (uiPreview) {
       setHistoryError(null);
@@ -1590,7 +1523,7 @@ export default function App() {
     setProposal(serviceProposalToCard(serviceProposal, snapshot, strategySummary));
   }
 
-  async function createPaperProposal() {
+  async function createPaperProposal(preferredSymbol?: string) {
     const response = await fetch(`${API_BASE_URL}/recommendations/queue`, {
       method: "POST",
       headers: { "x-app-token": APP_TOKEN },
@@ -1610,9 +1543,13 @@ export default function App() {
       .filter((item) => item.broker?.ok)
       .map((item) => serviceProposalToCard(item.proposal, item.broker, result.strategy));
     if (cards.length === 0) throw new Error("recommendation_queue_empty");
-    const first = result.recommendations.find((item) => item.proposal.id === cards[0]?.id);
+    const preferredCard = preferredSymbol ? cards.find((item) => item.symbol === preferredSymbol) : null;
+    const orderedCards = preferredCard
+      ? [preferredCard, ...cards.filter((item) => item.id !== preferredCard.id)]
+      : cards;
+    const first = result.recommendations.find((item) => item.proposal.id === orderedCards[0]?.id);
     if (!first?.broker?.ok) throw new Error("recommendation_queue_empty");
-    setRealRecommendations(cards);
+    setRealRecommendations(orderedCards);
     setRealDeckComplete(false);
     setStrategyCapitalReached(false);
     setPortfolioReview(null);
@@ -1762,6 +1699,25 @@ export default function App() {
     if (expired) setProposal((current) => ({ ...current, decision: "expired" }));
   }, [expired]);
 
+  useEffect(() => {
+    if (!expired || uiPreview || proposal.shadowMode || brokerConnectionStatus !== "connected" || expiredRefreshInFlight.current) return;
+    let active = true;
+    expiredRefreshInFlight.current = true;
+    setProcessing(true);
+    setAppToast({ tone: "info", title: "Refreshing recommendation", message: `Updating ${proposal.symbol} with a current price and trade plan.` });
+    createPaperProposal(proposal.symbol)
+      .catch((error) => {
+        if (!active) return;
+        const code = error instanceof Error ? error.message : "recommendation_refresh_unavailable";
+        setAppToast({ tone: "danger", title: "Recommendation not refreshed", message: code === "no_eligible_recommendation" ? `${proposal.symbol} no longer qualifies.` : "The current recommendation could not be refreshed yet." });
+      })
+      .finally(() => {
+        expiredRefreshInFlight.current = false;
+        if (active) setProcessing(false);
+      });
+    return () => { active = false; };
+  }, [expired, proposal.id, proposal.shadowMode, proposal.symbol, uiPreview, brokerConnectionStatus]);
+
   async function executeDecision(
     decision: "approved" | "denied",
     targetProposal: Proposal = proposal,
@@ -1814,8 +1770,12 @@ export default function App() {
         headers: { "content-type": "application/json", "x-app-token": APP_TOKEN },
         body: JSON.stringify({ token }),
       });
-      const previewResult = await previewResponse.json() as { preview?: OrderPreview };
-      if (!previewResponse.ok || !previewResult.preview) throw new Error("preview_blocked");
+      const previewResult = await previewResponse.json() as { preview?: OrderPreview & { checks?: { notExpired?: boolean; withinLimit?: boolean } } };
+      if (!previewResponse.ok || !previewResult.preview) {
+        if (previewResult.preview?.checks?.notExpired === false) throw new Error("invalid_or_expired_approval");
+        if (previewResult.preview?.checks?.withinLimit === false) throw new Error("price_above_approved_limit");
+        throw new Error("preview_blocked");
+      }
       setOrderPreview(previewResult.preview);
 
       const whatIfResponse = await fetch(`${API_BASE_URL}/orders/what-if`, {
@@ -1841,6 +1801,7 @@ export default function App() {
       });
       const submitPayload = await submitResponse.json() as {
         error?: string;
+        checks?: { priceWithinLimit?: boolean; strategyCapitalAllowed?: boolean };
         submission?: PaperSubmission & { error?: string; errors?: Array<{ code?: number; message?: string }> };
         recommendations?: QueuedServiceRecommendation[];
         strategy?: StrategySummary;
@@ -1858,6 +1819,7 @@ export default function App() {
             setProposal(SHADOW_LOADING);
           }
         }
+        if (submitPayload.checks?.priceWithinLimit === false) throw new Error("price_above_approved_limit");
         const brokerError = submitPayload.submission?.errors?.[0];
         throw new Error(
           submitPayload.error
@@ -1896,6 +1858,8 @@ export default function App() {
       const code = error instanceof Error ? error.message : "paper_submission_blocked";
       const message = code === "invalid_or_expired_approval"
         ? "The approval expired before submission. Request a new recommendation."
+        : code === "price_above_approved_limit"
+          ? "The market price moved above the price you approved. Nothing was submitted; review a freshly priced recommendation."
         : code === "strategy_capital_changed"
           ? "Available strategy cash changed after another order. This recommendation has been resized; review it again before approving."
         : code === "final_safety_check_blocked"
@@ -1963,9 +1927,11 @@ export default function App() {
 
   async function completeDecision(decision: "approved" | "denied") {
     if (decision === "approved") {
-      const targetProposal = proposal;
-      dismissResolvedLiveCard("approved");
-      void executeDecision("approved", targetProposal, true);
+      recalculatedRecommendations.current = null;
+      const succeeded = await executeDecision("approved");
+      const replacementCards = recalculatedRecommendations.current;
+      recalculatedRecommendations.current = null;
+      if (succeeded) dismissResolvedLiveCard("approved", replacementCards);
       return;
     }
     const succeeded = await executeDecision(decision);
@@ -2010,7 +1976,7 @@ export default function App() {
   }, [submittedProposalIds, uiPreview]);
 
   function decide(decision: "approved" | "denied") {
-    if (!actionable) return;
+    if (!actionable || processing || orderWorkflowsInFlight.current > 0) return;
     if (decision === "denied") {
       void completeDecision("denied");
       return;
@@ -2039,10 +2005,10 @@ export default function App() {
     setRationaleOpen(false);
   }
 
-  function previewActiveProposal() {
+  function previewActiveProposal(navigateToRecommendations = true) {
     uiPreviewRef.current = true;
     setUiPreview(true);
-    setActivePage("review");
+    if (navigateToRecommendations) setActivePage("review");
     setBrokerConnectionStatus("connected");
     setActivityItems(previewActivityItems);
     setPositionItems(previewPositionItems);
@@ -2309,36 +2275,33 @@ export default function App() {
     setProposal(SHADOW_LOADING);
   }
 
-  function exitPreviewMode() {
+  function exitPreviewMode(navigateToRecommendations = true) {
     uiPreviewRef.current = false;
     setUiPreview(false);
     setActivityItems([]);
     setPositionItems([]);
-    setActivePage("review");
+    setTradeItems([]);
+    if (navigateToRecommendations) setActivePage("review");
     returnToScanner();
   }
 
   function setPreviewMode(enabled: boolean) {
     void AsyncStorage.setItem(PREVIEW_MODE_STORAGE_KEY, String(enabled));
     if (enabled) {
-      previewActiveProposal();
-      setActivePage("preview");
+      previewActiveProposal(false);
       setAppToast({ tone: "success", title: "Preview mode on", message: "Sample data is now active throughout the app." });
     } else {
-      exitPreviewMode();
-      setActivePage("preview");
+      exitPreviewMode(false);
+      if (activePage === "recommendationHistory" || activePage === "activity" || activePage === "positions") void loadHistory();
       setAppToast({ tone: "info", title: "Preview mode off", message: "The app is using your paper workspace again." });
     }
   }
 
   const menuActions: Array<{ label: string; onPress: () => void; emphasized?: boolean }> = [
-    { label: `News for ${proposal.symbol}`, onPress: () => setOpenSection("news") },
     ...(activePage !== "review" ? [{ label: "Recommendations", onPress: () => setActivePage("review") }] : []),
     ...(activePage !== "activity" ? [{ label: "Activity", onPress: () => openHistory("activity") }] : []),
     ...(activePage !== "positions" ? [{ label: "Positions", onPress: () => openHistory("positions") }] : []),
-    ...(activePage !== "news" ? [{ label: "News monitor", onPress: () => setActivePage("news") }] : []),
     ...(activePage !== "settings" ? [{ label: "Settings", onPress: () => setActivePage("settings") }] : []),
-    ...(activePage !== "preview" ? [{ label: "Preview mode", onPress: () => setActivePage("preview"), emphasized: uiPreview }] : []),
   ];
   const headerStatusLabel = uiPreview
     ? "Preview mode"
@@ -2379,6 +2342,15 @@ export default function App() {
             <ListIcon size={23} color={colors.ink} weight="regular" />
           </Pressable>
           <View style={styles.headerActions}>
+            {activePage === "review" ? <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open recommendation history"
+              hitSlop={6}
+              onPress={() => openHistory("recommendationHistory")}
+              style={({ pressed }) => [styles.themeToggle, pressed && styles.themeTogglePressed]}
+            >
+              <ClockCounterClockwiseIcon size={18} color={colors.ink} weight="regular" />
+            </Pressable> : null}
             <View style={styles.marketPill}>
               <CircleIcon
                 size={8}
@@ -2408,11 +2380,7 @@ export default function App() {
           </View>
         )}
 
-        {activePage === "preview" ? (
-          <PreviewModePage enabled={uiPreview} onChange={setPreviewMode} />
-        ) : activePage === "news" ? (
-          <NewsMonitorPage apiUrl={API_BASE_URL} appToken={APP_TOKEN} />
-        ) : activePage === "settings" ? (
+        {activePage === "settings" ? (
           <SettingsPage
             policy={riskPolicy}
             operatingPercent={adaptiveOperatingPercent}
@@ -2421,7 +2389,7 @@ export default function App() {
             onChange={setRiskPolicy}
             onSave={() => void savePaperRiskPolicy()}
           />
-        ) : activePage === "activity" || activePage === "positions" ? (
+        ) : activePage === "recommendationHistory" || activePage === "activity" || activePage === "positions" ? (
           <HistoryPage page={activePage} activity={activityItems} positions={positionItems} trades={tradeItems} loading={historyLoading} error={historyError} onRefresh={() => void loadHistory()} previewMode={uiPreview} />
         ) : (
         <>
@@ -2462,7 +2430,7 @@ export default function App() {
           </View>
         )}
 
-        {proposal.shadowMode && !showRecommendationSkeleton && (
+        {proposal.shadowMode && !showRecommendationSkeleton && !realDeckComplete && (
           <View style={styles.homeDashboard}>
             <Text style={styles.homeEyebrow}>{marketWindow.phase === "open" ? "SCANNER ACTIVE" : "SCANNER STANDBY"}</Text>
             <Text style={styles.homeTitle}>
@@ -2582,10 +2550,31 @@ export default function App() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Review sample trades again"
-              onPress={previewActiveProposal}
+              onPress={() => previewActiveProposal()}
               style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}
             >
               <Text style={styles.previewProposalButtonText}>Review sample trades again</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {!uiPreview && realDeckComplete && (
+          <View style={styles.deckComplete}>
+            <View style={styles.deckCompleteIcon}>
+              <CheckCircleIcon size={34} color={colors.actionApprove} weight="fill" />
+            </View>
+            <Text style={styles.deckCompleteEyebrow}>0 recommendations remaining</Text>
+            <Text style={styles.deckCompleteTitle}>You’re all caught up</Text>
+            <Text style={styles.deckCompleteBody}>
+              Every current recommendation has been completed. The scanner is still monitoring the market and will add a new card when another setup qualifies.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="View recommendation activity"
+              onPress={() => openHistory("activity")}
+              style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}
+            >
+              <Text style={styles.previewProposalButtonText}>View activity</Text>
             </Pressable>
           </View>
         )}
@@ -2794,6 +2783,20 @@ export default function App() {
                 <Text style={[styles.contextMenuItemText, action.emphasized && styles.contextMenuItemEmphasized]}>{action.label}</Text>
               </Pressable>
             ))}
+            <View style={styles.contextMenuToggle}>
+              <View style={styles.contextMenuToggleCopy}>
+                <Text style={styles.contextMenuItemText}>Preview mode</Text>
+                <Text style={styles.contextMenuToggleHelp}>Use realistic sample data</Text>
+              </View>
+              <Switch
+                accessibilityLabel="Preview mode"
+                accessibilityHint="Replaces brokerage information throughout the app with simulated sample data"
+                value={uiPreview}
+                onValueChange={setPreviewMode}
+                trackColor={{ false: colors.border, true: colors.actionApprove }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
             </View>
           </SafeAreaView>
         </Animated.View>
@@ -2808,7 +2811,7 @@ export default function App() {
         <SafeAreaView style={styles.sheetSafe} edges={["top", "bottom", "left", "right"]}>
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>
-              {openSection === "rationale" ? "Why this trade" : openSection === "strategy" ? "Strategy" : "Recent news"}
+              {openSection === "rationale" ? "Why this trade" : "Strategy"}
             </Text>
             <Pressable accessibilityRole="button" accessibilityLabel="Close details" onPress={() => setOpenSection(null)} style={styles.sheetClose}>
               <Text style={styles.sheetCloseText}>Done</Text>
@@ -2828,7 +2831,6 @@ export default function App() {
                   <Text style={styles.sheetSectionTitle}>Key risk</Text>
                   <Text style={styles.sheetBody}>{proposal.keyRisk}</Text>
                 </View>
-                <ActionButton label={`Read ${proposal.symbol} news`} tone="secondary" onPress={() => setOpenSection("news")} />
               </>
             )}
 
@@ -2846,14 +2848,6 @@ export default function App() {
                   </View>
                 </View>
               </>
-            )}
-
-            {openSection === "news" && (
-              <View style={styles.sheetSection}>
-                <StockNews key={`${proposal.symbol}:${uiPreview}`} symbol={proposal.symbol} preview={uiPreview}
-                  apiUrl={API_BASE_URL} appToken={APP_TOKEN} colors={colors}
-                  onLinkError={() => setAppToast({ tone: "danger", title: "Could not open article", message: "Please try the article link again." })} />
-              </View>
             )}
           </ScrollView>
         </SafeAreaView>
@@ -2890,6 +2884,9 @@ return StyleSheet.create({
   contextMenuItemPressed: { backgroundColor: colors.surfaceMuted },
   contextMenuItemText: { color: colors.text, ...typeRamp.body },
   contextMenuItemEmphasized: { color: colors.accentDark, fontWeight: "600" },
+  contextMenuToggle: { minHeight: 64, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, paddingHorizontal: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  contextMenuToggleCopy: { flex: 1 },
+  contextMenuToggleHelp: { color: colors.muted, ...typeRamp.caption, marginTop: 2 },
   toastLayer: { position: "absolute", top: 62, left: spacing.small, right: spacing.small, zIndex: 20 },
   settingsPage: { paddingTop: 30, paddingBottom: 44 },
   settingsEyebrow: { color: colors.muted, ...typeRamp.caption, fontWeight: "400", letterSpacing: 1.1 },
@@ -2905,8 +2902,6 @@ return StyleSheet.create({
   operatingValue: { color: colors.ink, fontSize: 30, lineHeight: 36, fontWeight: "800", marginTop: 3 },
   operatingReason: { color: colors.text, ...typeRamp.body, marginTop: 5 },
   operatingFootnote: { color: colors.muted, ...typeRamp.caption, marginTop: 10 },
-  previewExplanation: { backgroundColor: colors.surfaceMuted, borderRadius: radius.large, padding: 18, marginTop: 18 },
-  previewExplanationText: { color: colors.text, ...typeRamp.body, marginTop: 7 },
   policyField: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   policyFieldLabel: { flex: 1, color: colors.muted, ...typeRamp.body },
   policyInputWrap: { minWidth: 112, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5 },
@@ -2955,15 +2950,6 @@ return StyleSheet.create({
   historyStatus: { color: colors.ink, ...typeRamp.body, fontWeight: "500", textTransform: "capitalize", textAlign: "right" },
   historyTime: { color: colors.muted, ...typeRamp.caption, marginTop: 3 },
   positionCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.medium, paddingHorizontal: 16, marginTop: 18, overflow: "hidden" },
-  newsHealthCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.medium, padding: 16, marginTop: 20, backgroundColor: colors.surface },
-  newsMonitorItem: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 15 },
-  newsMonitorItemPressed: { opacity: 0.62 },
-  newsMonitorMetaRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, marginBottom: 5 },
-  newsMonitorSource: { color: colors.ink, ...typeRamp.caption, fontWeight: "700", textTransform: "capitalize" },
-  newsMonitorTime: { color: colors.muted, ...typeRamp.caption },
-  newsMonitorHeadline: { color: colors.text, ...typeRamp.body, fontWeight: "600" },
-  newsMonitorSymbols: { color: colors.muted, ...typeRamp.caption, marginTop: 6, textTransform: "capitalize" },
-  newsMonitorLink: { color: colors.accent, ...typeRamp.caption, fontWeight: "500", marginTop: 7 },
   positionTerms: { paddingVertical: 8 },
   positionNotice: { color: colors.warning, ...typeRamp.caption, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingVertical: 12 },
   menuButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 20 },

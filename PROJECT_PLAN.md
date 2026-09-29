@@ -293,7 +293,7 @@ Evaluate a second, separately packaged offering for technically inclined custome
 
 ### Stock news context — implemented 2026-09-11
 
-- Alpaca/Benzinga headlines are available in the existing Recent news sheet, with ticker search, original links, publication/update times, polling while open and explicit empty/partial/unavailable states.
+- News collection remains an internal research input; the standalone and per-symbol news interfaces were removed from the mobile app to keep the approval workflow focused.
 - Server-only credentials, 60-second bounded memory cache, deduplication and safe link validation; no article bodies, new dependencies or trading-rule changes.
 - News-driven discovery and ranking, intraday movers, multi-publisher aggregation and verified news latency remain pending. These additions do not repair the existing delayed IBKR quotes or incomplete account reconciliation.
 - Validate with `node --test service/stock_news.test.mjs` and `npm run typecheck`.

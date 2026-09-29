@@ -47,7 +47,10 @@ class ReconciliationSnapshot(EWrapper, EClient):
         self.pnl_done = threading.Event()
         self.accounts: list[str] = []
         self.summary: dict[str, dict] = {}
-        self.positions: list[dict] = []
+        # IBKR can repeat a position callback during a snapshot. A contract is
+        # one aggregate holding, so retain the latest callback per account and
+        # contract instead of emitting duplicate portfolio rows.
+        self.positions: dict[str, dict] = {}
         self.orders: dict[str, dict] = {}
         self.completed_orders: dict[str, dict] = {}
         self.executions: list[dict] = []
@@ -69,9 +72,11 @@ class ReconciliationSnapshot(EWrapper, EClient):
 
     def position(self, account, contract, position, avgCost) -> None:
         quantity = number(position)
+        identity = f"{account}:{contract.conId or contract.symbol}:{contract.secType}:{contract.currency}"
         if quantity == 0:
+            self.positions.pop(identity, None)
             return
-        self.positions.append({
+        self.positions[identity] = {
             "account": mask_account(account),
             "contractId": contract.conId,
             "symbol": contract.symbol,
@@ -79,7 +84,7 @@ class ReconciliationSnapshot(EWrapper, EClient):
             "currency": contract.currency,
             "quantity": quantity,
             "averageCost": number(avgCost),
-        })
+        }
 
     def positionEnd(self) -> None:  # noqa: N802
         self.positions_done.set()
@@ -231,7 +236,7 @@ def collect_snapshot(*, client_id: int = CLIENT_ID, timeout_seconds: float = 8) 
             "complete": complete,
             "completed": completed,
             "summary": app.summary,
-            "positions": app.positions,
+            "positions": list(app.positions.values()),
             "openOrders": list(app.orders.values()),
             "completedOrders": list(app.completed_orders.values()),
             "executions": app.executions,

@@ -552,6 +552,17 @@ async function recommendationQueue({ additionalExcludedSymbols = [] } = {}) {
   if (strategy.status !== "active") throw new Error("strategy_paused");
   let strategyBudget = currentStrategyBudget();
 
+  // An elapsed quote window does not mean the user rejected the idea. Retire
+  // that priced version and let the same still-qualified symbol receive a
+  // freshly priced version in this queue build.
+  for (const proposal of proposals.values()) {
+    if (proposal.status !== "pending" || proposal.expiresAt > now()) continue;
+    proposal.status = "replaced";
+    ledger().setProposalStatus(proposal.id, "replaced");
+    proposalSnapshots.delete(proposal.id);
+    auditLog.push({ id: randomUUID(), at: now(), event: "recommendation_price_window_refreshed", proposalId: proposal.id, symbol: proposal.symbol });
+  }
+
   const existing = [...proposals.values()]
     .filter((proposal) => proposal.status === "pending" && proposal.expiresAt > now())
     .sort((left, right) => left.createdAt - right.createdAt);
@@ -1075,7 +1086,7 @@ async function route(request, response) {
     const applicationItems = ledger().listActivity({ limit: url.searchParams.get("limit") });
     const externalItems = reconciliations().listActivity().filter((item) => item.ownership === "external").map((item) => ({
       id: `external:${item.type}:${item.brokerIdentity}`,
-      symbol: item.symbol ?? "—", side: item.payload?.action ?? item.payload?.side ?? "external",
+      symbol: item.symbol ?? "—", company: item.symbol ?? "—", side: item.payload?.action ?? item.payload?.side ?? "external",
       status: item.type === "execution" ? "Filled outside app" : item.payload?.status ?? "External order",
       occurredAt: item.lastSeenAt, quantity: item.payload?.quantity ?? null,
       limitPrice: item.payload?.limitPrice ?? item.payload?.price ?? null,
