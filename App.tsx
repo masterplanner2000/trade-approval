@@ -43,6 +43,8 @@ type AppPage = "review" | "recommendationHistory" | "activity" | "positions" | "
 type ActivityItem = {
   id: string; symbol: string; company?: string | null; side: string; status: string; occurredAt: number;
   quantity: number | null; limitPrice: number | null; environment: string; brokerOrderId: string | null;
+  stopPrice?: number | null; targetPrice?: number | null; targetTimeframe?: string | null;
+  researchContext?: string | null; rationale?: string[];
 };
 type TradeItem = {
   id: string; symbol: string; quantity: number; status: "open" | "closed";
@@ -535,6 +537,11 @@ function buildPreviewActivity(count = 240): ActivityItem[] {
       limitPrice: Math.round((PREVIEW_HISTORY_PRICES[symbol]! * (0.97 + (index % 7) * 0.01)) * 100) / 100,
       environment: "preview",
       brokerOrderId: brokerBacked ? String(10490000 - index) : null,
+      stopPrice: Math.round(PREVIEW_HISTORY_PRICES[symbol]! * 0.94 * 100) / 100,
+      targetPrice: Math.round(PREVIEW_HISTORY_PRICES[symbol]! * 1.08 * 100) / 100,
+      targetTimeframe: "1–3 trading days",
+      researchContext: `${symbol} passed the preview momentum, liquidity, and portfolio-risk checks at the time this recommendation was created.`,
+      rationale: ["Price trend passed the momentum rules", "Liquidity met the strategy minimum", "Proposed risk fit the preview allocation"],
     };
   });
 }
@@ -632,6 +639,27 @@ const COMPANY_NAMES: Record<string, string> = {
 
 function companyName(item: Pick<ActivityItem, "symbol" | "company">) {
   return item.company && item.company !== item.symbol ? item.company : COMPANY_NAMES[item.symbol] ?? item.symbol;
+}
+
+function mergeRecommendationDeck(current: Proposal[], incoming: Proposal[]) {
+  const incomingBySymbol = new Map<string, Proposal>();
+  for (const item of incoming) incomingBySymbol.set(item.symbol, item);
+  const merged: Proposal[] = [];
+  const seen = new Set<string>();
+  for (const item of current) {
+    if (seen.has(item.symbol)) continue;
+    const refreshed = incomingBySymbol.get(item.symbol);
+    if (!refreshed) continue;
+    merged.push(refreshed);
+    seen.add(item.symbol);
+    incomingBySymbol.delete(item.symbol);
+  }
+  for (const item of incomingBySymbol.values()) {
+    if (seen.has(item.symbol)) continue;
+    merged.push(item);
+    seen.add(item.symbol);
+  }
+  return merged;
 }
 
 function CompanyMark({ symbol, size = 34 }: { symbol: string; size?: number }) {
@@ -1218,6 +1246,33 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
                   <Text style={styles.activityDetailValue}>{row.value}</Text>
                 </View>
               ))}
+              {page === "recommendationHistory" && selectedActivityDetail?.kind === "activity" ? (
+                <View style={styles.sheetSection}>
+                  <Text style={styles.sheetSectionTitle}>Why this trade</Text>
+                  <Text style={styles.sheetBody}>{selectedActivityDetail.item.researchContext ?? "Detailed rationale was not recorded for this recommendation."}</Text>
+                  {(selectedActivityDetail.item.rationale ?? []).map((reason) => (
+                    <View key={reason} style={styles.infoRow}>
+                      <CheckCircleIcon size={17} color={colors.accent} weight="regular" />
+                      <Text style={styles.infoRowText}>{reason}</Text>
+                    </View>
+                  ))}
+                  <View style={styles.sheetSection}>
+                    <Text style={styles.sheetSectionTitle}>Original trade plan</Text>
+                    <View style={styles.activityDetailRow}>
+                      <Text style={styles.tradeTermLabel}>Profit target</Text>
+                      <Text style={styles.activityDetailValue}>{selectedActivityDetail.item.targetPrice == null ? "—" : money(selectedActivityDetail.item.targetPrice)}</Text>
+                    </View>
+                    <View style={styles.activityDetailRow}>
+                      <Text style={styles.tradeTermLabel}>Protective stop</Text>
+                      <Text style={styles.activityDetailValue}>{selectedActivityDetail.item.stopPrice == null ? "—" : money(selectedActivityDetail.item.stopPrice)}</Text>
+                    </View>
+                    <View style={styles.activityDetailRow}>
+                      <Text style={styles.tradeTermLabel}>Time horizon</Text>
+                      <Text style={styles.activityDetailValue}>{selectedActivityDetail.item.targetTimeframe ?? "—"}</Text>
+                    </View>
+                  </View>
+                </View>
+              ) : null}
             </ScrollView>
           </SafeAreaView>
         </View>
@@ -1269,12 +1324,11 @@ export default function App() {
   const [sampleDeckComplete, setSampleDeckComplete] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [realRecommendations, setRealRecommendations] = useState<Proposal[]>([]);
+  const recommendationDeckRef = useRef<Proposal[]>([]);
   const [realDeckComplete, setRealDeckComplete] = useState(false);
   const [transitionCard, setTransitionCard] = useState<Proposal | null>(null);
-  const [openSection, setOpenSection] = useState<"rationale" | "strategy" | null>(null);
   const [cardWidth, setCardWidth] = useState(0);
   const [cardBodyHeight, setCardBodyHeight] = useState(0);
-  const [rationaleTop, setRationaleTop] = useState(0);
   const cardPosition = useRef(new Animated.ValueXY()).current;
   const cardEntryProgress = useRef(new Animated.Value(1)).current;
   const menuProgress = useRef(new Animated.Value(0)).current;
@@ -1543,13 +1597,14 @@ export default function App() {
       .filter((item) => item.broker?.ok)
       .map((item) => serviceProposalToCard(item.proposal, item.broker, result.strategy));
     if (cards.length === 0) throw new Error("recommendation_queue_empty");
-    const preferredCard = preferredSymbol ? cards.find((item) => item.symbol === preferredSymbol) : null;
-    const orderedCards = preferredCard
-      ? [preferredCard, ...cards.filter((item) => item.id !== preferredCard.id)]
-      : cards;
-    const first = result.recommendations.find((item) => item.proposal.id === orderedCards[0]?.id);
+    const mergedCards = mergeRecommendationDeck(recommendationDeckRef.current, cards);
+    const activeCard = (preferredSymbol ? mergedCards.find((item) => item.symbol === preferredSymbol) : null)
+      ?? mergedCards.find((item) => item.symbol === proposal.symbol)
+      ?? mergedCards[0];
+    const first = result.recommendations.find((item) => item.proposal.id === activeCard?.id);
     if (!first?.broker?.ok) throw new Error("recommendation_queue_empty");
-    setRealRecommendations(orderedCards);
+    recommendationDeckRef.current = mergedCards;
+    setRealRecommendations(mergedCards);
     setRealDeckComplete(false);
     setStrategyCapitalReached(false);
     setPortfolioReview(null);
@@ -1699,23 +1754,36 @@ export default function App() {
     if (expired) setProposal((current) => ({ ...current, decision: "expired" }));
   }, [expired]);
 
-  useEffect(() => {
-    if (!expired || uiPreview || proposal.shadowMode || brokerConnectionStatus !== "connected" || expiredRefreshInFlight.current) return;
+  async function refreshExpiredRecommendation() {
+    if (expiredRefreshInFlight.current) return;
+    if (uiPreview) {
+      setProposal((current) => ({ ...current, decision: "pending", expiresAt: Date.now() + 3 * 60_000 }));
+      setAppToast({ tone: "success", title: "Recommendation refreshed", message: `${proposal.symbol} now uses a current preview window.` });
+      return;
+    }
+    if (proposal.shadowMode || brokerConnectionStatus !== "connected") {
+      setAppToast({ tone: "danger", title: "Recommendation not refreshed", message: "Reconnect IBKR Paper before refreshing this recommendation." });
+      return;
+    }
     let active = true;
     expiredRefreshInFlight.current = true;
     setProcessing(true);
     setAppToast({ tone: "info", title: "Refreshing recommendation", message: `Updating ${proposal.symbol} with a current price and trade plan.` });
-    createPaperProposal(proposal.symbol)
-      .catch((error) => {
-        if (!active) return;
-        const code = error instanceof Error ? error.message : "recommendation_refresh_unavailable";
-        setAppToast({ tone: "danger", title: "Recommendation not refreshed", message: code === "no_eligible_recommendation" ? `${proposal.symbol} no longer qualifies.` : "The current recommendation could not be refreshed yet." });
-      })
-      .finally(() => {
-        expiredRefreshInFlight.current = false;
-        if (active) setProcessing(false);
-      });
-    return () => { active = false; };
+    try {
+      await createPaperProposal(proposal.symbol);
+    } catch (error) {
+      if (!active) return;
+      const code = error instanceof Error ? error.message : "recommendation_refresh_unavailable";
+      setAppToast({ tone: "danger", title: "Recommendation not refreshed", message: code === "no_eligible_recommendation" ? `${proposal.symbol} no longer qualifies.` : "The current recommendation could not be refreshed yet." });
+    } finally {
+      expiredRefreshInFlight.current = false;
+      if (active) setProcessing(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!expired || uiPreview || proposal.shadowMode || brokerConnectionStatus !== "connected" || expiredRefreshInFlight.current) return;
+    void refreshExpiredRecommendation();
   }, [expired, proposal.id, proposal.shadowMode, proposal.symbol, uiPreview, brokerConnectionStatus]);
 
   async function executeDecision(
@@ -1788,8 +1856,10 @@ export default function App() {
       setWhatIfResult(whatIfPayload.whatIf);
       const commission = whatIfPayload.whatIf.result?.commission;
       if (typeof commission === "number") {
-        setRealRecommendations((current) => current.map((item) =>
-          item.id === targetProposal.id ? { ...item, estimatedFees: commission } : item));
+        const withCommission = recommendationDeckRef.current.map((item) =>
+          item.id === targetProposal.id ? { ...item, estimatedFees: commission } : item);
+        recommendationDeckRef.current = withCommission;
+        setRealRecommendations(withCommission);
       }
 
       if (!background) setAppToast({ tone: "info", title: "Submitting paper bracket", message: "Waiting for IBKR to acknowledge the buy and both automatic exit orders." });
@@ -1812,8 +1882,10 @@ export default function App() {
             .filter((item) => item.broker?.ok)
             .map((item) => serviceProposalToCard(item.proposal, item.broker, submitPayload.strategy!));
           setStrategy(submitPayload.strategy);
-          setRealRecommendations(refreshedCards);
-          if (refreshedCards[0]) setProposal(refreshedCards[0]);
+          const mergedCards = mergeRecommendationDeck(recommendationDeckRef.current, refreshedCards);
+          recommendationDeckRef.current = mergedCards;
+          setRealRecommendations(mergedCards);
+          if (mergedCards[0]) setProposal(mergedCards[0]);
           else {
             setRealDeckComplete(true);
             setProposal(SHADOW_LOADING);
@@ -1871,7 +1943,9 @@ export default function App() {
       setAppToast({ tone: "danger", title: "Paper order not submitted", message });
       if (background && code !== "strategy_capital_changed") {
         const retryable = { ...targetProposal, decision: "pending" as Decision };
-        setRealRecommendations((current) => [retryable, ...current.filter((item) => item.id !== retryable.id)]);
+        const retryDeck = [retryable, ...recommendationDeckRef.current.filter((item) => item.symbol !== retryable.symbol)];
+        recommendationDeckRef.current = retryDeck;
+        setRealRecommendations(retryDeck);
         setProposal(retryable);
         setRealDeckComplete(false);
       }
@@ -1898,6 +1972,7 @@ export default function App() {
       useNativeDriver: true,
     }).start(() => {
       cardEntryProgress.setValue(0);
+      recommendationDeckRef.current = remaining;
       setRealRecommendations(remaining);
       if (next) setProposal(next);
       else {
@@ -2030,11 +2105,17 @@ export default function App() {
     const activity: ActivityItem = {
       id: `preview-${proposal.id}-${occurredAt}`,
       symbol: proposal.symbol,
+      company: proposal.company,
       side: proposal.side.toLowerCase(),
       status: decision === "approved" ? "Simulated fill" : "denied",
       occurredAt,
       quantity: proposal.quantity,
       limitPrice: proposal.limitPrice,
+      stopPrice: proposal.stopPrice,
+      targetPrice: proposal.targetPrice,
+      targetTimeframe: proposal.targetTimeframe,
+      researchContext: proposal.companyCatalyst,
+      rationale: proposal.rationale,
       environment: "preview",
       brokerOrderId: null,
     };
@@ -2257,12 +2338,7 @@ export default function App() {
   const backPreviewCard = activePreviewPosition >= 0 && availableDeckCards.length > 2
     ? availableDeckCards[(activePreviewPosition + 2) % availableDeckCards.length]
     : null;
-  const rationaleLines = cardBodyHeight > 0 && rationaleTop > 0
-    ? Math.max(1, Math.min(20, Math.floor((cardBodyHeight - rationaleTop - 51) / typeRamp.body.lineHeight)))
-    : 2;
-
   function returnToScanner() {
-    setOpenSection(null);
     setUiPreview(false);
     setWorkflowError(null);
     setOrderPreview(null);
@@ -2270,6 +2346,7 @@ export default function App() {
     setPaperSubmission(null);
     setProcessing(false);
     setDecisionInFlight(null);
+    recommendationDeckRef.current = [];
     setRealRecommendations([]);
     setRealDeckComplete(false);
     setProposal(SHADOW_LOADING);
@@ -2691,20 +2768,10 @@ export default function App() {
                 )}
               </View>
 
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Read the full trade rationale"
-                accessibilityHint="Opens a sheet with the complete rationale and key risks"
-                onLayout={(event) => setRationaleTop(event.nativeEvent.layout.y)}
-                onPress={(event) => {
-                  event.stopPropagation();
-                  setOpenSection("rationale");
-                }}
-                style={({ pressed }) => [styles.infoCard, pressed && styles.infoCardPressed]}
-              >
+              <View style={styles.infoCard}>
                 <Text style={styles.infoCardTitle}>Why this trade</Text>
-                <Text style={styles.infoCardBody} numberOfLines={rationaleLines} ellipsizeMode="tail">{proposal.companyCatalyst}</Text>
-              </Pressable>
+                <Text style={styles.infoCardBody} numberOfLines={2} ellipsizeMode="tail">{proposal.companyCatalyst}</Text>
+              </View>
             </Pressable>
             <View style={styles.cardFooter}>
               {state === "pending" ? <View style={styles.actions}>
@@ -2725,9 +2792,11 @@ export default function App() {
               </View> : state === "expired" ? (
                 <View style={styles.actions}>
                   <ActionButton
-                    label="Dismiss"
+                    label={processing ? "Refreshing…" : "Refresh recommendation"}
                     tone="secondary"
-                    onPress={() => uiPreview ? animateSampleDecision("denied") : dismissResolvedLiveCard("denied")}
+                    pending={processing}
+                    disabled={processing || (!uiPreview && brokerConnectionStatus !== "connected")}
+                    onPress={() => void refreshExpiredRecommendation()}
                   />
                 </View>
               ) : (
@@ -2802,56 +2871,6 @@ export default function App() {
         </Animated.View>
       </View>
 
-      <Modal
-        visible={openSection !== null}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setOpenSection(null)}
-      >
-        <SafeAreaView style={styles.sheetSafe} edges={["top", "bottom", "left", "right"]}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>
-              {openSection === "rationale" ? "Why this trade" : "Strategy"}
-            </Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close details" onPress={() => setOpenSection(null)} style={styles.sheetClose}>
-              <Text style={styles.sheetCloseText}>Done</Text>
-            </Pressable>
-          </View>
-          <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
-            {openSection === "rationale" && (
-              <>
-                <Text style={styles.sheetBody}>{proposal.companyCatalyst}</Text>
-                {proposal.rationale.map((reason) => (
-                  <View key={reason} style={styles.infoRow}>
-                    <CheckCircleIcon size={17} color={colors.accent} weight="regular" />
-                    <Text style={styles.infoRowText}>{reason}</Text>
-                  </View>
-                ))}
-                <View style={styles.sheetSection}>
-                  <Text style={styles.sheetSectionTitle}>Key risk</Text>
-                  <Text style={styles.sheetBody}>{proposal.keyRisk}</Text>
-                </View>
-              </>
-            )}
-
-            {openSection === "strategy" && (
-              <>
-                <Text style={styles.strategyCardName}>{proposal.strategyName}</Text>
-                <Text style={styles.sheetBody}>{proposal.strategyContext}</Text>
-                <View style={styles.sheetSection}>
-                  <Text style={styles.sheetSectionTitle}>Trade parameters</Text>
-                  <View style={styles.metrics}>
-                    <Metric label="Total commitment" value={money(proposal.positionValue)} />
-                    <Metric label="Shares" value={`${proposal.quantity}`} />
-                    <Metric label="Protective stop" value={money(proposal.stopPrice)} />
-                    <Metric label="Target timeframe" value={proposal.targetTimeframe} />
-                  </View>
-                </View>
-              </>
-            )}
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
     </SafeAreaProvider>
     </ThemeProvider>

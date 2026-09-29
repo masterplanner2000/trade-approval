@@ -189,7 +189,8 @@ test("activity read model combines proposal, decision, submission, and broker st
   ledger.recordBrokerOrder({ proposalId: "proposal-1", submissionAttemptId: "attempt-1", broker: "IBKR", accountId: "paper-account", brokerOrderId: "12345", role: "entry", status: "PreSubmitted", order: { filled: 0 }, seenAt: 5_000 });
   assert.deepEqual(ledger.listActivity(), [{
     id: "proposal-1", symbol: "NVDA", company: "NVDA", side: "buy", status: "PreSubmitted", occurredAt: 2_000,
-    quantity: 2, limitPrice: 200, environment: "paper", brokerOrderId: "12345",
+    quantity: 2, limitPrice: 200, stopPrice: 190, targetPrice: null, targetTimeframe: null,
+    researchContext: null, rationale: [], environment: "paper", brokerOrderId: "12345",
   }]);
   ledger.close();
 });

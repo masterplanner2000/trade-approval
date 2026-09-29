@@ -18,6 +18,7 @@ import { DeterministicBroker } from "./testing/deterministic_broker.mjs";
 import { evaluateAutomaticExits } from "./automatic_exit_policy.mjs";
 import { assessAutomaticExitQuote } from "./automatic_exit_quote.mjs";
 import { resolveProposalEvidenceIdentity } from "./proposal_evidence_identity.mjs";
+import { chooseActiveRecommendationVersions, createQueueSerialExecutor } from "./recommendation_queue.mjs";
 
 const port = Number(process.env.TRADE_APPROVAL_PORT ?? 8787);
 const host = process.env.TRADE_APPROVAL_HOST ?? "127.0.0.1";
@@ -62,6 +63,7 @@ const globalNewsPath = process.env.GLOBAL_NEWS_DB_PATH ?? join(serviceDirectory,
 let tradingLedger = null;
 let reconciliationStore = null;
 let globalNewsJournal = null;
+const serializeRecommendationQueue = createQueueSerialExecutor();
 const strategy = JSON.parse(readFileSync(strategyStatePath, "utf8"));
 const simulatedBroker = brokerMode === "simulated"
   ? new DeterministicBroker({ account: "SIM-PAPER", cash: 100_000, now: Date.now() })
@@ -548,7 +550,11 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
   return proposal;
 }
 
-async function recommendationQueue({ additionalExcludedSymbols = [] } = {}) {
+function withRecommendationQueueLock(operation) {
+  return serializeRecommendationQueue(operation);
+}
+
+async function buildRecommendationQueue({ additionalExcludedSymbols = [] } = {}) {
   if (strategy.status !== "active") throw new Error("strategy_paused");
   let strategyBudget = currentStrategyBudget();
 
@@ -563,9 +569,14 @@ async function recommendationQueue({ additionalExcludedSymbols = [] } = {}) {
     auditLog.push({ id: randomUUID(), at: now(), event: "recommendation_price_window_refreshed", proposalId: proposal.id, symbol: proposal.symbol });
   }
 
-  const existing = [...proposals.values()]
-    .filter((proposal) => proposal.status === "pending" && proposal.expiresAt > now())
-    .sort((left, right) => left.createdAt - right.createdAt);
+  const activeVersions = chooseActiveRecommendationVersions(proposals.values(), now());
+  for (const proposal of activeVersions.duplicates) {
+    proposal.status = "replaced";
+    ledger().setProposalStatus(proposal.id, "replaced");
+    proposalSnapshots.delete(proposal.id);
+    auditLog.push({ id: randomUUID(), at: now(), event: "duplicate_recommendation_superseded", proposalId: proposal.id, symbol: proposal.symbol });
+  }
+  const existing = activeVersions.active;
 
   const scan = await scanDailyShadowSignals();
   if (!scan.ok) throw new Error(scan.error ?? "scanner_unavailable");
@@ -662,23 +673,29 @@ async function recommendationQueue({ additionalExcludedSymbols = [] } = {}) {
   };
 }
 
+function recommendationQueue(options = {}) {
+  return withRecommendationQueueLock(() => buildRecommendationQueue(options));
+}
+
 async function recalculateRecommendationQueue({ excludedSymbols = [] } = {}) {
-  const replacedProposalIds = [];
-  for (const proposal of proposals.values()) {
-    if (proposal.status !== "pending") continue;
-    proposal.status = "replaced";
-    ledger().setProposalStatus(proposal.id, "replaced");
-    proposalSnapshots.delete(proposal.id);
-    replacedProposalIds.push(proposal.id);
-  }
-  auditLog.push({
-    id: randomUUID(),
-    at: now(),
-    event: "recommendations_recalculation_started",
-    replacedProposalIds,
-    excludedSymbols,
+  return withRecommendationQueueLock(async () => {
+    const replacedProposalIds = [];
+    for (const proposal of proposals.values()) {
+      if (proposal.status !== "pending") continue;
+      proposal.status = "replaced";
+      ledger().setProposalStatus(proposal.id, "replaced");
+      proposalSnapshots.delete(proposal.id);
+      replacedProposalIds.push(proposal.id);
+    }
+    auditLog.push({
+      id: randomUUID(),
+      at: now(),
+      event: "recommendations_recalculation_started",
+      replacedProposalIds,
+      excludedSymbols,
+    });
+    return buildRecommendationQueue({ additionalExcludedSymbols: excludedSymbols });
   });
-  return recommendationQueue({ additionalExcludedSymbols: excludedSymbols });
 }
 
 async function nextRecommendation() {

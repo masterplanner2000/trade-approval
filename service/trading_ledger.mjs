@@ -427,6 +427,11 @@ export class TradingLedger {
         occurredAt: row.decided_at ?? row.created_at,
         quantity: terms?.quantity ?? null,
         limitPrice: terms?.limitPrice ?? null,
+        stopPrice: terms?.stopPrice ?? null,
+        targetPrice: terms?.targetPrice ?? null,
+        targetTimeframe: terms?.targetTimeframe ?? null,
+        researchContext: terms?.researchContext ?? null,
+        rationale: Array.isArray(terms?.rationale) ? terms.rationale : [],
         environment: row.environment,
         brokerOrderId: entry?.brokerOrderId ?? null,
       };
