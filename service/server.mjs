@@ -19,6 +19,10 @@ import { evaluateAutomaticExits } from "./automatic_exit_policy.mjs";
 import { assessAutomaticExitQuote } from "./automatic_exit_quote.mjs";
 import { resolveProposalEvidenceIdentity } from "./proposal_evidence_identity.mjs";
 import { chooseActiveRecommendationVersions, createQueueSerialExecutor } from "./recommendation_queue.mjs";
+import { effectivePortfolioLimits, portfolioBuyCapacity } from "./portfolio_policy.mjs";
+import { buildExitReviewCards } from "./exit_review_engine.mjs";
+import { buildCurrentPerformance } from "./current_performance.mjs";
+import { ConnectionSupervisor } from "./connection_supervisor.mjs";
 
 const port = Number(process.env.TRADE_APPROVAL_PORT ?? 8787);
 const host = process.env.TRADE_APPROVAL_HOST ?? "127.0.0.1";
@@ -60,10 +64,12 @@ const historicalEvidencePath = process.env.HISTORICAL_BROKER_EVIDENCE_PATH ?? jo
 const paperFlexEvidencePath = process.env.PAPER_FLEX_EVIDENCE_PATH ?? join(serviceDirectory, "data", "paper-flex-attribution.json");
 const dailyEvidencePath = process.env.DAILY_EVIDENCE_PATH ?? join(serviceDirectory, "data", "daily-forward-evidence.sqlite3");
 const globalNewsPath = process.env.GLOBAL_NEWS_DB_PATH ?? join(serviceDirectory, "data", "global-news.sqlite3");
+const strategyComparisonPath = process.env.STRATEGY_COMPARISON_PATH ?? join(projectDirectory, "reports", "daily-shadow-comparison.json");
 let tradingLedger = null;
 let reconciliationStore = null;
 let globalNewsJournal = null;
 const serializeRecommendationQueue = createQueueSerialExecutor();
+const connectionSupervisor = new ConnectionSupervisor({ failureThreshold: 3 });
 const strategy = JSON.parse(readFileSync(strategyStatePath, "utf8"));
 const simulatedBroker = brokerMode === "simulated"
   ? new DeterministicBroker({ account: "SIM-PAPER", cash: 100_000, now: Date.now() })
@@ -298,6 +304,8 @@ function strategySummary() {
   const pending = [...proposals.values()].filter((proposal) => proposal.status === "pending" && proposal.expiresAt > now()).length;
   return {
     ...strategy,
+    capitalLimit: budget.capitalLimit,
+    maxOpenPositions: budget.maxOpenPositions,
     currentExposure: budget.deployed,
     remainingCapital: budget.available,
     budget,
@@ -322,7 +330,10 @@ function positionOwnership(snapshot) {
 }
 
 function currentStrategyBudget() {
-  const ledgerBudget = ledger().strategyBudget(strategy.capitalLimit);
+  const storedPolicy = readRiskPolicy().policy;
+  const policy = validateRiskPolicy(storedPolicy) ? storedPolicy : defaultRiskPolicy;
+  const limits = effectivePortfolioLimits(strategy, policy);
+  const ledgerBudget = ledger().strategyBudget(limits.capitalLimit);
   const latest = reconciliations().latest();
   if (latest) {
     const portfolio = authoritativePortfolio(latest.snapshot);
@@ -331,16 +342,27 @@ function currentStrategyBudget() {
       const invested = roundPrice(ownership.items.reduce((sum, position) => sum + position.strategyCost, 0));
       const reserved = ledgerBudget.reserved;
       const deployed = roundPrice(invested + reserved);
+      const openPositionCount = ownership.items.filter((position) =>
+        position.ownership === "strategy_owned" && Number(position.strategyOwnedQuantity ?? 0) > 0).length;
+      const capacity = portfolioBuyCapacity({
+        deployed,
+        openPositionCount,
+        ownershipComplete: ownership.ownershipComplete,
+        protectionComplete: ownership.protectionComplete,
+        limits,
+      });
       return {
-        capitalLimit: strategy.capitalLimit,
+        capitalLimit: limits.capitalLimit,
+        maxOpenPositions: limits.maxOpenPositions,
+        openPositionCount,
         invested,
         reserved,
         deployed,
-        available: ownership.ownershipComplete && ownership.protectionComplete
-          ? Math.max(0, roundPrice(strategy.capitalLimit - deployed)) : 0,
-        overAllocated: deployed > strategy.capitalLimit,
+        ...capacity,
         status: !ownership.ownershipComplete ? "ownership_incomplete"
-          : !ownership.protectionComplete ? "protection_incomplete" : "reconciled",
+          : !ownership.protectionComplete ? "protection_incomplete"
+            : capacity.overAllocated ? "policy_exceeded"
+              : capacity.buyAllowed ? "reconciled" : "policy_limit_reached",
         ownershipComplete: ownership.ownershipComplete,
         protectionComplete: ownership.protectionComplete,
         ownershipConflicts: ownership.items.filter((item) => item.ownership === "conflict").map((item) => item.symbol),
@@ -351,11 +373,21 @@ function currentStrategyBudget() {
     }
   }
   const deployed = Math.max(Number(strategy.currentExposure ?? 0), ledgerBudget.deployed);
+  const openPositionCount = ledger().listPositions().length;
+  const capacity = portfolioBuyCapacity({
+    deployed,
+    openPositionCount,
+    ownershipComplete: false,
+    protectionComplete: false,
+    limits,
+  });
   return {
     ...ledgerBudget,
+    capitalLimit: limits.capitalLimit,
+    maxOpenPositions: limits.maxOpenPositions,
+    openPositionCount,
     deployed,
-    available: 0,
-    overAllocated: deployed > strategy.capitalLimit,
+    ...capacity,
     status: "reconciliation_required",
     asOf: null,
   };
@@ -436,6 +468,8 @@ export function buildPortfolioReview(scan = {}, snapshot = {}, budget = {}) {
     };
   });
   const reductionRequired = Math.max(0, roundPrice(Number(budget.deployed ?? 0) - Number(budget.capitalLimit ?? 0)));
+  const positionReductionRequired = Math.max(0,
+    Number(budget.openPositionCount ?? holdings.length) - Number(budget.maxOpenPositions ?? holdings.length));
   const heldSymbols = new Set(holdings.map((item) => item.symbol));
   const replacements = eligibleQueueCandidates(scan, heldSymbols).slice(0, 5).map((item) => ({
     symbol: item.symbol,
@@ -447,6 +481,7 @@ export function buildPortfolioReview(scan = {}, snapshot = {}, budget = {}) {
   }));
   const strongestReplacementScore = replacements[0]?.recommendationScore ?? null;
   let plannedRelease = 0;
+  let plannedExitCount = 0;
   const rankedExitSymbols = new Set(holdings
     .filter((item) => item.status !== "DATA_UNAVAILABLE"
       && item.status !== "OWNERSHIP_REVIEW"
@@ -461,28 +496,38 @@ export function buildPortfolioReview(scan = {}, snapshot = {}, budget = {}) {
       // When fully allocated, identify the weakest profitable holding that a
       // stronger current candidate could replace. When over-allocated, keep
       // selecting profitable ordinary exits until the excess is covered.
-      if (reductionRequired <= 0) {
+      if (reductionRequired <= 0 && positionReductionRequired <= 0) {
         if (plannedRelease > 0) return false;
         plannedRelease = item.estimatedValue;
+        plannedExitCount = 1;
         return true;
       }
-      if (plannedRelease >= reductionRequired && reductionRequired > 0) return false;
+      if (plannedRelease >= reductionRequired && plannedExitCount >= positionReductionRequired) return false;
       plannedRelease = roundPrice(plannedRelease + item.estimatedValue);
+      plannedExitCount += 1;
       return true;
     })
     .map((item) => item.symbol));
+  const reviewedHoldings = holdings.map((item) => ({ ...item, recommendedForExit: rankedExitSymbols.has(item.symbol) }));
   return {
     asOf: snapshot.capturedAt ?? null,
     signalDate: scan.selected?.signalDate ?? scan.evaluations?.[0]?.signalDate ?? null,
     reductionRequired,
+    positionReductionRequired,
     estimatedPlannedRelease: plannedRelease,
-    holdings: holdings.map((item) => ({ ...item, recommendedForExit: rankedExitSymbols.has(item.symbol) })),
+    holdings: reviewedHoldings,
+    exitReviews: buildExitReviewCards({
+      holdings: reviewedHoldings,
+      thesisExits: budget.thesisExits ?? [],
+      openTrades: budget.openTrades ?? [],
+      at: budget.reviewedAt ?? now(),
+    }),
     replacements,
     nextStep: holdings.some((item) => item.status === "OWNERSHIP_REVIEW")
       ? "MANUAL_REVIEW_REQUIRED"
       : rankedExitSymbols.size > 0
       ? "APPROVE_EXIT_SEQUENTIALLY"
-      : reductionRequired > 0
+      : reductionRequired > 0 || positionReductionRequired > 0
         ? "MANUAL_REVIEW_REQUIRED"
         : "MONITOR_HOLDINGS",
   };
@@ -590,11 +635,34 @@ async function buildRecommendationQueue({ additionalExcludedSymbols = [] } = {})
     if (!snapshot || authoritativePortfolio(snapshot).status !== "COMPLETE") throw new Error("portfolio_review_unavailable");
     strategyBudget = currentStrategyBudget();
     if (strategyBudget.available <= 0) {
+      for (const proposal of existing) {
+        proposal.status = "blocked";
+        ledger().setProposalStatus(proposal.id, "blocked");
+        proposalSnapshots.delete(proposal.id);
+        auditLog.push({
+          id: randomUUID(), at: now(), event: "recommendation_blocked_by_portfolio_policy",
+          proposalId: proposal.id, symbol: proposal.symbol, blockers: strategyBudget.blockers ?? [],
+        });
+      }
       const ownership = positionOwnership(snapshot);
+      const evaluatedExits = evaluateAutomaticExits({
+        scan,
+        snapshot,
+        prior: strategy.automaticExitState ?? {},
+        requiredFailures: 2,
+      });
+      strategy.automaticExitState = evaluatedExits.state;
+      saveStrategy();
       return {
         recommendations: [],
         strategy: strategySummary(),
-        portfolioReview: buildPortfolioReview(scan, snapshot, { ...strategyBudget, ownership }),
+        portfolioReview: buildPortfolioReview(scan, snapshot, {
+          ...strategyBudget,
+          ownership,
+          thesisExits: evaluatedExits.exits,
+          openTrades: ledger().listTrades(),
+          reviewedAt: now(),
+        }),
       };
     }
   }
@@ -749,10 +817,22 @@ async function runIbkrSnapshot(symbol = "NVDA") {
 // The snapshot helper uses one dedicated TWS client ID. Serialize calls so a
 // health poll cannot collide with an approval-time price/safety check.
 let snapshotQueue = Promise.resolve();
+let benchmarkCache = null;
 function ibkrSnapshot(symbol = "NVDA") {
   const request = snapshotQueue.then(() => runIbkrSnapshot(symbol));
   snapshotQueue = request.catch(() => undefined);
   return request;
+}
+
+async function benchmarkQuote() {
+  if (benchmarkCache && now() - benchmarkCache.capturedAt < 60_000) return benchmarkCache.quote;
+  try {
+    const snapshot = await ibkrSnapshot("QQQ");
+    benchmarkCache = { capturedAt: now(), quote: snapshot.quote ?? null };
+    return benchmarkCache.quote;
+  } catch {
+    return benchmarkCache?.quote ?? null;
+  }
 }
 
 let reconciliationQueue = Promise.resolve();
@@ -782,22 +862,30 @@ function knownDecisionPrefixes() {
 }
 
 async function performReconciliation() {
-  const snapshot = await ibkrReconciliation();
-  if (!snapshot.ok || !snapshot.complete) {
-    const error = new Error(snapshot.error ?? "ibkr_reconciliation_incomplete");
-    error.snapshot = snapshot;
+  try {
+    const snapshot = await ibkrReconciliation();
+    if (!snapshot.ok || !snapshot.complete) {
+      const error = new Error(snapshot.error ?? "ibkr_reconciliation_incomplete");
+      error.snapshot = snapshot;
+      throw error;
+    }
+    const result = reconciliations().record(snapshot, { knownDecisionPrefixes: knownDecisionPrefixes() });
+    const linkedOrders = reconcileSnapshotToLedger(snapshot, ledger());
+    const transition = connectionSupervisor.success(snapshot.capturedAt ?? now());
+    recordLedgerEvent({
+      event: "ibkr_reconciliation_completed",
+      eventKey: `reconciliation:${result.runId}`,
+      portfolioStatus: result.portfolio.status,
+      externalActivityCount: result.activity.filter((item) => item.ownership === "external").length,
+      linkedOrderCount: linkedOrders.length,
+    });
+    if (transition) auditLog.push({ id: randomUUID(), event: "broker_connection_changed", ...transition });
+    return { snapshot, result, linkedOrders };
+  } catch (error) {
+    const transition = connectionSupervisor.failure(error.message, now());
+    if (transition) auditLog.push({ id: randomUUID(), event: "broker_connection_changed", ...transition });
     throw error;
   }
-  const result = reconciliations().record(snapshot, { knownDecisionPrefixes: knownDecisionPrefixes() });
-  const linkedOrders = reconcileSnapshotToLedger(snapshot, ledger());
-  recordLedgerEvent({
-    event: "ibkr_reconciliation_completed",
-    eventKey: `reconciliation:${result.runId}`,
-    portfolioStatus: result.portfolio.status,
-    externalActivityCount: result.activity.filter((item) => item.ownership === "external").length,
-    linkedOrderCount: linkedOrders.length,
-  });
-  return { snapshot, result, linkedOrders };
 }
 
 async function automaticPaperExitCycle(snapshot) {
@@ -1034,6 +1122,7 @@ async function route(request, response) {
       ? authoritativePortfolio(latest.snapshot).status === "COMPLETE" ? "COMPLETE" : "STALE"
       : latest?.status ?? "not_started";
     return json(response, 200, { ok: true, environment: "paper", brokerMode, paused,
+      brokerConnection: connectionSupervisor.snapshot(),
       automaticPaperSellsEnabled, automaticPaperSellsRequested,
       automaticPaperSellsBlocker: automaticExitReleaseReady ? null : "protected_exit_lifecycle_not_ready",
       reconciliation: {
@@ -1047,6 +1136,18 @@ async function route(request, response) {
     catch { return json(response, 400, { error: "invalid_symbol" }); }
     const news = await getStockNews(symbol);
     return json(response, news.status === "unavailable" ? 503 : 200, news);
+  }
+
+  if (request.method === "GET" && url.pathname === "/research/strategy-comparison") {
+    try {
+      const report = JSON.parse(readFileSync(strategyComparisonPath, "utf8"));
+      return json(response, 200, report);
+    } catch {
+      return json(response, 503, {
+        error: "strategy_comparison_unavailable", classification: "research_only",
+        recommendationAuthority: false, orderSubmissionAllowed: false,
+      });
+    }
   }
 
   if (request.method === "GET" && url.pathname === "/research/news-health") {
@@ -1139,6 +1240,21 @@ async function route(request, response) {
       reconciled: false,
       message: "Positions reflect recorded fills only until IBKR reconciliation is connected.",
     });
+  }
+
+  if (request.method === "GET" && url.pathname === "/performance") {
+    const latest = reconciliations().latest();
+    if (!latest?.snapshot?.complete) {
+      return json(response, 503, { error: "reconciliation_required" });
+    }
+    const ownership = positionOwnership(latest.snapshot);
+    const performance = buildCurrentPerformance({
+      snapshot: latest.snapshot,
+      ownership,
+      trades: ledger().listTrades(),
+      benchmarkQuote: await benchmarkQuote(),
+    });
+    return json(response, 200, performance);
   }
 
   if (request.method === "GET" && url.pathname === "/shadow/signals") {

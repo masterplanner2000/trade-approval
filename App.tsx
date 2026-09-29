@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
+import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemeProvider } from "@shopify/restyle";
 import { CheckCircleIcon, CircleIcon, ClockCounterClockwiseIcon, ClockIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, XIcon } from "phosphor-react-native";
@@ -38,8 +39,10 @@ function useVisualTheme() {
 
 type Decision = "pending" | "approved" | "denied" | "expired";
 type BrokerConnectionStatus = "checking" | "connected" | "disconnected";
+type BrokerConnectionHealth = { state: BrokerConnectionStatus; consecutiveFailures: number; failureThreshold: number;
+  lastCheckedAt: number | null; lastConnectedAt: number | null; lastDisconnectedAt: number | null; lastError: string | null; newOrdersAllowed: boolean };
 type AppToast = { tone: "info" | "success" | "danger"; title: string; message?: string };
-type AppPage = "review" | "recommendationHistory" | "activity" | "positions" | "settings";
+type AppPage = "review" | "recommendationHistory" | "activity" | "positions" | "performance" | "research" | "settings";
 type ActivityItem = {
   id: string; symbol: string; company?: string | null; side: string; status: string; occurredAt: number;
   quantity: number | null; limitPrice: number | null; environment: string; brokerOrderId: string | null;
@@ -63,8 +66,35 @@ type PositionItem = {
   brokerHistory?: { netQuantity: number; rowCount: number; observedOn: string; status: "matched" | "mismatch"; orderAttribution: "unverified" } | null;
   flexHistory?: { netQuantity: number; orderCount: number; observedOn: string; status: "matched" | "mismatch"; orderAttribution: "verified_application_reference" } | null;
 };
+type PerformanceReport = {
+  asOf: number | null; source: string; status: "COMPLETE" | "INCOMPLETE" | "EMPTY"; limitations: string[];
+  today: {
+    totalPnl: number | null; openPositionPnl: number | null; realizedGrossPnl: number | null;
+    strategyReturnPercent: number | null; qqqReturnPercent: number | null; versusQqqPercentagePoints: number | null;
+    benchmarkDataType: number | string | null;
+  };
+  openPositions: { count: number; unrealizedPnl: number | null; items: Array<{
+    symbol: string; quantity: number; averageEntryPrice: number | null; marketValue: number | null;
+    unrealizedPnl: number | null; entryReturnPercent: number | null; dailyPnl: number | null; dailyReturnPercent: number | null;
+  }> };
+  closedTrades: { count: number; winRatePercent: number | null; sampleSize: number; feesComplete: boolean; knownFees: number };
+};
+type ComparisonSummary = { count: number; meanBps: number | null; medianBps: number | null; winRate: number | null; lower95Bps: number | null; upper95Bps: number | null };
+type StrategyComparison = {
+  generatedAt: string; classification: "research_only"; signalDateCount: number; forwardSessionCount: number;
+  baselineUniverseSize: number; shadowUniverseSize: number; topK: number; roundTripCostBps: number;
+  benchmarkSymbol: string; promotionEvidenceAllowed: boolean; recommendationAuthority: false; orderSubmissionAllowed: false;
+  metrics: Record<string, { baseline: ComparisonSummary; shadow: ComparisonSummary; shadowMinusBaseline: ComparisonSummary;
+    shadowMinusBenchmark: ComparisonSummary; baselineMaxDrawdownBps: number | null; shadowMaxDrawdownBps: number | null; missingForwardSessions: number }>;
+  limitations: string[];
+};
 
 const PREVIEW_MODE_STORAGE_KEY = "trade-approval.preview-mode";
+const CONNECTION_ALERTS_STORAGE_KEY = "trade-approval.connection-alerts";
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
+});
 type RiskPolicy = {
   adaptive: boolean;
   sleeveValue: number;
@@ -228,7 +258,14 @@ type PortfolioReview = {
   asOf: number | null;
   signalDate: string | null;
   reductionRequired: number;
+  positionReductionRequired: number;
   estimatedPlannedRelease: number;
+  exitReviews: Array<{
+    id: string; symbol: string; quantity: number; estimatedValue: number; estimatedGrossPnl: number;
+    recommendationScore: number | null; urgency: "high" | "normal"; reviewOnly: true;
+    orderSubmissionAllowed: false; reviewedAt: number;
+    triggers: Array<{ id: string; label: string; severity: "high" | "normal" }>;
+  }>;
   holdings: Array<{
     symbol: string; quantity: number; estimatedValue: number; qualified: boolean;
     protected: boolean; ownership?: "strategy_owned" | "conflict" | "unknown";
@@ -255,7 +292,11 @@ type StrategySummary = {
   completedCount: number;
   universeSource: "alpaca-cache";
   universeLimit: number;
-  budget?: { status: string; available: number; ownershipConflicts?: string[]; protectionGaps?: string[] };
+  budget?: {
+    status: string; available: number; deployed?: number; capitalLimit?: number;
+    openPositionCount?: number; maxOpenPositions?: number; blockers?: string[];
+    ownershipConflicts?: string[]; protectionGaps?: string[];
+  };
 };
 
 type OrderPreview = {
@@ -580,6 +621,16 @@ const PREVIEW_CLOSED_TRADES: TradeItem[] = Array.from({ length: 48 }, (_, index)
   };
 });
 const PREVIEW_TRADES: TradeItem[] = [...PREVIEW_OPEN_TRADES, ...PREVIEW_CLOSED_TRADES];
+const PREVIEW_PERFORMANCE: PerformanceReport = {
+  asOf: Date.now(), source: "Preview data", status: "COMPLETE", limitations: [],
+  today: { totalPnl: 31.46, openPositionPnl: 31.46, realizedGrossPnl: 0, strategyReturnPercent: 1.73,
+    qqqReturnPercent: 0.64, versusQqqPercentagePoints: 1.09, benchmarkDataType: "preview" },
+  openPositions: { count: 2, unrealizedPnl: 21.46, items: [
+    { symbol: "NVDA", quantity: 5, averageEntryPrice: 182.94, marketValue: 926.8, unrealizedPnl: 12.1, entryReturnPercent: 1.32, dailyPnl: 18.4, dailyReturnPercent: 2.03 },
+    { symbol: "AAPL", quantity: 4, averageEntryPrice: 228.8, marketValue: 924.56, unrealizedPnl: 9.36, entryReturnPercent: 1.02, dailyPnl: 13.06, dailyReturnPercent: 1.43 },
+  ] },
+  closedTrades: { count: 48, winRatePercent: 54.17, sampleSize: 48, feesComplete: true, knownFees: 33.6 },
+};
 
 const SHADOW_LOADING: Proposal = {
   ...PAPER_PROPOSAL,
@@ -851,11 +902,105 @@ function PolicyField({ label, value, suffix, accessibilityLabel, onChange }: {
   );
 }
 
-function SettingsPage({ policy, operatingPercent, operatingReason, saving, onChange, onSave }: {
+function PerformancePage({ report, loading, error, onRefresh, previewMode }: {
+  report: PerformanceReport | null; loading: boolean; error: string | null; onRefresh: () => void; previewMode: boolean;
+}) {
+  const { colors, styles } = useVisualTheme();
+  const signedMoney = (value: number | null) => value == null ? "—" : `${value > 0 ? "+" : ""}${money(value)}`;
+  const signedPercent = (value: number | null) => value == null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+  const tone = (value: number | null) => value == null ? styles.performanceNeutral : value >= 0 ? styles.performancePositive : styles.performanceNegative;
+  return (
+    <View style={styles.performancePage}>
+      <Text accessibilityRole="header" style={styles.settingsTitle}>Performance</Text>
+      <Text style={styles.settingsIntro}>{previewMode ? "Sample strategy results for exploring the page." : "Results for positions attributed to this strategy in IBKR Paper."}</Text>
+      {loading ? <Text style={styles.historyMessage}>Updating from IBKR Paper…</Text> : null}
+      {!loading && error ? (
+        <View style={styles.historyEmpty}>
+          <Text style={styles.historyEmptyTitle}>Performance unavailable</Text>
+          <Text style={styles.historyMessage}>Reconnect IBKR Paper and try again.</Text>
+          <Pressable accessibilityRole="button" onPress={onRefresh} style={styles.performanceRefresh}><Text style={styles.performanceRefreshText}>Try again</Text></Pressable>
+        </View>
+      ) : null}
+      {!loading && !error && report ? <>
+        <View style={styles.performanceHero}>
+          <Text style={styles.performanceEyebrow}>TODAY</Text>
+          <Text style={[styles.performanceHeroValue, tone(report.today.totalPnl)]}>{signedMoney(report.today.totalPnl)}</Text>
+          <Text style={styles.performanceAsOf}>{report.asOf ? `Updated ${new Date(report.asOf).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Update time unavailable"}</Text>
+        </View>
+        <View style={styles.performanceSummaryGrid}>
+          <View style={styles.performanceSummaryItem}><Text style={styles.performanceLabel}>Open positions today</Text><Text style={[styles.performanceValue, tone(report.today.openPositionPnl)]}>{signedMoney(report.today.openPositionPnl)}</Text></View>
+          <View style={styles.performanceSummaryItem}><Text style={styles.performanceLabel}>Realized today</Text><Text style={[styles.performanceValue, tone(report.today.realizedGrossPnl)]}>{signedMoney(report.today.realizedGrossPnl)}</Text></View>
+          <View style={styles.performanceSummaryItem}><Text style={styles.performanceLabel}>Strategy return</Text><Text style={[styles.performanceValue, tone(report.today.strategyReturnPercent)]}>{signedPercent(report.today.strategyReturnPercent)}</Text></View>
+          <View style={styles.performanceSummaryItem}><Text style={styles.performanceLabel}>QQQ today</Text><Text style={[styles.performanceValue, tone(report.today.qqqReturnPercent)]}>{signedPercent(report.today.qqqReturnPercent)}</Text></View>
+        </View>
+        <View style={styles.performanceComparison}>
+          <Text style={styles.performanceLabel}>Compared with QQQ today</Text>
+          <Text style={[styles.performanceValue, tone(report.today.versusQqqPercentagePoints)]}>{report.today.versusQqqPercentagePoints == null ? "—" : `${report.today.versusQqqPercentagePoints > 0 ? "+" : ""}${report.today.versusQqqPercentagePoints.toFixed(2)} pts`}</Text>
+          <Text style={styles.performanceFootnote}>{report.today.benchmarkDataType === 3 ? "Delayed benchmark quote" : "Broker benchmark quote"}</Text>
+        </View>
+        <Text style={styles.performanceSectionTitle}>Open positions ({report.openPositions.count})</Text>
+        <View style={styles.performanceRows}>
+          {report.openPositions.items.map((item) => <View key={item.symbol} style={styles.performanceRow}>
+            <CompanyMark symbol={item.symbol} size={38} />
+            <View style={styles.performanceRowCopy}><Text style={styles.performanceSymbol}>{item.symbol}</Text><Text style={styles.performanceFootnote}>{item.quantity} shares · {item.marketValue == null ? "value unavailable" : money(item.marketValue)}</Text></View>
+            <View style={styles.performanceRowValue}><Text style={[styles.performanceValue, tone(item.unrealizedPnl)]}>{signedMoney(item.unrealizedPnl)}</Text><Text style={styles.performanceFootnote}>{signedPercent(item.entryReturnPercent)} since entry</Text></View>
+          </View>)}
+        </View>
+        <View style={styles.performanceStats}>
+          <View><Text style={styles.performanceLabel}>Open unrealized</Text><Text style={[styles.performanceValue, tone(report.openPositions.unrealizedPnl)]}>{signedMoney(report.openPositions.unrealizedPnl)}</Text></View>
+          <View><Text style={styles.performanceLabel}>Closed-trade win rate</Text><Text style={styles.performanceValue}>{report.closedTrades.winRatePercent == null ? "Not enough data" : `${report.closedTrades.winRatePercent.toFixed(1)}%`}</Text><Text style={styles.performanceFootnote}>{report.closedTrades.sampleSize} closed trades</Text></View>
+          <View><Text style={styles.performanceLabel}>Fees recorded</Text><Text style={styles.performanceValue}>{money(report.closedTrades.knownFees)}</Text><Text style={styles.performanceFootnote}>{report.closedTrades.feesComplete ? "Complete for closed trades" : "Incomplete — gross results shown"}</Text></View>
+        </View>
+        {report.limitations.length ? <View style={styles.performanceNotice}><Text style={styles.performanceNoticeTitle}>Data notes</Text>{report.limitations.map((item) => <Text key={item} style={styles.performanceFootnote}>• {item}</Text>)}</View> : null}
+      </> : null}
+    </View>
+  );
+}
+
+function ResearchPage({ report, loading, error, onRefresh }: {
+  report: StrategyComparison | null; loading: boolean; error: string | null; onRefresh: () => void;
+}) {
+  const { styles } = useVisualTheme();
+  const bps = (value: number | null) => value == null ? "—" : `${value > 0 ? "+" : ""}${(value / 100).toFixed(2)}%`;
+  const rate = (value: number | null) => value == null ? "—" : `${(value * 100).toFixed(0)}%`;
+  return <View style={styles.performancePage}>
+    <Text accessibilityRole="header" style={styles.settingsTitle}>Strategy research</Text>
+    <Text style={styles.settingsIntro}>A separate test of whether a broader, more volatile stock universe finds better opportunities than the current scanner.</Text>
+    <View style={styles.researchBoundary}><Text style={styles.researchBoundaryTitle}>Research only</Text><Text style={styles.performanceFootnote}>These results cannot create recommendations, change position sizes, or submit orders.</Text></View>
+    {loading ? <Text style={styles.historyMessage}>Loading the latest comparison…</Text> : null}
+    {!loading && error ? <View style={styles.historyEmpty}><Text style={styles.historyEmptyTitle}>Comparison unavailable</Text><Text style={styles.historyMessage}>Run the comparison after both market caches have been refreshed.</Text><Pressable accessibilityRole="button" onPress={onRefresh} style={styles.performanceRefresh}><Text style={styles.performanceRefreshText}>Try again</Text></Pressable></View> : null}
+    {!loading && !error && report ? <>
+      <View style={styles.researchOverview}>
+        <View><Text style={styles.performanceLabel}>Current scanner</Text><Text style={styles.researchUniverse}>{report.baselineUniverseSize.toLocaleString()} stocks</Text></View>
+        <View><Text style={styles.performanceLabel}>Volatile shadow lane</Text><Text style={styles.researchUniverse}>{report.shadowUniverseSize.toLocaleString()} stocks</Text></View>
+      </View>
+      <Text style={styles.performanceFootnote}>{report.forwardSessionCount} held-out sessions · top {report.topK} per lane · {(report.roundTripCostBps / 100).toFixed(2)}% assumed round-trip cost</Text>
+      <Text style={styles.performanceSectionTitle}>Outcome comparison</Text>
+      {Object.entries(report.metrics).map(([horizon, metric]) => <View key={horizon} style={styles.researchHorizon}>
+        <Text style={styles.researchHorizonTitle}>{horizon} session{horizon === "1" ? "" : "s"}</Text>
+        <View style={styles.researchMetricRow}><Text style={styles.performanceLabel}>Current scanner average</Text><Text style={styles.performanceValue}>{bps(metric.baseline.meanBps)}</Text></View>
+        <View style={styles.researchMetricRow}><Text style={styles.performanceLabel}>Volatile lane average</Text><Text style={styles.performanceValue}>{bps(metric.shadow.meanBps)}</Text></View>
+        <View style={styles.researchMetricRow}><Text style={styles.performanceLabel}>Volatile lane win rate</Text><Text style={styles.performanceValue}>{rate(metric.shadow.winRate)}</Text></View>
+        <View style={styles.researchMetricRow}><Text style={styles.performanceLabel}>Advantage over current</Text><Text style={styles.performanceValue}>{bps(metric.shadowMinusBaseline.meanBps)}</Text></View>
+        <View style={styles.researchMetricRow}><Text style={styles.performanceLabel}>Advantage over {report.benchmarkSymbol}</Text><Text style={styles.performanceValue}>{bps(metric.shadowMinusBenchmark.meanBps)}</Text></View>
+      </View>)}
+      <View style={styles.performanceNotice}>
+        <Text style={styles.performanceNoticeTitle}>Current conclusion</Text>
+        <Text style={styles.performanceFootnote}>{report.promotionEvidenceAllowed ? "Eligible for formal promotion review; no automatic promotion occurs." : "Not eligible for promotion. The current symbol universe introduces selection bias, and the uncertainty ranges remain too wide."}</Text>
+      </View>
+      <View style={styles.performanceNotice}><Text style={styles.performanceNoticeTitle}>Limitations</Text>{report.limitations.map((item) => <Text key={item} style={styles.performanceFootnote}>• {item}</Text>)}</View>
+      <Text style={styles.performanceAsOf}>Generated {new Date(report.generatedAt).toLocaleString()}</Text>
+    </> : null}
+  </View>;
+}
+
+function SettingsPage({ policy, operatingPercent, operatingReason, saving, connectionAlertsEnabled, onConnectionAlertsChange, onChange, onSave }: {
   policy: RiskPolicy;
   operatingPercent: number;
   operatingReason: string;
   saving: boolean;
+  connectionAlertsEnabled: boolean;
+  onConnectionAlertsChange: (enabled: boolean) => void;
   onChange: (policy: RiskPolicy) => void;
   onSave: () => void;
 }) {
@@ -866,6 +1011,22 @@ function SettingsPage({ policy, operatingPercent, operatingReason, saving, onCha
       <Text style={styles.settingsEyebrow}>PAPER RISK POLICY</Text>
       <Text accessibilityRole="header" style={styles.settingsTitle}>Settings</Text>
       <Text style={styles.settingsIntro}>Set the boundaries. Adaptive mode may reduce risk as conditions worsen, but it can never exceed your limits.</Text>
+
+      <View style={styles.policySection}>
+        <View style={styles.adaptiveRow}>
+          <View style={styles.adaptiveCopy}>
+            <Text style={styles.policySectionTitle}>Connection alerts</Text>
+            <Text style={styles.policyHelp}>Notify this phone when the running app observes that IBKR Paper has disconnected. A production background alert will require a development or TestFlight build and remote push delivery.</Text>
+          </View>
+          <Switch
+            accessibilityLabel="Connection alerts"
+            value={connectionAlertsEnabled}
+            onValueChange={onConnectionAlertsChange}
+            trackColor={{ false: colors.border, true: colors.actionApprove }}
+            thumbColor="#FFFFFF"
+          />
+        </View>
+      </View>
 
       <View style={styles.policySection}>
         <View style={styles.adaptiveRow}>
@@ -1294,6 +1455,12 @@ export default function App() {
   const [previewPositionItems, setPreviewPositionItems] = useState<PositionItem[]>(PREVIEW_POSITIONS);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [performanceReport, setPerformanceReport] = useState<PerformanceReport | null>(null);
+  const [performanceLoading, setPerformanceLoading] = useState(false);
+  const [performanceError, setPerformanceError] = useState<string | null>(null);
+  const [strategyComparison, setStrategyComparison] = useState<StrategyComparison | null>(null);
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [researchError, setResearchError] = useState<string | null>(null);
   const colors = darkMode ? darkPalette : palette;
   const activeTheme = darkMode ? darkTheme : theme;
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -1304,6 +1471,8 @@ export default function App() {
   const [, tick] = useState(0);
   const [broker, setBroker] = useState<BrokerSnapshot | null>(null);
   const [brokerConnectionStatus, setBrokerConnectionStatus] = useState<BrokerConnectionStatus>("checking");
+  const [brokerConnectionHealth, setBrokerConnectionHealth] = useState<BrokerConnectionHealth | null>(null);
+  const [connectionAlertsEnabled, setConnectionAlertsEnabled] = useState(false);
   const [brokerUnavailable, setBrokerUnavailable] = useState(false);
   const [noEligibleRecommendation, setNoEligibleRecommendation] = useState(false);
   const [strategyCapitalReached, setStrategyCapitalReached] = useState(false);
@@ -1316,7 +1485,7 @@ export default function App() {
   const [appToast, setAppToast] = useState<AppToast | null>(null);
   const [processing, setProcessing] = useState(false);
   const [showRecommendationSkeleton, setShowRecommendationSkeleton] = useState(false);
-  const [decisionInFlight, setDecisionInFlight] = useState<"approved" | "denied" | null>(null);
+  const [decisionsInFlight, setDecisionsInFlight] = useState<Record<string, "approved" | "denied">>({});
   const [strategy, setStrategy] = useState<StrategySummary | null>(null);
   const [uiPreview, setUiPreview] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
@@ -1325,6 +1494,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [realRecommendations, setRealRecommendations] = useState<Proposal[]>([]);
   const recommendationDeckRef = useRef<Proposal[]>([]);
+  const activeProposalRef = useRef<Proposal>(SHADOW_LOADING);
   const [realDeckComplete, setRealDeckComplete] = useState(false);
   const [transitionCard, setTransitionCard] = useState<Proposal | null>(null);
   const [cardWidth, setCardWidth] = useState(0);
@@ -1338,10 +1508,10 @@ export default function App() {
   const suppressCardTapUntil = useRef(0);
   const brokerCheckInFlight = useRef(false);
   const brokerFailureCount = useRef(0);
+  const previousBrokerStatus = useRef<BrokerConnectionStatus>("checking");
   const orderWorkflowsInFlight = useRef(0);
   const recommendationScanInFlight = useRef(false);
   const expiredRefreshInFlight = useRef(false);
-  const recalculatedRecommendations = useRef<Proposal[] | null>(null);
   const uiPreviewRef = useRef(false);
   const dismissToast = useCallback(() => setAppToast(null), []);
   const adaptiveOperatingPercent = !riskPolicy.adaptive
@@ -1375,6 +1545,49 @@ export default function App() {
       .catch(() => undefined);
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(CONNECTION_ALERTS_STORAGE_KEY)
+      .then((value) => setConnectionAlertsEnabled(value === "true"))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const previous = previousBrokerStatus.current;
+    previousBrokerStatus.current = brokerConnectionStatus;
+    if (uiPreview || previous === brokerConnectionStatus) return;
+    if (brokerConnectionStatus === "disconnected") {
+      const disconnectedAt = brokerConnectionHealth?.lastDisconnectedAt ?? Date.now();
+      void AsyncStorage.setItem("trade-approval.last-connection-alert", JSON.stringify({ status: "disconnected", at: disconnectedAt }));
+      setAppToast({ tone: "danger", title: "IBKR Paper disconnected", message: "New orders are blocked. Existing broker-native orders remain at IBKR." });
+      if (connectionAlertsEnabled) {
+        void Notifications.scheduleNotificationAsync({
+          content: { title: "IBKR Paper disconnected", body: "Trade Approval blocked new orders. Open the app to reconnect." },
+          trigger: null,
+        }).catch(() => undefined);
+      }
+    } else if (brokerConnectionStatus === "connected" && previous === "disconnected") {
+      void AsyncStorage.setItem("trade-approval.last-connection-alert", JSON.stringify({ status: "recovered", at: Date.now() }));
+      setAppToast({ tone: "success", title: "IBKR Paper reconnected", message: "Fresh broker checks are available again." });
+    }
+  }, [brokerConnectionStatus, brokerConnectionHealth?.lastDisconnectedAt, connectionAlertsEnabled, uiPreview]);
+
+  async function changeConnectionAlerts(enabled: boolean) {
+    if (!enabled) {
+      setConnectionAlertsEnabled(false);
+      await AsyncStorage.setItem(CONNECTION_ALERTS_STORAGE_KEY, "false");
+      return;
+    }
+    const current = await Notifications.getPermissionsAsync();
+    const allowed = current.granted || current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+    const requested = allowed ? current : await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowSound: true, allowBadge: false } });
+    const granted = requested.granted || requested.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+    setConnectionAlertsEnabled(granted);
+    await AsyncStorage.setItem(CONNECTION_ALERTS_STORAGE_KEY, String(granted));
+    setAppToast(granted
+      ? { tone: "success", title: "Connection alerts enabled", message: "This device can alert you when the running app detects a broker disconnect." }
+      : { tone: "danger", title: "Notifications not enabled", message: "Allow notifications in iPhone Settings to receive connection alerts." });
+  }
 
   useEffect(() => {
     let active = true;
@@ -1453,6 +1666,53 @@ export default function App() {
     } finally {
       setHistoryLoading(false);
     }
+  }
+
+  async function loadPerformance() {
+    if (uiPreviewRef.current) {
+      setPerformanceReport(PREVIEW_PERFORMANCE);
+      setPerformanceError(null);
+      setPerformanceLoading(false);
+      return;
+    }
+    setPerformanceLoading(true);
+    setPerformanceError(null);
+    try {
+      const headers = { "x-app-token": APP_TOKEN };
+      const reconciliation = await fetch(`${API_BASE_URL}/broker/reconcile`, { method: "POST", headers });
+      if (!reconciliation.ok) throw new Error("reconciliation_unavailable");
+      const response = await fetch(`${API_BASE_URL}/performance`, { headers });
+      if (!response.ok) throw new Error("performance_unavailable");
+      setPerformanceReport(await response.json());
+    } catch {
+      setPerformanceError("performance_unavailable");
+    } finally {
+      setPerformanceLoading(false);
+    }
+  }
+
+  function openPerformance() {
+    setActivePage("performance");
+    void loadPerformance();
+  }
+
+  async function loadResearch() {
+    setResearchLoading(true);
+    setResearchError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/research/strategy-comparison`, { headers: { "x-app-token": APP_TOKEN } });
+      if (!response.ok) throw new Error("strategy_comparison_unavailable");
+      setStrategyComparison(await response.json());
+    } catch {
+      setResearchError("strategy_comparison_unavailable");
+    } finally {
+      setResearchLoading(false);
+    }
+  }
+
+  function openResearch() {
+    setActivePage("research");
+    void loadResearch();
   }
 
   function openHistory(page: "recommendationHistory" | "activity" | "positions") {
@@ -1586,6 +1846,10 @@ export default function App() {
     if (!response.ok) throw new Error(result.error ?? "proposal_unavailable");
     setStrategy(result.strategy);
     if (result.portfolioReview) {
+      recommendationDeckRef.current = [];
+      setRealRecommendations([]);
+      setProposal(SHADOW_LOADING);
+      setRealDeckComplete(false);
       setPortfolioReview(result.portfolioReview);
       setStrategyCapitalReached(true);
       setNoEligibleRecommendation(false);
@@ -1622,15 +1886,16 @@ export default function App() {
     if (brokerCheckInFlight.current || orderWorkflowsInFlight.current > 0) return;
     brokerCheckInFlight.current = true;
     try {
-      const response = await fetch(`${API_BASE_URL}/broker/snapshot?symbol=NVDA`, {
+      const response = await fetch(`${API_BASE_URL}/health`, {
         headers: { "x-app-token": APP_TOKEN },
       });
-      const snapshot = await response.json() as BrokerSnapshot;
-      const connected = response.ok && snapshot.ok && snapshot.environment === "paper";
-      if (!connected) throw new Error("paper_snapshot_unavailable");
+      const result = await response.json() as { ok: boolean; environment: "paper"; brokerConnection?: BrokerConnectionHealth };
+      const health = result.brokerConnection ?? null;
+      if (!response.ok || !result.ok || result.environment !== "paper" || !health) throw new Error("paper_snapshot_unavailable");
       brokerFailureCount.current = 0;
-      setBrokerConnectionStatus("connected");
-      setBroker(snapshot);
+      setBrokerConnectionHealth(health);
+      setBrokerConnectionStatus(health.state);
+      if (health.state === "disconnected") setBroker(null);
     } catch {
       brokerFailureCount.current += 1;
       if (brokerFailureCount.current >= 3) {
@@ -1672,6 +1937,10 @@ export default function App() {
   useEffect(() => {
     uiPreviewRef.current = uiPreview;
   }, [uiPreview]);
+
+  useEffect(() => {
+    activeProposalRef.current = proposal;
+  }, [proposal]);
 
   useEffect(() => {
     Animated.timing(menuProgress, {
@@ -1748,6 +2017,7 @@ export default function App() {
   const expiringSoon = state === "pending" && proposal.expiresAt - Date.now() <= 60_000;
   const brokerReady = broker !== null && brokerConnectionStatus === "connected";
   const actionable = state === "pending" && brokerReady && !proposal.shadowMode;
+  const activeDecisionInFlight = decisionsInFlight[proposal.id] ?? null;
   const timer = countdown(proposal.expiresAt);
 
   useEffect(() => {
@@ -1790,7 +2060,7 @@ export default function App() {
     decision: "approved" | "denied",
     targetProposal: Proposal = proposal,
     background = false,
-  ): Promise<boolean> {
+  ): Promise<{ succeeded: boolean; replacementCards: Proposal[] | null }> {
     orderWorkflowsInFlight.current += 1;
     setWorkflowError(null);
     if (!background) setAppToast(decision === "approved"
@@ -1798,7 +2068,7 @@ export default function App() {
       : null);
     if (!background) {
       setProcessing(true);
-      setDecisionInFlight(decision);
+      setDecisionsInFlight((current) => ({ ...current, [targetProposal.id]: decision }));
     }
     try {
       const response = await fetch(`${API_BASE_URL}/proposals/${targetProposal.id}/decision`, {
@@ -1819,7 +2089,6 @@ export default function App() {
             .filter((item) => item.broker?.ok)
             .map((item) => serviceProposalToCard(item.proposal, item.broker, result.strategy!))
           : [];
-        recalculatedRecommendations.current = refreshedCards;
         if (result.strategy) setStrategy(result.strategy);
         setAppToast({
           tone: "info",
@@ -1828,7 +2097,7 @@ export default function App() {
             ? "No order was sent. Remaining recommendations were recalculated."
             : "No order was sent. The scanner will continue looking for current recommendations.",
         });
-        return true;
+        return { succeeded: true, replacementCards: refreshedCards };
       }
       const token = result.approval?.token;
       if (!token) throw new Error("approval_missing");
@@ -1901,11 +2170,11 @@ export default function App() {
         );
       }
       setPaperSubmission(submitPayload.submission);
+      let refreshedCards: Proposal[] | null = null;
       if (submitPayload.strategy) {
-        const refreshedCards = (submitPayload.recommendations ?? [])
+        refreshedCards = (submitPayload.recommendations ?? [])
           .filter((item) => item.broker?.ok)
           .map((item) => serviceProposalToCard(item.proposal, item.broker, submitPayload.strategy!));
-        recalculatedRecommendations.current = refreshedCards;
         setStrategy(submitPayload.strategy);
       }
       setSubmittedProposalIds((current) => current.includes(targetProposal.id)
@@ -1925,7 +2194,7 @@ export default function App() {
         remainingCapital: Math.max(0, current.remainingCapital - targetProposal.positionValue),
         completedCount: current.completedCount + 1,
       } : current);
-      return true;
+      return { succeeded: true, replacementCards: refreshedCards };
     } catch (error) {
       const code = error instanceof Error ? error.message : "paper_submission_blocked";
       const message = code === "invalid_or_expired_approval"
@@ -1949,19 +2218,49 @@ export default function App() {
         setProposal(retryable);
         setRealDeckComplete(false);
       }
-      return false;
+      return { succeeded: false, replacementCards: null };
     } finally {
       orderWorkflowsInFlight.current = Math.max(0, orderWorkflowsInFlight.current - 1);
       if (!background) {
         setProcessing(false);
-        setDecisionInFlight(null);
+        setDecisionsInFlight((current) => {
+          const next = { ...current };
+          delete next[targetProposal.id];
+          return next;
+        });
       }
+    }
+  }
+
+  function removeResolvedLiveCard(
+    targetProposal: Proposal,
+    decision: "approved" | "denied",
+    replacementCards: Proposal[] | null,
+  ) {
+    if (activeProposalRef.current.id === targetProposal.id) {
+      dismissResolvedLiveCard(decision, replacementCards);
+      return;
+    }
+
+    const refreshedDeck = replacementCards
+      ? mergeRecommendationDeck(recommendationDeckRef.current, replacementCards)
+      : recommendationDeckRef.current;
+    const remaining = refreshedDeck.filter((item) => item.id !== targetProposal.id);
+    recommendationDeckRef.current = remaining;
+    setRealRecommendations(remaining);
+
+    const visible = remaining.find((item) => item.id === activeProposalRef.current.id);
+    if (visible) return;
+    if (remaining[0]) setProposal(remaining[0]);
+    else {
+      setRealDeckComplete(true);
+      setProposal(SHADOW_LOADING);
     }
   }
 
   function dismissResolvedLiveCard(decision: "approved" | "denied", replacementCards: Proposal[] | null = null) {
     if (cardAnimating.current) return;
-    const remaining = replacementCards ?? realRecommendations.filter((item) => item.id !== proposal.id);
+    const remaining = replacementCards ?? recommendationDeckRef.current.filter((item) => item.id !== proposal.id);
     const next = remaining[0] ?? null;
     cardAnimating.current = true;
     setTransitionCard(next);
@@ -2000,19 +2299,14 @@ export default function App() {
     });
   }
 
-  async function completeDecision(decision: "approved" | "denied") {
+  async function completeDecision(decision: "approved" | "denied", targetProposal: Proposal = proposal) {
     if (decision === "approved") {
-      recalculatedRecommendations.current = null;
-      const succeeded = await executeDecision("approved");
-      const replacementCards = recalculatedRecommendations.current;
-      recalculatedRecommendations.current = null;
-      if (succeeded) dismissResolvedLiveCard("approved", replacementCards);
+      const result = await executeDecision("approved", targetProposal);
+      if (result.succeeded) removeResolvedLiveCard(targetProposal, "approved", result.replacementCards);
       return;
     }
-    const succeeded = await executeDecision(decision);
-    const replacementCards = decision === "denied" ? recalculatedRecommendations.current : null;
-    if (decision === "denied") recalculatedRecommendations.current = null;
-    if (succeeded && decision === "denied") dismissResolvedLiveCard(decision, replacementCards);
+    const result = await executeDecision(decision, targetProposal);
+    if (result.succeeded) removeResolvedLiveCard(targetProposal, decision, result.replacementCards);
   }
 
   useEffect(() => {
@@ -2051,9 +2345,10 @@ export default function App() {
   }, [submittedProposalIds, uiPreview]);
 
   function decide(decision: "approved" | "denied") {
-    if (!actionable || processing || orderWorkflowsInFlight.current > 0) return;
+    const targetProposal = proposal;
+    if (!actionable || decisionsInFlight[targetProposal.id]) return;
     if (decision === "denied") {
-      void completeDecision("denied");
+      void completeDecision("denied", targetProposal);
       return;
     }
     Alert.alert(
@@ -2064,7 +2359,7 @@ export default function App() {
         {
           text: "Approve buy & exits",
           style: "default",
-          onPress: () => void completeDecision("approved"),
+          onPress: () => void completeDecision("approved", targetProposal),
         },
       ],
     );
@@ -2345,7 +2640,7 @@ export default function App() {
     setWhatIfResult(null);
     setPaperSubmission(null);
     setProcessing(false);
-    setDecisionInFlight(null);
+    setDecisionsInFlight({});
     recommendationDeckRef.current = [];
     setRealRecommendations([]);
     setRealDeckComplete(false);
@@ -2378,6 +2673,8 @@ export default function App() {
     ...(activePage !== "review" ? [{ label: "Recommendations", onPress: () => setActivePage("review") }] : []),
     ...(activePage !== "activity" ? [{ label: "Activity", onPress: () => openHistory("activity") }] : []),
     ...(activePage !== "positions" ? [{ label: "Positions", onPress: () => openHistory("positions") }] : []),
+    ...(activePage !== "performance" ? [{ label: "Performance", onPress: openPerformance }] : []),
+    ...(activePage !== "research" ? [{ label: "Strategy research", onPress: openResearch }] : []),
     ...(activePage !== "settings" ? [{ label: "Settings", onPress: () => setActivePage("settings") }] : []),
   ];
   const headerStatusLabel = uiPreview
@@ -2456,6 +2753,17 @@ export default function App() {
             <Toast {...appToast} compact loading={appToast.tone === "info" && processing} onDismiss={dismissToast} duration={appToast.tone === "info" && processing ? 0 : 5500} />
           </View>
         )}
+        {!uiPreview && brokerConnectionStatus === "disconnected" ? (
+          <View accessibilityRole="alert" style={styles.connectionBanner}>
+            <View style={styles.connectionBannerCopy}>
+              <Text style={styles.connectionBannerTitle}>IBKR Paper is offline</Text>
+              <Text style={styles.connectionBannerBody}>New orders are blocked. Existing stop and target orders remain at IBKR.</Text>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Retry broker connection" onPress={() => void checkBrokerConnection()} style={styles.connectionBannerAction}>
+              <Text style={styles.connectionBannerActionText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {activePage === "settings" ? (
           <SettingsPage
@@ -2463,9 +2771,15 @@ export default function App() {
             operatingPercent={adaptiveOperatingPercent}
             operatingReason={adaptiveOperatingReason}
             saving={policySaving}
+            connectionAlertsEnabled={connectionAlertsEnabled}
+            onConnectionAlertsChange={(enabled) => void changeConnectionAlerts(enabled)}
             onChange={setRiskPolicy}
             onSave={() => void savePaperRiskPolicy()}
           />
+        ) : activePage === "performance" ? (
+          <PerformancePage report={performanceReport} loading={performanceLoading} error={performanceError} onRefresh={() => void loadPerformance()} previewMode={uiPreview} />
+        ) : activePage === "research" ? (
+          <ResearchPage report={strategyComparison} loading={researchLoading} error={researchError} onRefresh={() => void loadResearch()} />
         ) : activePage === "recommendationHistory" || activePage === "activity" || activePage === "positions" ? (
           <HistoryPage page={activePage} activity={activityItems} positions={positionItems} trades={tradeItems} loading={historyLoading} error={historyError} onRefresh={() => void loadHistory()} previewMode={uiPreview} />
         ) : (
@@ -2520,7 +2834,8 @@ export default function App() {
                     : strategyCapitalReached
                       ? strategy?.budget?.status === "ownership_incomplete" ? "Position ownership needs review"
                         : strategy?.budget?.status === "protection_incomplete" ? "Position protection needs review"
-                          : "Allocation fully deployed"
+                          : strategy?.budget?.status === "policy_exceeded" ? "Portfolio policy exceeded"
+                            : "Allocation fully deployed"
                     : noEligibleRecommendation
                       ? "No recommendations right now"
                       : "Scanning the market"}
@@ -2533,7 +2848,9 @@ export default function App() {
                   ? "Some broker shares cannot be attributed to this strategy. New buys and automatic sells are blocked until the records are reconciled."
                   : strategy?.budget?.status === "protection_incomplete"
                     ? "A strategy position has no verified broker stop. New buys and automatic sells are blocked until protection is reviewed."
-                    : "The strategy has used its current allocation. Scanning continues and compares new candidates with current holdings for possible profitable rotations."
+                    : strategy?.budget?.status === "policy_exceeded"
+                      ? `New buys are paused. ${strategy.budget.openPositionCount ?? 0} positions are open against a limit of ${strategy.budget.maxOpenPositions ?? strategy.maxOpenPositions}, with ${money(strategy.budget.deployed ?? strategy.currentExposure)} deployed against ${money(strategy.budget.capitalLimit ?? strategy.capitalLimit)}.`
+                      : "The strategy has used its current allocation. Scanning continues and compares new candidates with current holdings for possible profitable rotations."
                 : brokerUnavailable
                 ? "The scanner could not load a recommendation. You can try again when the connection is ready."
                 : noEligibleRecommendation
@@ -2567,9 +2884,43 @@ export default function App() {
                     : strategy?.budget?.status === "protection_incomplete"
                       ? `Review broker protection for ${strategy.budget.protectionGaps?.join(", ") || "held positions"} before considering another trade.`
                       : portfolioReview.reductionRequired > 0
-                        ? `Review enough positions to release at least ${money(portfolioReview.reductionRequired)} before considering another buy.`
+                        ? `Reduce at least ${money(portfolioReview.reductionRequired)} and ${portfolioReview.positionReductionRequired > 0 ? `${portfolioReview.positionReductionRequired} positions` : "remain within the position limit"} before considering another buy.`
+                        : portfolioReview.positionReductionRequired > 0
+                          ? `Reduce at least ${portfolioReview.positionReductionRequired} positions before considering another buy.`
                         : "New candidates are continuously compared with current holdings. Ordinary rotations are considered only when a stronger candidate exists and the proposed sale is estimated at break-even or better."}
                 </Text>
+                {portfolioReview.exitReviews.length > 0 && (
+                  <>
+                    <Text style={styles.rotationSubhead}>Exit reviews</Text>
+                    {portfolioReview.exitReviews.map((review) => (
+                      <View key={review.id} style={styles.exitReviewCard}>
+                        <View style={styles.exitReviewHeader}>
+                          <View style={styles.exitReviewIdentity}>
+                            <CompanyMark symbol={review.symbol} size={36} />
+                            <View>
+                              <Text style={styles.exitReviewTitle}>Review selling {review.quantity} {review.symbol}</Text>
+                              <Text style={styles.exitReviewValue}>{money(review.estimatedValue)} position · {review.estimatedGrossPnl >= 0 ? "+" : ""}{money(review.estimatedGrossPnl)} estimated</Text>
+                            </View>
+                          </View>
+                          <View style={[styles.rotationChip, review.urgency === "high" ? styles.rotationExitChip : styles.exitReviewChip]}>
+                            <Text style={[styles.rotationChipText, review.urgency === "high" ? styles.rotationExitText : styles.exitReviewChipText]}>Review only</Text>
+                          </View>
+                        </View>
+                        {review.triggers.map((trigger) => (
+                          <Text key={trigger.id} style={styles.exitReviewReason}>• {trigger.label}</Text>
+                        ))}
+                        <Text style={styles.exitReviewSafety}>No sell order can be submitted from this review.</Text>
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => openHistory("positions")}
+                          style={({ pressed }) => [styles.exitReviewAction, pressed && styles.homeActionPressed]}
+                        >
+                          <Text style={styles.exitReviewActionText}>Open position</Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </>
+                )}
                 {portfolioReview.holdings.map((holding) => (
                   <View key={holding.symbol} style={styles.rotationRow}>
                     <View style={styles.rotationRowCopy}>
@@ -2776,17 +3127,17 @@ export default function App() {
             <View style={styles.cardFooter}>
               {state === "pending" ? <View style={styles.actions}>
                 <ActionButton
-                  label={decisionInFlight === "denied" ? "Denying…" : "Deny"}
+                  label={activeDecisionInFlight === "denied" ? "Denying…" : "Deny"}
                   tone="secondary"
-                  pending={decisionInFlight === "denied"}
-                  disabled={!uiPreview && (!actionable || processing)}
+                  pending={activeDecisionInFlight === "denied"}
+                  disabled={!uiPreview && (!actionable || activeDecisionInFlight !== null)}
                   onPress={() => uiPreview ? animateSampleDecision("denied") : decide("denied")}
                 />
                 <ActionButton
-                  label={decisionInFlight === "approved" ? "Submitting…" : "Approve"}
+                  label={activeDecisionInFlight === "approved" ? "Submitting…" : "Approve"}
                   tone="primary"
-                  pending={decisionInFlight === "approved"}
-                  disabled={!uiPreview && (!actionable || processing)}
+                  pending={activeDecisionInFlight === "approved"}
+                  disabled={!uiPreview && (!actionable || activeDecisionInFlight !== null)}
                   onPress={() => uiPreview ? animateSampleDecision("approved") : decide("approved")}
                 />
               </View> : state === "expired" ? (
@@ -2907,6 +3258,12 @@ return StyleSheet.create({
   contextMenuToggleCopy: { flex: 1 },
   contextMenuToggleHelp: { color: colors.muted, ...typeRamp.caption, marginTop: 2 },
   toastLayer: { position: "absolute", top: 62, left: spacing.small, right: spacing.small, zIndex: 20 },
+  connectionBanner: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: colors.dangerSoft, borderRadius: radius.medium, padding: 14, marginTop: 14 },
+  connectionBannerCopy: { flex: 1 },
+  connectionBannerTitle: { color: colors.danger, ...typeRamp.label, fontWeight: "600" },
+  connectionBannerBody: { color: colors.text, ...typeRamp.caption, marginTop: 2 },
+  connectionBannerAction: { minWidth: 64, minHeight: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, borderWidth: 1, borderColor: colors.danger },
+  connectionBannerActionText: { color: colors.danger, ...typeRamp.label, fontWeight: "500" },
   settingsPage: { paddingTop: 30, paddingBottom: 44 },
   settingsEyebrow: { color: colors.muted, ...typeRamp.caption, fontWeight: "400", letterSpacing: 1.1 },
   settingsTitle: { color: colors.ink, ...typeRamp.display, marginTop: 2 },
@@ -2961,6 +3318,38 @@ return StyleSheet.create({
   historyMessage: { color: colors.muted, ...typeRamp.body, marginTop: 8 },
   historyEmpty: { backgroundColor: colors.surfaceMuted, borderRadius: radius.medium, padding: 20, marginTop: 24 },
   historyEmptyTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600" },
+  performancePage: { flex: 1, paddingTop: 10, paddingBottom: 40 },
+  performanceHero: { paddingVertical: 18, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceEyebrow: { color: colors.muted, ...typeRamp.caption, letterSpacing: 1.1 },
+  performanceHeroValue: { fontSize: 40, lineHeight: 48, fontWeight: "800", letterSpacing: -1.1, marginTop: 3 },
+  performanceAsOf: { color: colors.muted, ...typeRamp.caption, marginTop: 2 },
+  performanceSummaryGrid: { flexDirection: "row", flexWrap: "wrap", borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceSummaryItem: { width: "50%", minHeight: 88, justifyContent: "center", paddingVertical: 14, paddingRight: 12 },
+  performanceLabel: { color: colors.muted, ...typeRamp.caption },
+  performanceValue: { color: colors.ink, ...typeRamp.heading, fontWeight: "500", marginTop: 3 },
+  performancePositive: { color: colors.success },
+  performanceNegative: { color: colors.danger },
+  performanceNeutral: { color: colors.ink },
+  performanceComparison: { paddingVertical: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceSectionTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600", marginTop: 26, marginBottom: 5 },
+  performanceRows: { borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceRow: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceRowCopy: { flex: 1 },
+  performanceSymbol: { color: colors.ink, ...typeRamp.label, fontWeight: "600" },
+  performanceRowValue: { alignItems: "flex-end" },
+  performanceFootnote: { color: colors.muted, ...typeRamp.caption, marginTop: 2 },
+  performanceStats: { gap: 18, paddingVertical: 24, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceNotice: { backgroundColor: colors.surfaceMuted, borderRadius: radius.medium, padding: 16, gap: 6, marginTop: 20 },
+  performanceNoticeTitle: { color: colors.ink, ...typeRamp.label, fontWeight: "600" },
+  performanceRefresh: { minHeight: 48, alignItems: "center", justifyContent: "center", backgroundColor: colors.ink, borderRadius: radius.pill, marginTop: 16 },
+  performanceRefreshText: { color: colors.surface, ...typeRamp.label, fontWeight: "500" },
+  researchBoundary: { backgroundColor: colors.warningSoft, borderRadius: radius.medium, padding: 16, marginBottom: 20 },
+  researchBoundaryTitle: { color: colors.warning, ...typeRamp.label, fontWeight: "600", marginBottom: 3 },
+  researchOverview: { flexDirection: "row", justifyContent: "space-between", gap: 20, paddingVertical: 20, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  researchUniverse: { color: colors.ink, ...typeRamp.heading, fontWeight: "600", marginTop: 3 },
+  researchHorizon: { paddingVertical: 18, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  researchHorizonTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600", marginBottom: 7 },
+  researchMetricRow: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
   historyRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, minHeight: 72, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   historyRowMain: { flex: 1 },
   historyRowEnd: { maxWidth: "45%", alignItems: "flex-end" },
@@ -3020,6 +3409,17 @@ return StyleSheet.create({
   rotationHoldText: { color: colors.success },
   rotationSubhead: { color: colors.ink, fontSize: 15, lineHeight: 21, fontWeight: "600", marginTop: 2 },
   rotationCandidates: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: "600" },
+  exitReviewCard: { borderColor: colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 14, gap: 8 },
+  exitReviewHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  exitReviewIdentity: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
+  exitReviewTitle: { color: colors.ink, fontSize: 16, lineHeight: 21, fontWeight: "600" },
+  exitReviewValue: { color: colors.muted, fontSize: 13, lineHeight: 18, fontWeight: "400" },
+  exitReviewChip: { backgroundColor: colors.surfaceMuted },
+  exitReviewChipText: { color: colors.muted },
+  exitReviewReason: { color: colors.text, fontSize: 14, lineHeight: 19, fontWeight: "400" },
+  exitReviewSafety: { color: colors.muted, fontSize: 12, lineHeight: 16, fontWeight: "400" },
+  exitReviewAction: { minHeight: 44, borderColor: colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", marginTop: 2 },
+  exitReviewActionText: { color: colors.ink, fontSize: 15, lineHeight: 20, fontWeight: "500" },
   homeScannerRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   homeScannerLabel: { color: colors.muted, ...typeRamp.body },
   homeScannerValue: { color: colors.ink, ...typeRamp.body, fontWeight: "400", textAlign: "right" },

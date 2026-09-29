@@ -19,7 +19,8 @@
     },
     "owner": "andromeda992s-team",
     "plugins": [
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-notifications"
     ]
   }
 }

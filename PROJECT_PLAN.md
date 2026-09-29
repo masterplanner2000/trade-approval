@@ -42,6 +42,14 @@ The strategy, intraday rules, frozen seven-symbol research universe and news cla
 
 **Mobile workflow update, 2026-09-24:** Confirmed approvals now leave the review deck immediately while the complete Paper validation and submission workflow runs in the background. Success is tracked through Activity and reconciliation; only a failure interrupts review and restores the card for retry. No broker safety gate was removed.
 
+## Bookmarked workstream — authorized social signal research
+
+Plan: `SOCIAL_SIGNAL_PLAN.md`. Monitor X through official API access and transcribe Instagram media only through official scopes, creator authorization or explicit user-provided files. Social signals remain an isolated discovery/shadow lane with no recommendation, sizing, exit or order authority. First milestone: review five X accounts and one Instagram creator, document rights and access, then implement the source registry and immutable event envelope.
+
+## Bookmarked workstream — in-app research assistant
+
+Plan: `IN_APP_RESEARCH_ASSISTANT_PLAN.md`. Add an evidence-grounded chatbot that explains recommendations, scanner exclusions, positions/protection and performance through narrow read-only tools. A later governed workflow may draft and activate explicitly approved shadow experiments, but the model cannot modify production strategy, code, brokerage state or orders. First milestone: implement the mobile chat surface, server conversation endpoint and five read-only evidence tools.
+
 ## Bookmarked workstream — intraday volatility recommendations
 
 Development branch: `feature/intraday-volatility-recommendations`

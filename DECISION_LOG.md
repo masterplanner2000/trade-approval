@@ -1016,5 +1016,28 @@ Review [CRYPTO_DESIGN.md](./CRYPTO_DESIGN.md): Coinbase Exchange/Gemini sandbox 
 
 **Status:** Implemented and running for market-hours observation, 2026-09-25.
 **Decision:** Continuously collect Alpaca/Benzinga company news with a 24-hour recovery window, Nasdaq Trader halts and important SEC EDGAR filings into the immutable local journal. Keep the collector supervised independently of the app and expose its health and recent feed in the app.
+
 **Measurement:** Freeze deterministic catalyst classifications as research-only signals and measure signed 5- and 30-minute Alpaca IEX returns after a fixed 20-basis-point round-trip cost assumption. Preserve source, timestamps, event identity and classifier version so results can be reproduced. These are headline-response diagnostics, not trades or a profitability claim.
 **Boundary:** News has no recommendation, ranking, sizing, exit or order authority. GDELT was rate-limited during implementation and is not an active source; a commercial global wire, multilingual discovery, entity/exposure mapping, exact economic consensus and redistribution rights remain unresolved provider/product decisions.
+
+## D-044 — Isolate social media as an authorized, measured discovery lane
+
+**Status:** Architecture planned; no collector, ranking influence or order authority, 2026-09-29.
+
+**Decision:** Monitor selected X accounts through official API access and process Instagram videos only through official scopes, creator-authorized delivery or explicit user-provided media. Do not build an authenticated scraper or bypass platform controls. Normalize posts and transcripts into timestamped claims, verify factual assertions against stronger sources, join them to contemporaneous market evidence and measure them prospectively in a separate shadow lane.
+
+**Recommendation boundary:** Social content may initially expand the research universe only. It cannot establish eligibility, change size, loosen risk limits, trigger an exit or create an order. Any later experiment is limited to a plus/minus three-point shadow-rank adjustment for candidates that already pass every hard gate and requires an explicit promotion review.
+
+**Record:** See `SOCIAL_SIGNAL_PLAN.md` for acquisition paths, transcription, claim extraction, compliance lifecycle, data model, evaluation gates and staged delivery.
+
+## D-045 — Add an evidence-grounded in-app research assistant
+
+**Status:** Architecture planned; no assistant endpoint or engine-change authority, 2026-09-29.
+
+**Decision:** Add an in-app conversational assistant that answers questions through narrow, typed, evidence-returning tools and may draft versioned shadow experiments. “Self-improvement” means a governed diagnose/propose/shadow-test/evaluate/decide loop. The model may not edit the active ruleset, production code, deployment configuration, brokerage state or orders.
+
+**Initial scope:** Implement read-only system status, recommendation explanation, symbol diagnosis, positions/protection and performance questions first. Use server-side OpenAI Responses API calls with structured outputs, streamed mobile responses, explicit evidence citations and freshness. Keep credentials out of Expo and record tool-call audit data.
+
+**Experiment boundary:** Later drafts require a strict manifest and explicit user approval before shadow activation. Production promotion remains a separate deterministic release process. Chat wording can never authorize or imply deployment or trading authority.
+
+**Record:** See `IN_APP_RESEARCH_ASSISTANT_PLAN.md` for tool contracts, schemas, security boundaries, staged implementation and acceptance gates.

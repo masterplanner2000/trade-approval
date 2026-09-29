@@ -45,6 +45,7 @@ class ReconciliationSnapshot(EWrapper, EClient):
         self.completed_orders_done = threading.Event()
         self.executions_done = threading.Event()
         self.pnl_done = threading.Event()
+        self.position_pnl_done = threading.Event()
         self.accounts: list[str] = []
         self.summary: dict[str, dict] = {}
         # IBKR can repeat a position callback during a snapshot. A contract is
@@ -57,6 +58,8 @@ class ReconciliationSnapshot(EWrapper, EClient):
         self.commissions: dict[str, dict] = {}
         self.errors: list[dict] = []
         self.pnl_data: dict[str, float | None] = {}
+        self.position_pnl_requests: dict[int, str] = {}
+        self.pending_position_pnl: set[int] = set()
 
     def nextValidId(self, orderId: int) -> None:  # noqa: N802
         self.ready.set()
@@ -174,6 +177,19 @@ class ReconciliationSnapshot(EWrapper, EClient):
         }
         self.pnl_done.set()
 
+    def pnlSingle(self, reqId, pos, dailyPnL, unrealizedPnL, realizedPnL, value) -> None:  # noqa: N802
+        identity = self.position_pnl_requests.get(reqId)
+        if identity in self.positions:
+            self.positions[identity].update({
+                "marketValue": number(value),
+                "dailyPnl": number(dailyPnL),
+                "unrealizedPnl": number(unrealizedPnL),
+                "realizedPnl": number(realizedPnL),
+            })
+        self.pending_position_pnl.discard(reqId)
+        if not self.pending_position_pnl:
+            self.position_pnl_done.set()
+
     def error(self, reqId: int, *args) -> None:
         if len(args) >= 4:
             _, code, message, *_ = args
@@ -221,6 +237,19 @@ def collect_snapshot(*, client_id: int = CLIENT_ID, timeout_seconds: float = 8) 
             "completedOrders": app.completed_orders_done.wait(timeout_seconds),
             "executions": app.executions_done.wait(timeout_seconds),
         }
+        position_pnl_requested: list[int] = []
+        if account and completed["positions"]:
+            for offset, (identity, position) in enumerate(app.positions.items()):
+                contract_id = int(position.get("contractId") or 0)
+                if contract_id <= 0:
+                    continue
+                request_id = 9300 + offset
+                app.position_pnl_requests[request_id] = identity
+                app.pending_position_pnl.add(request_id)
+                position_pnl_requested.append(request_id)
+                app.reqPnLSingle(request_id, account, "", contract_id)
+            if position_pnl_requested:
+                app.position_pnl_done.wait(min(timeout_seconds, 4))
         # Commission reports follow execution details and have no end callback.
         # Allow a short bounded window for them to attach to the executions.
         time.sleep(0.35)
@@ -246,6 +275,8 @@ def collect_snapshot(*, client_id: int = CLIENT_ID, timeout_seconds: float = 8) 
         return result
     finally:
         if app.isConnected():
+            for request_id in getattr(app, "position_pnl_requests", {}):
+                app.cancelPnLSingle(request_id)
             if pnl_requested:
                 app.cancelPnL(9203)
             app.cancelAccountSummary(9201)

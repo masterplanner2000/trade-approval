@@ -25,3 +25,4 @@ service/data/*.json
 service/data/*.log
 service/data/*.lock/
 !service/data/*.example.json
+reports/*.json
