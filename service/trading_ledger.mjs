@@ -486,6 +486,18 @@ export class TradingLedger {
       const exitedQuantity = exits.reduce((total, order) => total + executionQuantity(order, 0), 0);
       const exit = exitedQuantity >= quantity ? exits.at(-1) : null;
       const entryPrice = executionPrice(entry) || Number(proposal.terms?.limitPrice ?? 0);
+      const proposedEntryPrice = Number(proposal.terms?.limitPrice ?? 0);
+      const decision = this.getDecisionForProposal(proposal.id);
+      const attempt = decision ? this.listSubmissionAttemptsForDecision(decision.id)[0] : null;
+      const entrySlippageDollars = proposedEntryPrice > 0
+        ? Math.round(((entryPrice - proposedEntryPrice) * quantity) * 100) / 100
+        : null;
+      const entrySlippageBps = proposedEntryPrice > 0
+        ? Math.round((((entryPrice - proposedEntryPrice) / proposedEntryPrice) * 10_000) * 100) / 100
+        : null;
+      const timeToFillMs = attempt?.startedAt && entry.firstSeenAt >= attempt.startedAt
+        ? entry.firstSeenAt - attempt.startedAt
+        : null;
       const exitPrice = exit ? executionPrice(exit) : null;
       const entryFee = commission(entry);
       const exitFee = commission(exit);
@@ -498,6 +510,10 @@ export class TradingLedger {
         quantity,
         status: exit ? "closed" : "open",
         entryPrice,
+        proposedEntryPrice: proposedEntryPrice || null,
+        entrySlippageDollars,
+        entrySlippageBps,
+        timeToFillMs,
         exitPrice,
         entryValue: Math.round(entryPrice * quantity * 100) / 100,
         exitValue: exitPrice == null ? null : Math.round(exitPrice * quantity * 100) / 100,

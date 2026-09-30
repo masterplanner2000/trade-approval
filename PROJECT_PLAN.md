@@ -1,7 +1,16 @@
 # Trade Approval — Project Plan
 
-**Last updated:** 2026-09-27
+**Last updated:** 2026-09-30
 **Current objective:** Establish a trustworthy paper-trading and learning loop—owned positions, protection, execution state, measured selections and measured missed opportunities—before promoting strategy changes or enabling automatic exits.
+
+## 2026-09-30 operating review
+
+- Reconciled the live IBKR Paper account: nine strategy-owned positions, with verified protective coverage and no automatic sell submitted.
+- Added app-facing execution-quality reporting for proposal-to-fill slippage, dollar slippage, and time-to-fill. Positive slippage is explicitly defined as worse for a buy.
+- Added a benchmark fallback that derives the current QQQ daily return from the reconciled strategy-owned QQQ position when the separate quote request is unavailable.
+- Added an explicit missing-fee count. Net performance remains unavailable for the two closed trades until a current IBKR Paper Flex CSV supplies exact commissions; missing fees are never assumed to be zero.
+- Completed the safe connection-recovery drill against the deterministic Paper simulator. Disconnect, reconnect, partial fill, rejection/cancellation, duplicate callback, and lost-acknowledgement protections passed without disturbing the live Paper session.
+- Current evidence remains below the frozen review gate: 7 captured sessions, 6 usable one-session outcomes, 2 usable five-session outcomes, and 0 usable ten-session outcomes. No recommendation rule is promoted from these early results.
 
 ## Gateway migration — 2026-09-28
 

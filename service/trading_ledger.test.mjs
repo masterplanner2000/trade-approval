@@ -216,6 +216,9 @@ test("closed trades calculate net profit only when both commissions are known", 
   assert.equal(trade.netProfit, 38.75);
   assert.equal(trade.feesComplete, true);
   assert.equal(trade.exitReason, "profit_target");
+  assert.equal(trade.proposedEntryPrice, 200);
+  assert.equal(trade.entrySlippageDollars, -1);
+  assert.equal(trade.entrySlippageBps, -25);
   ledger.close();
 });
 

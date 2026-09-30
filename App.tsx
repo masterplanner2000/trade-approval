@@ -55,6 +55,7 @@ type TradeItem = {
   entryFee: number | null; exitFee: number | null; feesComplete: boolean;
   grossProfit: number | null; netProfit: number | null; exitReason: "profit_target" | "protective_stop" | "exit" | null;
   openedAt: number; closedAt: number | null; protectiveStopPrice: number | null; profitTargetPrice: number | null;
+  proposedEntryPrice?: number | null; entrySlippageDollars?: number | null; entrySlippageBps?: number | null; timeToFillMs?: number | null;
 };
 type PositionItem = {
   id: string; symbol: string; quantity: number; averageEntryPrice: number; currentPrice: number | null;
@@ -77,7 +78,11 @@ type PerformanceReport = {
     symbol: string; quantity: number; averageEntryPrice: number | null; marketValue: number | null;
     unrealizedPnl: number | null; entryReturnPercent: number | null; dailyPnl: number | null; dailyReturnPercent: number | null;
   }> };
-  closedTrades: { count: number; winRatePercent: number | null; sampleSize: number; feesComplete: boolean; knownFees: number };
+  closedTrades: { count: number; winRatePercent: number | null; sampleSize: number; feesComplete: boolean; knownFees: number; missingFeeTradeCount: number };
+  executionQuality: {
+    sampleSize: number; notionalWeightedSlippageBps: number | null; totalSlippageDollars: number | null;
+    averageTimeToFillMs: number | null; fillTimeSampleSize: number; interpretation: string;
+  };
 };
 type ComparisonSummary = { count: number; meanBps: number | null; medianBps: number | null; winRate: number | null; lower95Bps: number | null; upper95Bps: number | null };
 type StrategyComparison = {
@@ -629,7 +634,9 @@ const PREVIEW_PERFORMANCE: PerformanceReport = {
     { symbol: "NVDA", quantity: 5, averageEntryPrice: 182.94, marketValue: 926.8, unrealizedPnl: 12.1, entryReturnPercent: 1.32, dailyPnl: 18.4, dailyReturnPercent: 2.03 },
     { symbol: "AAPL", quantity: 4, averageEntryPrice: 228.8, marketValue: 924.56, unrealizedPnl: 9.36, entryReturnPercent: 1.02, dailyPnl: 13.06, dailyReturnPercent: 1.43 },
   ] },
-  closedTrades: { count: 48, winRatePercent: 54.17, sampleSize: 48, feesComplete: true, knownFees: 33.6 },
+  closedTrades: { count: 48, winRatePercent: 54.17, sampleSize: 48, feesComplete: true, knownFees: 33.6, missingFeeTradeCount: 0 },
+  executionQuality: { sampleSize: 48, notionalWeightedSlippageBps: 1.8, totalSlippageDollars: 8.42,
+    averageTimeToFillMs: 2400, fillTimeSampleSize: 48, interpretation: "Positive slippage means the fill was worse than the proposed buy price." },
 };
 
 const SHADOW_LOADING: Proposal = {
@@ -936,7 +943,7 @@ function PerformancePage({ report, loading, error, onRefresh, previewMode }: {
         <View style={styles.performanceComparison}>
           <Text style={styles.performanceLabel}>Compared with QQQ today</Text>
           <Text style={[styles.performanceValue, tone(report.today.versusQqqPercentagePoints)]}>{report.today.versusQqqPercentagePoints == null ? "—" : `${report.today.versusQqqPercentagePoints > 0 ? "+" : ""}${report.today.versusQqqPercentagePoints.toFixed(2)} pts`}</Text>
-          <Text style={styles.performanceFootnote}>{report.today.benchmarkDataType === 3 ? "Delayed benchmark quote" : "Broker benchmark quote"}</Text>
+          <Text style={styles.performanceFootnote}>{report.today.benchmarkDataType === 3 ? "Delayed benchmark quote" : report.today.benchmarkDataType === "broker_position_pnl" ? "Derived from the reconciled QQQ position" : "Broker benchmark quote"}</Text>
         </View>
         <Text style={styles.performanceSectionTitle}>Open positions ({report.openPositions.count})</Text>
         <View style={styles.performanceRows}>
@@ -951,6 +958,13 @@ function PerformancePage({ report, loading, error, onRefresh, previewMode }: {
           <View><Text style={styles.performanceLabel}>Closed-trade win rate</Text><Text style={styles.performanceValue}>{report.closedTrades.winRatePercent == null ? "Not enough data" : `${report.closedTrades.winRatePercent.toFixed(1)}%`}</Text><Text style={styles.performanceFootnote}>{report.closedTrades.sampleSize} closed trades</Text></View>
           <View><Text style={styles.performanceLabel}>Fees recorded</Text><Text style={styles.performanceValue}>{money(report.closedTrades.knownFees)}</Text><Text style={styles.performanceFootnote}>{report.closedTrades.feesComplete ? "Complete for closed trades" : "Incomplete — gross results shown"}</Text></View>
         </View>
+        <Text style={styles.performanceSectionTitle}>Execution quality</Text>
+        <View style={styles.performanceStats}>
+          <View><Text style={styles.performanceLabel}>Fill vs proposed price</Text><Text style={[styles.performanceValue, tone(report.executionQuality.notionalWeightedSlippageBps == null ? null : -report.executionQuality.notionalWeightedSlippageBps)]}>{report.executionQuality.notionalWeightedSlippageBps == null ? "—" : `${report.executionQuality.notionalWeightedSlippageBps > 0 ? "+" : ""}${report.executionQuality.notionalWeightedSlippageBps.toFixed(2)} bps`}</Text><Text style={styles.performanceFootnote}>{report.executionQuality.sampleSize} filled entries</Text></View>
+          <View><Text style={styles.performanceLabel}>Slippage cost</Text><Text style={[styles.performanceValue, tone(report.executionQuality.totalSlippageDollars == null ? null : -report.executionQuality.totalSlippageDollars)]}>{signedMoney(report.executionQuality.totalSlippageDollars)}</Text><Text style={styles.performanceFootnote}>Against the approved limit terms</Text></View>
+          <View><Text style={styles.performanceLabel}>Average time to fill</Text><Text style={styles.performanceValue}>{report.executionQuality.averageTimeToFillMs == null ? "—" : `${(report.executionQuality.averageTimeToFillMs / 1000).toFixed(1)} sec`}</Text><Text style={styles.performanceFootnote}>{report.executionQuality.fillTimeSampleSize} timed fills</Text></View>
+        </View>
+        {!report.closedTrades.feesComplete ? <View style={styles.performanceNotice}><Text style={styles.performanceNoticeTitle}>Net results pending</Text><Text style={styles.performanceFootnote}>{report.closedTrades.missingFeeTradeCount} closed trades still need broker commission records. Gross performance remains visible; missing fees are never treated as zero.</Text></View> : null}
         {report.limitations.length ? <View style={styles.performanceNotice}><Text style={styles.performanceNoticeTitle}>Data notes</Text>{report.limitations.map((item) => <Text key={item} style={styles.performanceFootnote}>• {item}</Text>)}</View> : null}
       </> : null}
     </View>

@@ -14,7 +14,8 @@ test("builds broker-reconciled position and benchmark performance", () => {
       { symbol: "AAA", ownership: "strategy_owned", strategyOwnedQuantity: 10, strategyCost: 1000 },
       { symbol: "EXT", ownership: "unknown", strategyOwnedQuantity: 0, strategyCost: 0 },
     ] },
-    trades: [{ status: "closed", closedAt: now, grossProfit: 5, entryFee: 1, exitFee: 1, feesComplete: true }],
+    trades: [{ status: "closed", closedAt: now, grossProfit: 5, entryFee: 1, exitFee: 1, feesComplete: true,
+      entryValue: 1000, entrySlippageBps: 5, entrySlippageDollars: 0.5, timeToFillMs: 2000 }],
     benchmarkQuote: { last: 510, close: 500, dataType: 3 },
   });
   assert.equal(result.status, "COMPLETE");
@@ -24,6 +25,10 @@ test("builds broker-reconciled position and benchmark performance", () => {
   assert.equal(result.openPositions.unrealizedPnl, 100);
   assert.equal(result.closedTrades.winRatePercent, 100);
   assert.equal(result.closedTrades.knownFees, 2);
+  assert.equal(result.closedTrades.missingFeeTradeCount, 0);
+  assert.equal(result.executionQuality.notionalWeightedSlippageBps, 5);
+  assert.equal(result.executionQuality.totalSlippageDollars, 0.5);
+  assert.equal(result.executionQuality.averageTimeToFillMs, 2000);
   assert.deepEqual(result.openPositions.items.map((item) => item.symbol), ["AAA"]);
 });
 
@@ -39,4 +44,15 @@ test("does not invent missing pnl or net results", () => {
   assert.equal(result.closedTrades.winRatePercent, 0);
   assert.equal(result.closedTrades.feesComplete, false);
   assert.ok(result.limitations.some((item) => item.includes("fees")));
+  assert.equal(result.closedTrades.missingFeeTradeCount, 1);
+});
+
+test("uses reconciled QQQ position pnl when the standalone quote is unavailable", () => {
+  const result = buildCurrentPerformance({
+    snapshot: { capturedAt: 1, positions: [{ symbol: "QQQ", marketValue: 1020, dailyPnl: 20, unrealizedPnl: 20 }] },
+    ownership: { items: [{ symbol: "QQQ", ownership: "strategy_owned", strategyOwnedQuantity: 2, strategyCost: 1000 }] },
+  });
+  assert.equal(result.today.qqqReturnPercent, 2);
+  assert.equal(result.today.benchmarkDataType, "broker_position_pnl");
+  assert.ok(!result.limitations.some((item) => item.includes("QQQ comparison")));
 });

@@ -54,11 +54,27 @@ export function buildCurrentPerformance({ snapshot, ownership, trades = [], benc
     + (finite(trade.exitFee) ? trade.exitFee : 0), 0));
   const feesComplete = closed.every((trade) => trade.feesComplete === true);
   const wins = closed.filter((trade) => finite(trade.grossProfit) && trade.grossProfit > 0).length;
+  const qqqPosition = positions.find((position) => position.symbol === "QQQ");
   const benchmarkLast = benchmarkQuote?.last;
   const benchmarkClose = benchmarkQuote?.close;
-  const benchmarkReturn = finite(benchmarkLast) && finite(benchmarkClose) && benchmarkClose > 0
+  const quotedBenchmarkReturn = finite(benchmarkLast) && finite(benchmarkClose) && benchmarkClose > 0
     ? percent((benchmarkLast - benchmarkClose) / benchmarkClose) : null;
+  const benchmarkReturn = quotedBenchmarkReturn ?? qqqPosition?.dailyReturnPercent ?? null;
+  const benchmarkDataType = quotedBenchmarkReturn != null
+    ? benchmarkQuote?.dataType ?? "broker_quote"
+    : qqqPosition?.dailyReturnPercent != null ? "broker_position_pnl" : null;
   const strategyReturn = dailyPnl == null || priorValue == null || priorValue <= 0 ? null : percent(dailyPnl / priorValue);
+  const executionSamples = trades.filter((trade) => finite(trade.entrySlippageBps) && finite(trade.entryValue));
+  const executionNotional = executionSamples.reduce((sum, trade) => sum + trade.entryValue, 0);
+  const slippageDollars = executionSamples.every((trade) => finite(trade.entrySlippageDollars))
+    ? round(executionSamples.reduce((sum, trade) => sum + trade.entrySlippageDollars, 0)) : null;
+  const weightedSlippageBps = executionNotional > 0
+    ? round(executionSamples.reduce((sum, trade) => sum + trade.entrySlippageBps * trade.entryValue, 0) / executionNotional)
+    : null;
+  const fillTimeSamples = trades.filter((trade) => finite(trade.timeToFillMs));
+  const averageTimeToFillMs = fillTimeSamples.length
+    ? Math.round(fillTimeSamples.reduce((sum, trade) => sum + trade.timeToFillMs, 0) / fillTimeSamples.length)
+    : null;
 
   return {
     asOf: snapshot?.capturedAt ?? null,
@@ -77,7 +93,7 @@ export function buildCurrentPerformance({ snapshot, ownership, trades = [], benc
       strategyReturnPercent: strategyReturn,
       qqqReturnPercent: benchmarkReturn,
       versusQqqPercentagePoints: strategyReturn == null || benchmarkReturn == null ? null : round(strategyReturn - benchmarkReturn),
-      benchmarkDataType: benchmarkQuote?.dataType ?? null,
+      benchmarkDataType,
     },
     openPositions: { count: positions.length, unrealizedPnl, items: positions },
     closedTrades: {
@@ -86,6 +102,15 @@ export function buildCurrentPerformance({ snapshot, ownership, trades = [], benc
       sampleSize: closed.length,
       feesComplete,
       knownFees,
+      missingFeeTradeCount: closed.filter((trade) => trade.feesComplete !== true).length,
+    },
+    executionQuality: {
+      sampleSize: executionSamples.length,
+      notionalWeightedSlippageBps: weightedSlippageBps,
+      totalSlippageDollars: slippageDollars,
+      averageTimeToFillMs,
+      fillTimeSampleSize: fillTimeSamples.length,
+      interpretation: "Positive slippage means the fill was worse than the proposed buy price.",
     },
   };
 }
