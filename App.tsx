@@ -4,7 +4,7 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemeProvider } from "@shopify/restyle";
-import { CheckCircleIcon, CircleIcon, ClockCounterClockwiseIcon, ClockIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, XIcon } from "phosphor-react-native";
+import { CheckCircleIcon, CircleIcon, ClockCounterClockwiseIcon, ClockIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, WifiSlashIcon, XIcon } from "phosphor-react-native";
 import {
   Alert,
   Animated,
@@ -879,6 +879,47 @@ function PreviewCardFace({ proposal }: { proposal: Proposal }) {
   );
 }
 
+function ExitReviewProposalCard({ review, position, total, onNext, onOpen }: {
+  review: PortfolioReview["exitReviews"][number]; position: number; total: number;
+  onNext: () => void; onOpen: () => void;
+}) {
+  const { colors, styles } = useVisualTheme();
+  const estimatedPrice = review.quantity > 0 ? review.estimatedValue / review.quantity : 0;
+  return <View style={styles.proposalCard}>
+    <View style={styles.cardBody}>
+      <View style={styles.cardPosition}><Text style={styles.cardPositionText}>{position + 1} of {total} exit reviews</Text></View>
+      <View style={styles.companyIdentity}>
+        <CompanyMark symbol={review.symbol} size={42} />
+        <Text style={styles.company} numberOfLines={1}>{review.symbol}</Text>
+      </View>
+      <Text style={styles.tradeHeadline}>Sell {money(review.estimatedValue)} of {review.symbol}</Text>
+      <Text style={styles.tradePrice}>at estimated price {money(estimatedPrice)}</Text>
+      <View style={styles.tradeTerms}>
+        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Sell</Text><Text style={styles.tradeTermValue}>{review.quantity} shares</Text></View>
+        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Estimated proceeds</Text><Text style={styles.tradeTermValue}>{money(review.estimatedValue)}</Text></View>
+        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Estimated P&amp;L</Text><Text style={[styles.tradeTermValue, { color: review.estimatedGrossPnl >= 0 ? colors.actionApprove : colors.danger }]}>{review.estimatedGrossPnl >= 0 ? "+" : ""}{money(review.estimatedGrossPnl)}</Text></View>
+        <View style={styles.tradeTermRow}>
+          <Text style={styles.tradeTermLabel}>Status</Text>
+          <View style={[styles.timer, review.urgency === "high" && styles.timerWarning]}>
+            <Text style={[styles.timerValue, review.urgency === "high" && styles.timerWarningText]}>REVIEW ONLY</Text>
+          </View>
+        </View>
+      </View>
+      <View style={styles.infoCard}>
+        <Text style={styles.infoCardTitle}>Why this sell</Text>
+        <Text style={styles.infoCardBody} numberOfLines={3}>{review.triggers.map((trigger) => trigger.label).join(" · ")}</Text>
+      </View>
+      <Text style={styles.exitReviewSafety}>No sell order is submitted from this card while automatic exits remain disabled.</Text>
+    </View>
+    <View style={styles.cardFooter}>
+      <View style={styles.actions}>
+        {total > 1 ? <ActionButton label="Next review" tone="secondary" onPress={onNext} /> : null}
+        <ActionButton label="Open position" tone="secondary" onPress={onOpen} />
+      </View>
+    </View>
+  </View>;
+}
+
 function PolicyField({ label, value, suffix, accessibilityLabel, onChange }: {
   label: string;
   value: number;
@@ -1491,6 +1532,7 @@ export default function App() {
   const [noEligibleRecommendation, setNoEligibleRecommendation] = useState(false);
   const [strategyCapitalReached, setStrategyCapitalReached] = useState(false);
   const [portfolioReview, setPortfolioReview] = useState<PortfolioReview | null>(null);
+  const [exitReviewIndex, setExitReviewIndex] = useState(0);
   const [orderPreview, setOrderPreview] = useState<OrderPreview | null>(null);
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResult | null>(null);
   const [paperSubmission, setPaperSubmission] = useState<PaperSubmission | null>(null);
@@ -2683,13 +2725,13 @@ export default function App() {
     }
   }
 
-  const menuActions: Array<{ label: string; onPress: () => void; emphasized?: boolean }> = [
-    ...(activePage !== "review" ? [{ label: "Recommendations", onPress: () => setActivePage("review") }] : []),
-    ...(activePage !== "activity" ? [{ label: "Activity", onPress: () => openHistory("activity") }] : []),
-    ...(activePage !== "positions" ? [{ label: "Positions", onPress: () => openHistory("positions") }] : []),
-    ...(activePage !== "performance" ? [{ label: "Performance", onPress: openPerformance }] : []),
-    ...(activePage !== "research" ? [{ label: "Strategy research", onPress: openResearch }] : []),
-    ...(activePage !== "settings" ? [{ label: "Settings", onPress: () => setActivePage("settings") }] : []),
+  const menuActions: Array<{ label: string; onPress: () => void; active: boolean }> = [
+    { label: "Recommendations", onPress: () => setActivePage("review"), active: activePage === "review" },
+    { label: "Activity", onPress: () => openHistory("activity"), active: activePage === "activity" },
+    { label: "Positions", onPress: () => openHistory("positions"), active: activePage === "positions" },
+    { label: "Performance", onPress: openPerformance, active: activePage === "performance" },
+    { label: "Strategy research", onPress: openResearch, active: activePage === "research" },
+    { label: "Settings", onPress: () => setActivePage("settings"), active: activePage === "settings" },
   ];
   const headerStatusLabel = uiPreview
     ? "Preview mode"
@@ -2769,9 +2811,11 @@ export default function App() {
         )}
         {!uiPreview && brokerConnectionStatus === "disconnected" ? (
           <View accessibilityRole="alert" style={styles.connectionBanner}>
+            <View style={styles.connectionBannerIcon}>
+              <WifiSlashIcon size={22} color={colors.danger} weight="bold" />
+            </View>
             <View style={styles.connectionBannerCopy}>
-              <Text style={styles.connectionBannerTitle}>IBKR Paper is offline</Text>
-              <Text style={styles.connectionBannerBody}>New orders are blocked. Existing stop and target orders remain at IBKR.</Text>
+              <Text style={styles.connectionBannerTitle}>Paper disconnected</Text>
             </View>
             <Pressable accessibilityRole="button" accessibilityLabel="Retry broker connection" onPress={() => void checkBrokerConnection()} style={styles.connectionBannerAction}>
               <Text style={styles.connectionBannerActionText}>Retry</Text>
@@ -2837,8 +2881,9 @@ export default function App() {
 
         {proposal.shadowMode && !showRecommendationSkeleton && !realDeckComplete && (
           <View style={styles.homeDashboard}>
-            <Text style={styles.homeEyebrow}>{marketWindow.phase === "open" ? "SCANNER ACTIVE" : "SCANNER STANDBY"}</Text>
-            <Text style={styles.homeTitle}>
+            {!(strategyCapitalReached && portfolioReview?.exitReviews.length) && <>
+              <Text style={styles.homeEyebrow}>{marketWindow.phase === "open" ? "SCANNER ACTIVE" : "SCANNER STANDBY"}</Text>
+              <Text style={styles.homeTitle}>
               {brokerConnectionStatus === "disconnected"
                 ? "Paper is offline"
                 : marketWindow.phase === "weekend"
@@ -2853,8 +2898,8 @@ export default function App() {
                     : noEligibleRecommendation
                       ? "No recommendations right now"
                       : "Scanning the market"}
-            </Text>
-            <Text style={styles.homeSummary}>
+              </Text>
+              <Text style={styles.homeSummary}>
               {brokerConnectionStatus === "connected" && marketWindow.phase !== "open"
                 ? `No new recommendations will be created while the market is closed. Scanning resumes ${marketWindow.resumes}.`
                 : strategyCapitalReached
@@ -2872,24 +2917,39 @@ export default function App() {
                 : brokerConnectionStatus === "disconnected"
                   ? "Open IB Gateway Paper and the local service. Recommendations will appear automatically after they reconnect."
                   : "Paper is connected. The scanner is reviewing the market now; a card appears only when a setup passes every rule."}
-            </Text>
+              </Text>
+            </>}
 
-            <View style={styles.homeScannerPanel}>
+            {strategyCapitalReached && portfolioReview?.exitReviews.length ? (
+              <View style={[styles.deckStage, { height: Math.max(500, viewportHeight - 300) }]}>
+                {portfolioReview.exitReviews.length > 1 ? <>
+                  <View pointerEvents="none" style={[styles.stackCard, styles.stackCardBack]} />
+                  <View pointerEvents="none" style={[styles.stackCard, styles.stackCardNext]} />
+                </> : null}
+                <ExitReviewProposalCard
+                  review={portfolioReview.exitReviews[exitReviewIndex % portfolioReview.exitReviews.length]!}
+                  position={exitReviewIndex % portfolioReview.exitReviews.length}
+                  total={portfolioReview.exitReviews.length}
+                  onNext={() => setExitReviewIndex((index) => (index + 1) % portfolioReview.exitReviews.length)}
+                  onOpen={() => openHistory("positions")}
+                />
+              </View>
+            ) : <View style={styles.homeScannerPanel}>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Scan</Text>
                 <Text style={styles.homeScannerValue}>{marketWindow.phase === "open" ? "Continuous · fresh quote checks" : `Resumes ${marketWindow.resumes}`}</Text>
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Recommendations</Text>
-                <Text style={styles.homeScannerValue}>{strategyCapitalReached ? strategy?.budget?.status === "reconciled" ? "Continuously ranked against holdings" : "Paused for safety review" : "All currently qualified buys"}</Text>
+                <Text style={styles.homeScannerValue}>{strategyCapitalReached ? strategy?.budget?.status === "reconciled" ? "Continuously ranked against holdings" : "Scanning continues · new buys blocked by portfolio limits" : "All currently qualified buys"}</Text>
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Protection</Text>
                 <Text style={styles.homeScannerValue}>Check broker stops in Positions</Text>
               </View>
-            </View>
+            </View>}
 
-            {strategyCapitalReached && portfolioReview && (
+            {strategyCapitalReached && portfolioReview && portfolioReview.exitReviews.length === 0 && (
               <View style={styles.rotationPanel}>
                 <Text style={styles.rotationTitle}>Portfolio review</Text>
                 <Text style={styles.rotationSummary}>
@@ -2982,42 +3042,50 @@ export default function App() {
         )}
 
         {uiPreview && !proposal.shadowMode && sampleDeckComplete && (
-          <View style={styles.deckComplete}>
-            <View style={styles.deckCompleteIcon}>
-              <CheckCircleIcon size={34} color={colors.actionApprove} weight="fill" />
+          <View style={[styles.deckStage, { height: Math.max(420, viewportHeight - 150) }]}>
+            <View style={styles.proposalCard}>
+              <View style={[styles.cardBody, styles.deckComplete]}>
+                <View style={styles.deckCompleteIcon}>
+                  <CheckCircleIcon size={32} color={colors.actionApprove} weight="fill" />
+                </View>
+                <Text style={styles.deckCompleteTitle}>All reviewed</Text>
+              </View>
+              <View style={styles.cardFooter}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Review sample trades again"
+                  onPress={() => previewActiveProposal()}
+                  style={({ pressed }) => [styles.emptyStateAction, pressed && styles.homeActionPressed]}
+                >
+                  <Text style={styles.emptyStateActionText}>Review again</Text>
+                </Pressable>
+              </View>
             </View>
-            <Text style={styles.deckCompleteEyebrow}>0 recommendations remaining</Text>
-            <Text style={styles.deckCompleteTitle}>You’re all caught up</Text>
-            <Text style={styles.deckCompleteBody}>{`You reviewed all ${UI_PROPOSALS.length} sample trades.`}</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Review sample trades again"
-              onPress={() => previewActiveProposal()}
-              style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}
-            >
-              <Text style={styles.previewProposalButtonText}>Review sample trades again</Text>
-            </Pressable>
           </View>
         )}
 
         {!uiPreview && realDeckComplete && (
-          <View style={styles.deckComplete}>
-            <View style={styles.deckCompleteIcon}>
-              <CheckCircleIcon size={34} color={colors.actionApprove} weight="fill" />
+          <View style={[styles.deckStage, { height: Math.max(420, viewportHeight - 150) }]}>
+            <View style={styles.proposalCard}>
+              <View style={[styles.cardBody, styles.deckComplete]}>
+                <View style={styles.deckCompleteIcon}>
+                  <CheckCircleIcon size={32} color={colors.actionApprove} weight="fill" />
+                </View>
+                <Text style={styles.deckCompleteTitle}>No recommendations</Text>
+                <Text style={styles.deckCompleteBody}>Monitoring for new setups.</Text>
+              </View>
+              <View style={styles.cardFooter}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="View recommendation history"
+                  onPress={() => openHistory("recommendationHistory")}
+                  style={({ pressed }) => [styles.emptyStateAction, pressed && styles.homeActionPressed]}
+                >
+                  <ClockCounterClockwiseIcon size={20} color={colors.ink} />
+                  <Text style={styles.emptyStateActionText}>View history</Text>
+                </Pressable>
+              </View>
             </View>
-            <Text style={styles.deckCompleteEyebrow}>0 recommendations remaining</Text>
-            <Text style={styles.deckCompleteTitle}>You’re all caught up</Text>
-            <Text style={styles.deckCompleteBody}>
-              Every current recommendation has been completed. The scanner is still monitoring the market and will add a new card when another setup qualifies.
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="View recommendation activity"
-              onPress={() => openHistory("activity")}
-              style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}
-            >
-              <Text style={styles.previewProposalButtonText}>View activity</Text>
-            </Pressable>
           </View>
         )}
 
@@ -3211,10 +3279,11 @@ export default function App() {
               <Pressable
                 key={action.label}
                 accessibilityRole="menuitem"
+                accessibilityState={{ selected: action.active }}
                 onPress={() => { setMenuOpen(false); action.onPress(); }}
-                style={({ pressed }) => [styles.contextMenuItem, pressed && styles.contextMenuItemPressed]}
+                style={({ pressed }) => [styles.contextMenuItem, action.active && styles.contextMenuItemActive, pressed && styles.contextMenuItemPressed]}
               >
-                <Text style={[styles.contextMenuItemText, action.emphasized && styles.contextMenuItemEmphasized]}>{action.label}</Text>
+                <Text style={[styles.contextMenuItemText, action.active && styles.contextMenuItemActiveText]}>{action.label}</Text>
               </Pressable>
             ))}
             <View style={styles.contextMenuToggle}>
@@ -3266,6 +3335,8 @@ return StyleSheet.create({
   contextMenuStatusText: { color: colors.text, ...typeRamp.caption, marginTop: 2, textTransform: "capitalize" },
   contextMenuItem: { minHeight: 46, justifyContent: "center", paddingHorizontal: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   contextMenuItemPressed: { backgroundColor: colors.surfaceMuted },
+  contextMenuItemActive: { backgroundColor: colors.surfaceMuted },
+  contextMenuItemActiveText: { color: colors.ink, fontWeight: "600" },
   contextMenuItemText: { color: colors.text, ...typeRamp.body },
   contextMenuItemEmphasized: { color: colors.accentDark, fontWeight: "600" },
   contextMenuToggle: { minHeight: 64, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, paddingHorizontal: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
@@ -3273,6 +3344,7 @@ return StyleSheet.create({
   contextMenuToggleHelp: { color: colors.muted, ...typeRamp.caption, marginTop: 2 },
   toastLayer: { position: "absolute", top: 62, left: spacing.small, right: spacing.small, zIndex: 20 },
   connectionBanner: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: colors.dangerSoft, borderRadius: radius.medium, padding: 14, marginTop: 14 },
+  connectionBannerIcon: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.surface },
   connectionBannerCopy: { flex: 1 },
   connectionBannerTitle: { color: colors.danger, ...typeRamp.label, fontWeight: "600" },
   connectionBannerBody: { color: colors.text, ...typeRamp.caption, marginTop: 2 },
@@ -3476,11 +3548,13 @@ return StyleSheet.create({
   skeletonInfoLine: { width: "100%", height: 14, marginTop: 12 },
   skeletonInfoLineShort: { width: "68%", height: 14, marginTop: 8 },
   skeletonButton: { flex: 1, height: 56, borderRadius: radius.pill, backgroundColor: colors.surfaceMuted },
-  deckComplete: { minHeight: 420, alignItems: "center", justifyContent: "center", marginTop: 8, paddingHorizontal: 28, paddingVertical: 40 },
+  deckComplete: { flex: 1, minHeight: 0, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, paddingVertical: 40 },
   deckCompleteIcon: { width: 64, height: 64, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, marginBottom: 18 },
   deckCompleteEyebrow: { color: colors.muted, ...typeRamp.caption, textAlign: "center", marginBottom: 7 },
   deckCompleteTitle: { color: colors.ink, ...typeRamp.title, textAlign: "center" },
   deckCompleteBody: { color: colors.muted, ...typeRamp.body, textAlign: "center", marginTop: 9, maxWidth: 340 },
+  emptyStateAction: { minHeight: 56, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, backgroundColor: colors.surface },
+  emptyStateActionText: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: "600" },
   cardBody: { flex: 1, minHeight: 0, overflow: "hidden", paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 },
   cardPosition: { alignItems: "center", marginBottom: 10 },
   cardPositionText: { color: colors.muted, ...typeRamp.caption },
