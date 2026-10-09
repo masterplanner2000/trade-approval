@@ -1041,3 +1041,107 @@ Review [CRYPTO_DESIGN.md](./CRYPTO_DESIGN.md): Coinbase Exchange/Gemini sandbox 
 **Experiment boundary:** Later drafts require a strict manifest and explicit user approval before shadow activation. Production promotion remains a separate deterministic release process. Chat wording can never authorize or imply deployment or trading authority.
 
 **Record:** See `IN_APP_RESEARCH_ASSISTANT_PLAN.md` for tool contracts, schemas, security boundaries, staged implementation and acceptance gates.
+
+## D-077 — Keep the approved strategy sleeve authoritative
+
+**Status:** Confirmed and implemented, 2026-10-02.
+
+**Decision:** The funded recommendation queue uses the strategy's explicit capital and position limits as its portfolio-capacity boundary. A separate risk-policy percentage must not silently replace the approved $10,000 Paper sleeve with a smaller effective sleeve or retroactively classify existing holdings as over-deployed.
+
+**Preserved controls:** Reconciliation, ownership, broker protection, per-trade sizing, stop-loss risk, daily and total open-risk budgets, concentration, liquidity and the strategy's explicit position limit continue to fail closed. This change does not authorize live trading or automatic exits.
+
+## D-078 — Add explicit Paper-only approval for ordinary exits
+
+**Status:** Implemented behind existing Paper submission controls, 2026-10-02.
+
+**Decision:** A profitable, strategy-owned holding may expose an `Approve sell` action when a stronger replacement makes it an ordinary rotation candidate. Approval is specific to one current exit review; unattended automatic selling remains disabled.
+
+**Execution boundary:** Before dispatch, the service requires a new complete IBKR Paper reconciliation, current scan eligibility, exact strategy ownership and quantity, one linked active profit target, one linked active protective stop and an execution-grade quote. A current IBKR type-1 bid/ask is preferred; while this account lacks that entitlement, a timestamped Alpaca IEX bid/ask may price this Paper-only supervised action when it is no more than 15 seconds old and its spread is within the existing 0.25% cap. Delayed SIP/IBKR data is never accepted. The service modifies the existing app-owned profit target to a marketable limit while leaving the protective stop active. A durable single-dispatch outbox is committed before broker contact, and the UI reports success only after fresh broker evidence confirms the changed target or the completed exit. Unknown, rejected, stale, duplicated or differently owned orders fail closed.
+
+**Loss boundary:** Ordinary rotations remain blocked below average cost. Protective stops may still realize a loss when their broker-hosted risk threshold is reached; this approval path does not weaken or replace them.
+
+## D-079 — Add a separate Catalyst Sprint mode
+
+**Status:** Initial backend contract and shadow evaluator implemented, 2026-10-02; no recommendation or order authority.
+
+**Decision:** Add a distinct very-high-risk, short-horizon mode for liquid volatile stocks whose price/volume behavior confirms either fresh verified news or a known scheduled event. The mode is separate from the existing core momentum strategy, with its own version, proposed risk envelope, future ledger and performance comparison.
+
+**Interpretation of anticipation:** The engine may study observable positioning ahead of a publicly scheduled event. It must not infer, fabricate or trade on unpublished information. Unverified headlines can provide context but cannot qualify a setup, and catalyst evidence can never rescue failed liquidity, freshness, halt, spread or technical gates.
+
+**Initial boundary:** `catalyst-sprint-shadow-v1` is research-only and Paper/shadow-only. It cannot create recommendations, submit orders or exit automatically. Promotion requires point-in-time capture, cost-aware forward outcomes, separate drawdown statistics and an explicit approval decision. Riskier selection must use smaller exposure and faster invalidation rather than a larger loss budget.
+
+## D-080 — Make Alpaca the default Paper execution broker
+
+**Status:** Confirmed and implemented for Paper, 2026-10-06.
+
+**Decision:** Replace the desktop-session-dependent IBKR execution path with Alpaca Paper as the application's default broker. The service uses server-only API credentials for account state, quotes, positions, orders, fills, preflight checks, bracket buys and approved profit-target replacement. The mobile client has no broker credentials or direct order authority.
+
+**Preserved controls:** Explicit user approval for buys, signed short-lived receipts, final price/account/size checks, durable idempotency before transmission, bracket protection, reconciliation, ownership checks, the trading ledger and Paper-only enforcement remain required. Broker normalization must preserve exact Alpaca order and fill identities. Automatic unattended sells remain disabled until the Alpaca-specific protected-exit lifecycle passes Paper soak and recovery testing.
+
+**Migration boundary:** Existing IBKR holdings and order history do not transfer into the Alpaca Paper account. Historical IBKR records remain immutable evidence, while new Alpaca activity is broker-namespaced. The IBKR adapter remains an explicit rollback option during migration and is not the default runtime.
+
+## D-081 — Expand the funded sleeve to eight diversified positions
+
+**Status:** Confirmed and implemented for Paper, 2026-10-07.
+
+**Decision:** Keep the funded strategy sleeve at $10,000, permit the whole sleeve to be deployed when qualified opportunities exist, and make eight the configurable default and hard maximum for simultaneous positions. Limit one canonical security exposure to 15%/$1,500 and each sector and theme to 35%/$3,500. GOOG and GOOGL are one Alphabet security exposure.
+
+**Diversification boundary:** Every funded position requires complete versioned sector/theme metadata so the 35% limits can be measured. Positions six through eight must additionally add a different sector/theme combination; missing metadata or a matching combination fails closed. Raising the count does not create an entitlement to fill every slot.
+
+**Execution boundary:** Recommendation creation and the final pre-broker check enforce the limits. New broker execution evidence triggers queue recalculation from refreshed cash, deployed capital, holdings and remaining slots. Settings may lower the position count but cannot raise it above eight.
+
+## D-082 — Queue approved Paper buys without blocking card review
+
+**Status:** Confirmed and implemented, 2026-10-07.
+
+**Decision:** After the user confirms a Paper buy, remove its card from the active deck immediately and enqueue the exact proposal for sequential processing. The next card remains independently reviewable and never inherits the prior proposal's submitting state.
+
+**Safety boundary:** Queuing is not broker acceptance. Each item still performs its own signed approval, preview, Alpaca preflight, final price/account/capital/concentration checks and durable idempotent submission. Orders are dispatched sequentially so each later item uses recalculated portfolio capacity. An approved proposal that fails a later safety check cannot be presented as pending again; the app reports the exact blocker and recalculates fresh candidates without interrupting the currently visible card.
+
+## D-083 — Make Paper approval a single explicit action
+
+**Status:** Confirmed and implemented, 2026-10-07.
+
+**Decision:** On an actionable Alpaca Paper recommendation, tapping `Approve` immediately records and queues that exact proposal, dismisses its card and begins the existing sequential validation and submission workflow. Remove the redundant native confirmation dialog, which made the first approval tap look unsuccessful.
+
+**Safety boundary:** This applies only to Paper recommendations. It does not bypass signed short-lived approval receipts, Alpaca preflight, final account/price/size/capital/concentration checks, durable idempotency or reconciliation. A future live-trading mode requires its own explicit confirmation policy and cannot inherit this Paper behavior automatically.
+
+## D-084 — Keep card gestures out of the decision footer
+
+**Status:** Confirmed and implemented, 2026-10-07.
+
+**Decision:** Attach the recommendation-card pan responder only to the card body. The Approve and Deny footer remains outside the swipe responder so ordinary finger movement cannot convert a decision-button tap into an intercepted card gesture.
+
+**Interaction boundary:** The card remains swipeable and tappable through its informational body. Decision controls retain their existing disabled, queued and in-flight safeguards and are never treated as swipe surfaces.
+
+## D-085 — Refresh recommendations three times each trading day
+
+**Status:** Confirmed and scheduled, 2026-10-09.
+
+**Decision:** Run the recommendation workflow at 9:00 AM, 12:00 PM and 3:00 PM Eastern on market weekdays. Every run reconciles Alpaca Paper first, refreshes the recommendation queue from the evidence available at that timestamp and compares material changes with earlier runs that day.
+
+**Execution boundary:** Scheduled refreshes have no order authority. They may report and surface current buy/sell recommendations and blockers, but cannot approve, submit, replace or cancel broker orders. A refresh may legitimately return the same recommendations when the qualifying evidence has not changed.
+
+## D-086 — Keep diagnostics out of the recommendation deck
+
+**Status:** Confirmed and implemented, 2026-10-09.
+
+**Decision:** The recommendation deck shows only holdings the engine actually recommends selling. Protection gaps, ownership conflicts and other portfolio diagnostics remain visible in Positions and portfolio status, but do not create sell cards on their own. Choosing `Keep` clears that sell recommendation for the current 9:00 AM, noon or 3:00 PM refresh window.
+
+**Refresh boundary:** A kept symbol may return at the next scheduled refresh if current evidence still recommends the exit. Hiding a card does not change broker state, engine evidence or order history.
+
+## D-087 — Recommendation cards must offer a real decision
+
+**Status:** Confirmed and implemented, 2026-10-09.
+
+**Decision:** Show a sell card only when the engine recommends that exit and the current reconciled broker evidence allows the user to approve it. If `Keep` would be the only enabled action, do not surface the item as a recommendation card.
+
+**Diagnostic boundary:** Blocked candidates, missing protection and other reasons an otherwise interesting trade cannot execute remain portfolio diagnostics. They may inform status and Positions, but must not look like an actionable trade recommendation.
+# D088 — Persistent Alpaca protection and breached-stop exits
+
+- New Alpaca Paper brackets use GTC duration so their target and protective stop do not expire at the session boundary.
+- Existing strategy-owned positions may be repaired only from their exact recorded target and stop terms, after fresh ownership, quantity, quote, and competing-order checks.
+- A recorded stop that is already breached is never moved downward automatically. It becomes an explicitly approvable direct-exit recommendation.
+- A profitable recommended rotation with missing protection may also use the explicitly approved direct-exit path.
+- Direct exits require fresh broker reconciliation, exact strategy ownership, no working sell, a bounded execution quote, in-process duplicate suppression, a deterministic broker reference, and post-submit reconciliation.
+- These changes apply to Alpaca Paper only. They do not authorize live trading or automatic sells.

@@ -17,6 +17,7 @@ service/data/intraday-outcomes.sqlite3*
 service/data/global-news.sqlite3*
 service/data/news-archive-*/
 service/data/trading-ledger.sqlite3*
+service/data/protected-exit-outbox.sqlite3*
 *.py[cod]
 .DS_Store
 

@@ -525,3 +525,29 @@ Crypto acceptance requires no production credentials or network orders; fresh ex
 - Re-ran full QA successfully: TypeScript, 123 Node tests and 224 Python tests.
 - Verified the supervised news collector is running with Alpaca/Benzinga, Nasdaq Trader and SEC EDGAR healthy; weekday intraday/profile/evidence jobs are loaded with clean prior exits.
 - Preserved the broker boundary: Sunday TWS API connection failed, so Monday requires a fresh complete Paper reconciliation before Friday's protection state may be treated as current.
+
+### Plan change history — 2026-10-02
+
+- Added the isolated `Catalyst Sprint` backend mode contract for very-high-risk, minutes-to-two-session opportunities.
+- Added a fail-closed composite evaluator in which technical confirmation remains dominant and only fresh primary-source- or licensed-wire-verified news, or a verified scheduled event, can qualify catalyst context.
+- Kept the initial mode research-only and Paper/shadow-only with no recommendation, order or automatic-exit authority.
+- Next: connect immutable intraday and global-news journals to the evaluator, add a separate mode ledger and cost-aware outcomes, then run at least 20 usable market sessions before considering bounded Paper recommendations.
+
+### Plan change history — 2026-10-07
+
+- Expanded the funded Paper strategy from five to a configurable default of eight positions without changing the $10,000 sleeve.
+- Added a $1,500/15% canonical-security cap, 35% sector/theme caps and GOOG/GOOGL exposure grouping.
+- Required complete exposure metadata for funded positions and distinct diversification for slots six through eight rather than merely consuming unused capacity.
+- Added queue recalculation after newly observed broker fills so every next recommendation uses current cash, exposure and slot availability.
+# Protective-exit lifecycle completion
+
+- [x] Diagnose expired DAY protection on current Alpaca Paper holdings.
+- [x] Make future bracket protection persistent with GTC duration.
+- [x] Add a guarded repair workflow using exact recorded exit terms.
+- [x] Restore and verify safe GTC protection for CSCO, GOOGL, INTC, and PLTR.
+- [x] Detect recorded protective-stop breaches without silently loosening risk.
+- [x] Surface breached stops and profitable unprotected rotations as approvable sell cards.
+- [x] Add an idempotent Alpaca Paper direct-exit path with reconciliation.
+- [x] Add focused regression tests and run type checking.
+- [ ] Obtain explicit user approval before submitting the current SMCI or XOM sell.
+- [ ] After any approved fill, reconcile positions, recalculate capacity, and refresh buy recommendations.

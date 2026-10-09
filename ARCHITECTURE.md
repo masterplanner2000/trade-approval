@@ -1,7 +1,7 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.24
-**Last updated:** 2026-09-28
+**Current architecture version:** 5.27
+**Last updated:** 2026-10-07
 **Status:** Living source of truth
 
 This document explains the major application components, their responsibilities, and how information moves from research to recommendations, approval, broker execution, reconciliation, and performance evaluation.
@@ -52,7 +52,7 @@ flowchart LR
         validate{"Safety checks pass?"}
         blocked["Return the exact blocked reason"]
         submit["Submit buy and protective stop"]
-        broker["IB Gateway<br/>IBKR Paper execution"]
+        broker["Alpaca Trading API<br/>Paper execution"]
 
         validate -->|"No"| blocked
         validate ==>|"Yes"| submit
@@ -149,14 +149,15 @@ flowchart LR
 |---|---|---|---|
 | Mobile app | Review recommendations and approve or deny decisions | Prototype | Activity and Positions added; enrich with reconciled broker state |
 | Secure application API | Coordinate the mobile client and local services | Prototype | Ledger-backed lifecycle and read APIs integrated; add clearer service health |
-| IBKR adapter | Gateway-first localhost connection for quotes, account data, validation, and paper orders; explicit TWS fallback | Prototype | Install/configure Gateway, prove weekly restart behavior, then add disconnect alerts and recovery |
+| Alpaca broker adapter | API-key authenticated Paper account, quotes, positions, orders, fills, preflight validation, bracket buys and target replacement | Prototype | Run multi-session Paper soak tests and complete automatic-exit release validation |
+| Legacy IBKR adapter | Gateway/TWS fallback retained for migration evidence and rollback; no longer the default execution path | Retained fallback | Remove only after Alpaca ledger migration and Paper soak testing are complete |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
 | Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Seven-symbol frozen forward universe with capture, outcomes, profiles, Paper context, exposure, data readiness and session health | Accumulate 20 qualified sessions and resolve consolidated-data entitlement; actionable use remains blocked |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
 | Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Evaluator, journal, source/consensus adapters and immutable exposure-map registry implemented | Curate reviewed mappings, join records, schedule reaction capture and compare forward outcomes |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | New proposals bind to exact frozen evidence identity; verify the first market-hours proposal/fill lifecycle |
-| Risk and position sizing | Calculate quantity, loss, concentration, and limits | Partial | Pure sizing model implemented; connect reconciled IBKR inputs |
+| Risk and position sizing | Calculate quantity, loss, concentration, and limits | Implemented for the funded Paper queue | Reconciled broker holdings, $10,000 sleeve, $1,500 position cap, eight-position ceiling, and 35% sector/theme caps are checked again before submission |
 | Safety validation | Recheck price, account, approval, limits, and What-If | Prototype | Preserve exact validation results |
 | Order service | Submit approved buys, protective stops, and separately approved ordinary sales | Prototype | Confirm durable broker identifiers |
 | Broker reconciliation | Match app state to IBKR orders, fills, positions, and commission reports | Partial | Complete partial-fill, cancellation, and missing-account-summary handling |
@@ -168,7 +169,13 @@ flowchart LR
 | Web app | Cross-platform account and review experience | Planned | Reuse API after mobile workflow is reliable |
 | Production operations | Authentication, secrets, hosting, monitoring, recovery | Planned | Required before external users or live trading |
 
-## Local IBKR execution connector
+## Alpaca Paper execution connector
+
+The application service now defaults to Alpaca Paper. Server-only API credentials authenticate account snapshots, current positions, open and completed orders, fill activity, execution quotes and Paper order requests without a desktop brokerage session. Approved buys are submitted as Alpaca bracket orders with a DAY limit entry and GTC profit-target and protective-stop legs. The durable approval token, preflight, idempotency reservation, reconciliation and ownership gates remain between the mobile client and broker submission.
+
+The mobile application never receives Alpaca credentials and still talks only to the application API. Paper and live endpoints must remain explicitly separated; this release configures only `https://paper-api.alpaca.markets`. Automatic unattended exits remain release-blocked until their full Alpaca lifecycle and recovery behavior is validated.
+
+## Legacy local IBKR execution connector
 
 The local service defaults to IB Gateway Paper on localhost port 4002. All Python broker operations resolve the same fail-closed connection configuration from `service/ibkr_connection.py`; a deliberate `IBKR_APPLICATION=tws` fallback selects TWS Paper port 7497. A custom paper port may be supplied explicitly, but remote socket hosts are rejected so broker credentials and socket authority remain on the Mac.
 
@@ -459,6 +466,13 @@ Closed-trade accounting matches the application entry and exit through the immut
 
 ## Change history
 
+### Version 5.25 — 2026-10-06
+
+- Changed the default Paper execution broker from desktop-session-dependent IBKR to Alpaca's API-key-authenticated Paper API.
+- Added normalized Alpaca account, quote, position, order, fill, preflight, bracket-submission and order-replacement adapters behind the existing broker contract.
+- Preserved durable approval, idempotency, ledger, reconciliation, ownership, bracket protection and fail-closed Paper boundaries.
+- Retained the IBKR connector as an explicit fallback while historical IBKR records remain in the ledger; automatic unattended exits remain disabled pending Alpaca lifecycle validation.
+
 ### Version 5.24 — 2026-09-28
 
 - Changed the local IBKR execution connector to Gateway-first Paper operation on port 4002.
@@ -571,6 +585,48 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a CSV discovery-list extension to the isolated aggressive cache, with explicit inclusion and rejection provenance.
 - Expanded coverage of the supplied volatile-stock list from 28 to 248 observed names without changing any eligibility gate.
 - Added descriptive realized-volatility, maximum-drawdown and opening-gap outputs to shadow ruleset v2. They do not affect orders or core recommendations.
+
+### Version 5.32 — 2026-10-09
+
+- Required every sell card in Recommendations to have a currently enabled approval path.
+- Moved blocked exit candidates and protection failures out of the recommendation deck and into portfolio diagnostics.
+
+### Version 5.31 — 2026-10-09
+
+- Restricted sell cards to holdings explicitly selected by the engine for exit; protection and ownership diagnostics no longer masquerade as recommendations.
+- Made `Keep` clear a sell card for the current scheduled recommendation window, while allowing it to return at the next 9:00 AM, noon or 3:00 PM refresh when still supported by current evidence.
+
+### Version 5.30 — 2026-10-09
+
+- Scheduled read-only recommendation refreshes for 9:00 AM, 12:00 PM and 3:00 PM Eastern on market weekdays.
+- Each run reconciles Alpaca Paper before rebuilding the current queue and compares material changes with earlier runs that day.
+- Scheduled jobs can surface recommendations and blockers but have no broker-order authority.
+
+### Version 5.29 — 2026-10-07
+
+- Scoped recommendation swipe recognition to the informational card body.
+- Kept the decision footer outside the pan responder so Approve and Deny taps cannot be intercepted by minor finger movement.
+
+### Version 5.28 — 2026-10-07
+
+- Made an actionable Alpaca Paper recommendation's `Approve` control the single explicit approval action.
+- Removed the redundant native confirmation dialog so the card dismisses and the exact proposal enters the sequential submission queue on the first tap.
+- Preserved all signed approval, preflight, final safety, idempotency and reconciliation gates; this behavior is not inherited by any future live-trading mode.
+
+### Version 5.27 — 2026-10-07
+
+- Changed buy approval to optimistically remove the approved card and enqueue its Paper order workflow.
+- Serialized queued submissions so each order receives fresh preview, broker preflight, final safety validation and portfolio recalculation before the next dispatch.
+- Kept workflow state keyed by proposal so a pending order cannot make the next card appear to be submitting.
+- Kept a failed approved proposal out of the actionable deck, returned its exact safety blocker, and recalculated fresh candidates without interrupting the card currently under review.
+
+### Version 5.26 — 2026-10-07
+
+- Raised the configurable funded-strategy ceiling to eight positions while preserving the $10,000 sleeve.
+- Enforced a $1,500/15% security cap and 35% sector and theme caps in recommendation creation and the final pre-broker safety check.
+- Canonicalized GOOG and GOOGL as one Alphabet exposure.
+- Required complete exposure metadata for every funded position and a distinct sector/theme combination for positions six through eight; unknown classifications fail closed.
+- Added broker-fill-triggered queue recalculation so cash, deployed capital, exposure and remaining slots refresh after new execution evidence.
 
 ### Version 4.5 — 2026-09-21
 

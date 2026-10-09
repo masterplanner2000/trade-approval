@@ -28,9 +28,16 @@ export function assessProtectedExitEvidence(snapshot, { account, symbol, targetI
     if (active.has(target.status) || active.has(stop.status)) return result("blocked", "orphan_sell_order");
     const winner = target.status === "Filled" && terminal.has(stop.status) && stop.status !== "Filled" ? target
       : stop.status === "Filled" && terminal.has(target.status) && target.status !== "Filled" ? stop : null;
+    // IBKR can report totalQuantity=0 on a completed filled order. Recover the
+    // intended bracket quantity from its cancelled sibling, then require the
+    // exact same-account execution to cover that full quantity. Never infer a
+    // fill merely from the terminal order status.
+    const sibling = winner === target ? stop : target;
+    const expectedQuantity = Math.max(Number(winner?.quantity ?? 0), Number(sibling?.quantity ?? 0));
     const executed = winner && (snapshot.executions ?? []).some((execution) => identity(execution) === identity(winner)
       && execution.account === account && execution.symbol === symbol && execution.side === "SLD"
-      && Number(execution.cumulativeQuantity) === Number(winner.quantity));
+      && Number.isFinite(expectedQuantity) && expectedQuantity > 0
+      && Number(execution.cumulativeQuantity) === expectedQuantity);
     return executed ? result("closed") : result("unknown", "closure_not_confirmed");
   }
   if (!active.has(stop.status)) return result("blocked", "protective_stop_not_active");

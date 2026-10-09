@@ -94,6 +94,20 @@ test("unknown position ownership cannot be recommended for an exit", () => {
   assert.equal(review.nextStep, "MANUAL_REVIEW_REQUIRED");
 });
 
+test("a missing profit target makes an otherwise protected exit review-only", () => {
+  const review = buildPortfolioReview({ evaluations: [
+    { symbol: "MRVL", eligible: false, recommendationScore: 20, referenceClose: 110, signalDate: "2026-09-11" },
+    { symbol: "NEXT", eligible: true, recommendationScore: 90, referenceClose: 100, signalDate: "2026-09-11" },
+  ] }, {
+    positions: [{ symbol: "MRVL", quantity: 3, averageCost: 100 }],
+    openOrders: [{ symbol: "MRVL", action: "SELL", orderType: "STP", quantity: 3, status: "Submitted" }],
+  }, { deployed: 330, capitalLimit: 0, openPositionCount: 1, maxOpenPositions: 0, ownership: { items: [
+    { symbol: "MRVL", ownership: "strategy_owned", protection: "verified", reasons: [] },
+  ] } });
+  assert.equal(review.exitReviews[0].orderSubmissionAllowed, false);
+  assert.equal(review.exitReviews[0].approvalBlockedReason, "The exact broker target and stop pair could not be verified");
+});
+
 test("concurrent queue mutations execute one at a time", async () => {
   const serialize = createQueueSerialExecutor();
   const events = [];

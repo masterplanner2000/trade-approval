@@ -78,7 +78,7 @@ export function buildCurrentPerformance({ snapshot, ownership, trades = [], benc
 
   return {
     asOf: snapshot?.capturedAt ?? null,
-    source: "IBKR Paper reconciliation",
+    source: `${snapshot?.broker ?? "Broker"} Paper reconciliation`,
     status: positions.length === 0 ? "EMPTY" : completeDaily && completeUnrealized ? "COMPLETE" : "INCOMPLETE",
     limitations: [
       ...(!completeDaily ? ["Daily P&L is unavailable for one or more open positions."] : []),

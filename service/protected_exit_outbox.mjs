@@ -32,8 +32,9 @@ export class ProtectedExitOutbox {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       ) STRICT;
-      CREATE UNIQUE INDEX IF NOT EXISTS protected_exit_active_symbol
-        ON protected_exit_intents(account, symbol) WHERE phase != 'closed';
+      DROP INDEX IF EXISTS protected_exit_active_symbol;
+      CREATE UNIQUE INDEX protected_exit_active_symbol
+        ON protected_exit_intents(account, symbol) WHERE phase NOT IN ('closed', 'blocked');
     `);
   }
 

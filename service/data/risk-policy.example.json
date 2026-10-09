@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "updatedAt": null,
   "policy": {
     "adaptive": true,
@@ -8,11 +8,11 @@
     "hardRiskPercent": 0.5,
     "dailyLossPercent": 0.75,
     "totalOpenRiskPercent": 1.25,
-    "maximumPositionPercent": 7.5,
-    "maximumDeployedPercent": 60,
-    "minimumCashReservePercent": 40,
-    "maximumSectorPercent": 20,
-    "maximumCorrelatedPercent": 25,
-    "maximumPositions": 5
+    "maximumPositionPercent": 15,
+    "maximumDeployedPercent": 100,
+    "minimumCashReservePercent": 0,
+    "maximumSectorPercent": 35,
+    "maximumCorrelatedPercent": 35,
+    "maximumPositions": 8
   }
 }

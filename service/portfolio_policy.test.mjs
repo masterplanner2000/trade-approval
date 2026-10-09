@@ -2,11 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { effectivePortfolioLimits, portfolioBuyCapacity } from "./portfolio_policy.mjs";
 
-test("effective limits use the stricter strategy and risk-policy caps", () => {
+test("effective limits preserve the sleeve while allowing a stricter configurable position count", () => {
   assert.deepEqual(effectivePortfolioLimits(
     { capitalLimit: 10_000, maxOpenPositions: 8 },
     { sleeveValue: 10_000, maximumDeployedPercent: 60, maximumPositions: 5 },
-  ), { capitalLimit: 6_000, maxOpenPositions: 5 });
+  ), {
+    capitalLimit: 10_000,
+    maxOpenPositions: 5,
+    maximumPositionPercent: 15,
+    maximumSectorPercent: 35,
+    maximumThemePercent: 35,
+    maxPositionValue: 1_500,
+    maxSectorValue: 3_500,
+    maxThemeValue: 3_500,
+  });
 });
 
 test("new buys stop when the position limit is reached", () => {

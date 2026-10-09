@@ -84,6 +84,18 @@ test("stop wins before replacement acknowledgement; closure requires sibling can
   assert.throws(() => broker.resolveTargetReplacement("exit-1", "Accepted"), /target_no_longer_active/);
 });
 
+test("a flat position and exact execution confirm closure when IBKR reports completed quantity as zero", () => {
+  const { broker, ids, advance } = setup();
+  const start = advance(null);
+  broker.requestTargetReplacement({ orderId: ids.targetId, limitPrice: 99, requestId: "exit-1" });
+  broker.resolveTargetReplacement("exit-1", "Accepted");
+  broker.fill(ids.targetId, 5, 99);
+  const snapshot = broker.snapshot();
+  const target = snapshot.completedOrders.find((order) => order.orderId === ids.targetId);
+  target.quantity = 0;
+  assert.equal(advance(start.state, snapshot).state.phase, "closed");
+});
+
 test("partial target/stop race and duplicate callbacks cannot prove safe closure", () => {
   const { broker, ids, advance } = setup();
   const start = advance(null);
