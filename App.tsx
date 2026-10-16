@@ -99,6 +99,17 @@ const PREVIEW_MODE_STORAGE_KEY = "trade-approval.preview-mode";
 const CONNECTION_ALERTS_STORAGE_KEY = "trade-approval.connection-alerts";
 const RECOMMENDATION_MODE_STORAGE_KEY = "trade-approval.recommendation-mode";
 
+const NON_FATAL_RECOMMENDATION_STATES = new Set([
+  "no_candidate_with_acceptable_spread",
+  "no_eligible_recommendation",
+  "recommendation_queue_empty",
+  "strategy_capital_limit",
+]);
+
+function isNonFatalRecommendationState(code: string) {
+  return NON_FATAL_RECOMMENDATION_STATES.has(code);
+}
+
 const RISK_PROFILES: Array<{ id: RecommendationMode; label: string }> = [
   { id: "conservative", label: "Conservative" },
   { id: "balanced", label: "Balanced" },
@@ -174,6 +185,7 @@ type Proposal = {
   signalEligible?: boolean;
   signalDate?: string;
   rulesetVersion?: string;
+  sourceLane?: "baseline" | "shadow";
   marketRisk?: MarketRiskAssessment;
   automaticExits?: boolean;
 };
@@ -253,6 +265,8 @@ type ServiceProposal = {
   rationale: string[];
   researchContext?: string | null;
   marketRisk?: MarketRiskAssessment;
+  category?: string;
+  sourceLane?: "baseline" | "shadow";
   exitPolicy: {
     mode: "broker_bracket";
     protectiveStopPrice: number;
@@ -770,6 +784,9 @@ const qualitativeRisk = (risk?: MarketRiskAssessment) => {
   return risk.level.charAt(0) + risk.level.slice(1).toLowerCase();
 };
 
+const proposalRiskLabel = (proposal: Proposal) =>
+  proposal.sourceLane === "shadow" ? "Higher volatility" : qualitativeRisk(proposal.marketRisk);
+
 function countdown(expiresAt: number) {
   const seconds = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -846,7 +863,7 @@ function PreviewCardFace({ proposal }: { proposal: Proposal }) {
           <View style={styles.tradeTermRow}>
             <Text style={styles.tradeTermLabel}>Risk</Text>
             <View style={styles.riskChip}>
-              <Text style={styles.riskChipText}>{qualitativeRisk(proposal.marketRisk)}</Text>
+              <Text style={styles.riskChipText}>{proposalRiskLabel(proposal)}</Text>
             </View>
           </View>
           <View style={styles.tradeTermRow}>
@@ -1631,6 +1648,7 @@ export default function App() {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [darkMode, setDarkMode] = useState(false);
   const [recommendationMode, setRecommendationMode] = useState<RecommendationMode>("conservative");
+  const recommendationModeRef = useRef<RecommendationMode>("conservative");
   const [activePage, setActivePage] = useState<AppPage>("review");
   const [riskPolicy, setRiskPolicy] = useState<RiskPolicy>(SMART_RISK_POLICY);
   const [policySaving, setPolicySaving] = useState(false);
@@ -1751,6 +1769,7 @@ export default function App() {
     AsyncStorage.getItem(RECOMMENDATION_MODE_STORAGE_KEY)
       .then((value) => {
         if (value === "conservative" || value === "balanced" || value === "growth" || value === "risky") {
+          recommendationModeRef.current = value;
           setRecommendationMode(value);
         }
       })
@@ -2015,7 +2034,7 @@ export default function App() {
       potentialUpsidePercent: ((serviceProposal.targetPrice - serviceProposal.limitPrice) / serviceProposal.limitPrice) * 100,
       rationale: serviceProposal.rationale,
       companyCatalyst: serviceProposal.researchContext ?? "This recommendation passed the current deterministic market, liquidity, and risk rules.",
-      strategyName: strategySummary.name,
+      strategyName: serviceProposal.sourceLane === "shadow" ? "Experimental volatile momentum" : strategySummary.name,
       strategyContext: `${money(strategySummary.currentExposure)} currently allocated of a ${money(strategySummary.capitalLimit)} paper limit across up to ${strategySummary.maxOpenPositions} positions.`,
       accountLabel: `Alpaca Paper ${snapshot.account ?? "connected"}`,
       quoteAge: "Alpaca market data",
@@ -2024,6 +2043,7 @@ export default function App() {
       shadowMode: false,
       signalEligible: true,
       automaticExits: serviceProposal.exitPolicy.automatic,
+      sourceLane: serviceProposal.sourceLane,
       marketRisk: serviceProposal.marketRisk,
       exitPlan: `If the buy fills, Alpaca Paper will hold a profit-taking sell at ${money(serviceProposal.exitPolicy.profitTargetPrice)} and a protective stop sell triggered at ${money(serviceProposal.exitPolicy.protectiveStopPrice)}.`,
     };
@@ -2042,13 +2062,15 @@ export default function App() {
     setProposal(serviceProposalToCard(serviceProposal, snapshot, strategySummary));
   }
 
-  async function createPaperProposal(preferredSymbol?: string) {
+  async function createPaperProposal(preferredSymbol?: string, requestedMode = recommendationModeRef.current) {
     const response = await fetch(`${API_BASE_URL}/recommendations/queue`, {
       method: "POST",
-      headers: { "x-app-token": APP_TOKEN },
+      headers: { "content-type": "application/json", "x-app-token": APP_TOKEN },
+      body: JSON.stringify({ mode: requestedMode }),
     });
     const result = await response.json() as { recommendations: QueuedServiceRecommendation[]; strategy: StrategySummary; portfolioReview?: PortfolioReview; error?: string };
     if (!response.ok) throw new Error(result.error ?? "proposal_unavailable");
+    if (requestedMode !== recommendationModeRef.current) return;
     setStrategy(result.strategy);
     if (result.portfolioReview) {
       const refreshWindow = recommendationRefreshWindow();
@@ -2089,6 +2111,21 @@ export default function App() {
     setNoEligibleRecommendation(false);
     setBrokerConnectionStatus("connected");
     setUiPreview(false);
+  }
+
+  async function refreshPaperRecommendationsInBackground() {
+    try {
+      await createPaperProposal();
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "proposal_unavailable";
+      if (isNonFatalRecommendationState(code)) {
+        setNoEligibleRecommendation(code === "no_eligible_recommendation" || code === "no_candidate_with_acceptable_spread" || code === "recommendation_queue_empty");
+        setStrategyCapitalReached(code === "strategy_capital_limit");
+        setBrokerUnavailable(false);
+        return;
+      }
+      setBrokerUnavailable(true);
+    }
   }
 
   async function checkBrokerConnection() {
@@ -2160,7 +2197,7 @@ export default function App() {
       } : current);
       setExitReviewIndex(0);
       setAppToast({ tone: "success", title: "Paper sell accepted", message: `${review.symbol} is working at Alpaca Paper. The card will remain in Positions until the fill is confirmed.` });
-      setTimeout(() => void createPaperProposal(), 2500);
+      setTimeout(() => void refreshPaperRecommendationsInBackground(), 2500);
     } catch (error) {
       const message = error instanceof Error ? error.message : "paper_exit_blocked";
       const detail = message.includes("live data unavailable") || message.includes("quote")
@@ -2256,9 +2293,12 @@ export default function App() {
       } catch (error) {
         if (!active) return;
         const code = error instanceof Error ? error.message : "proposal_unavailable";
-        setNoEligibleRecommendation(code === "no_eligible_recommendation");
+        const noEligibleCandidate = code === "no_eligible_recommendation"
+          || code === "no_candidate_with_acceptable_spread"
+          || code === "recommendation_queue_empty";
+        setNoEligibleRecommendation(noEligibleCandidate);
         setStrategyCapitalReached(code === "strategy_capital_limit");
-        setBrokerUnavailable(code !== "no_eligible_recommendation" && code !== "strategy_capital_limit");
+        setBrokerUnavailable(!isNonFatalRecommendationState(code));
       } finally {
         recommendationScanInFlight.current = false;
         if (active) setProcessing(false);
@@ -2271,7 +2311,7 @@ export default function App() {
       active = false;
       clearInterval(scanTimer);
     };
-  }, [brokerConnectionStatus, proposal.shadowMode, marketWindow.phase]);
+  }, [brokerConnectionStatus, proposal.shadowMode, marketWindow.phase, recommendationMode]);
 
   const expired = proposal.decision === "pending" && Date.now() >= proposal.expiresAt;
   const state: Decision = expired ? "expired" : proposal.decision;
@@ -2977,8 +3017,14 @@ export default function App() {
   }
 
   function changeRecommendationMode(mode: RecommendationMode) {
+    recommendationModeRef.current = mode;
     setRecommendationMode(mode);
     void AsyncStorage.setItem(RECOMMENDATION_MODE_STORAGE_KEY, mode);
+    recommendationDeckRef.current = [];
+    setRealRecommendations([]);
+    setProposal(SHADOW_LOADING);
+    setRealDeckComplete(false);
+    if (!uiPreviewRef.current) void createPaperProposal(undefined, mode).catch(() => undefined);
   }
 
   const menuActions: Array<{ label: string; onPress: () => void; active: boolean }> = [
@@ -3435,7 +3481,7 @@ export default function App() {
                 <View style={styles.tradeTermRow}>
                   <Text style={styles.tradeTermLabel}>Risk</Text>
                   <View style={styles.riskChip}>
-                    <Text style={styles.riskChipText}>{qualitativeRisk(proposal.marketRisk)}</Text>
+                    <Text style={styles.riskChipText}>{proposalRiskLabel(proposal)}</Text>
                   </View>
                 </View>
                 <View style={styles.tradeTermRow}>

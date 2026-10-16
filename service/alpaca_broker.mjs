@@ -65,7 +65,14 @@ function roleFor(order) {
 
 export function normalizeAlpacaOrder(order, account) {
   const role = roleFor(order);
-  const parentRef = order.client_order_id || order.parent_client_order_id || null;
+  // Alpaca assigns its own UUID-like client_order_id to bracket/OCO child
+  // legs. The application identity remains on the parent order. Prefer that
+  // parent reference for every child so target/stop fills can be reconciled
+  // to the originating decision after the parent has left the open-order
+  // feed.
+  const parentRef = order.parent_order_id
+    ? order.parent_client_order_id || order.client_order_id || null
+    : order.client_order_id || null;
   const reference = parentRef && role !== "entry" && /-(?:entry|target|stop)$/i.test(parentRef)
     ? parentRef.replace(/-(?:entry|target|stop)$/i, `-${role}`)
     : parentRef;

@@ -15,6 +15,16 @@ test("normalizes Alpaca orders into the broker-neutral snapshot contract", () =>
   assert.equal(order.orderRef, "trade-approval-abc-entry");
 });
 
+test("preserves the application reference for Alpaca-generated child-leg ids", () => {
+  const stop = normalizeAlpacaOrder({
+    id: "stop-order", parent_order_id: "target-order", symbol: "INTC", side: "sell", type: "stop",
+    qty: "5", filled_qty: "5", stop_price: "104.36", status: "filled",
+    client_order_id: "019699e0-32fb-4c7b-bfbb-eb4e3a3cdf80",
+    parent_client_order_id: "trade-approval-90496f18-259-target",
+  }, "PA…123");
+  assert.equal(stop.orderRef, "trade-approval-90496f18-259-stop");
+});
+
 test("collects a complete normalized paper reconciliation snapshot", async () => {
   const fetchImpl = async (url) => {
     if (url.endsWith("/v2/account")) return response({ id: "account-123456", account_number: "PA123456", status: "ACTIVE", cash: "9000", equity: "10000", buying_power: "18000", long_market_value: "1000", maintenance_margin: "0" });
@@ -28,6 +38,27 @@ test("collects a complete normalized paper reconciliation snapshot", async () =>
   assert.equal(snapshot.complete, true);
   assert.equal(snapshot.positions[0].currentPrice, 105);
   assert.equal(snapshot.openOrders[0].status, "Submitted");
+});
+
+test("links child-leg fills through the parent application reference", async () => {
+  const fillId = "fill-1";
+  const stopId = "stop-order";
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/v2/account")) return response({ id: "account-123456", account_number: "PA123456", status: "ACTIVE", cash: "10000", equity: "10000", buying_power: "20000", long_market_value: "0", maintenance_margin: "0" });
+    if (url.endsWith("/v2/positions")) return response([]);
+    if (url.includes("/v2/orders?")) return response([{
+      id: "target-order", symbol: "INTC", side: "sell", type: "limit", qty: "5", filled_qty: "0",
+      limit_price: "132.29", status: "canceled", client_order_id: "trade-approval-90496f18-259-target",
+      legs: [{ id: stopId, parent_order_id: "target-order", symbol: "INTC", side: "sell", type: "stop",
+        qty: "5", filled_qty: "5", stop_price: "104.36", status: "filled",
+        client_order_id: "019699e0-32fb-4c7b-bfbb-eb4e3a3cdf80" }],
+    }]);
+    if (url.includes("/activities/FILL")) return response([{ id: fillId, order_id: stopId, symbol: "INTC",
+      side: "sell", qty: "5", cum_qty: "5", price: "104.426", transaction_time: "2026-10-09T19:38:43Z" }]);
+    throw new Error(`unexpected ${url}`);
+  };
+  const snapshot = await alpacaReconciliation({ fetchImpl });
+  assert.equal(snapshot.executions[0].orderRef, "trade-approval-90496f18-259-stop");
 });
 
 test("submits a Paper bracket with a deterministic client order id", async () => {

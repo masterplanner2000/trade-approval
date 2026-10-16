@@ -1,8 +1,16 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-28.1 · **Corresponding architecture:** 5.24
+**Log revision:** 2026-10-14.1 · **Corresponding architecture:** 5.35
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
+
+## D-090 — Add an isolated aggressive Paper recommendation lane
+
+**Status:** Provisional and implemented for Paper testing, 2026-10-14.
+
+**Decision:** Preserve the liquid large-cap momentum strategy as the baseline. Selecting **Aggressive** may source cards from the separately cached higher-volatility scanner, clearly label them as experimental volatile momentum, and size them at no more than half the baseline position and loss limits.
+
+**Safety boundary:** The lane is Alpaca Paper-only and retains current quote, spread, portfolio concentration, protection and broker validation. Conservative, Balanced and Growth continue to use the baseline lane. Live promotion still requires consolidated market data and adequate forward validation.
 
 ## How to use this log
 
@@ -93,6 +101,8 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-074 | Process approved Paper orders in the background | Confirmed; failure restores the card | 2026-09-24 |
 | D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; seven-symbol frozen forward universe installed | 2026-09-24 |
 | D-076 | Use IB Gateway as the default local IBKR Paper connector | Configuration implemented; installation and runtime validation pending | 2026-09-28 |
+| D-088 | Use persistent Alpaca protection and explicit breached-stop exits | Confirmed and implemented for Paper | 2026-10-09 |
+| D-089 | Reconcile Alpaca child fills through the parent application identity | Confirmed and implemented | 2026-10-12 |
 
 ---
 
@@ -1145,3 +1155,13 @@ Review [CRYPTO_DESIGN.md](./CRYPTO_DESIGN.md): Coinbase Exchange/Gemini sandbox 
 - A profitable recommended rotation with missing protection may also use the explicitly approved direct-exit path.
 - Direct exits require fresh broker reconciliation, exact strategy ownership, no working sell, a bounded execution quote, in-process duplicate suppression, a deterministic broker reference, and post-submit reconciliation.
 - These changes apply to Alpaca Paper only. They do not authorize live trading or automatic sells.
+
+## D-089 — Reconcile Alpaca child fills through the parent application identity
+
+**Status:** Confirmed and implemented, 2026-10-12.
+
+**Decision:** For Alpaca bracket and OCO child legs, use the parent's deterministic `trade-approval-…` client-order identity and derive the child's target or stop role from it. Do not treat Alpaca's generated UUID-like child `client_order_id` as application provenance.
+
+**Reason:** The broker can assign an independent identifier to a child stop or target even though the order belongs to an application-created parent. Using the child identifier caused a valid INTC protective-stop fill to appear external, leaving a closed position open in the local ledger and incorrectly blocking portfolio capacity.
+
+**Recovery boundary:** A fresh read-only reconciliation may replay already-observed child fills into the ledger only when their parent carries an unambiguous application decision reference. Symbol and quantity alone never establish ownership. The recovery creates, changes and cancels no broker orders.

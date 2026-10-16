@@ -1,10 +1,23 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.27
-**Last updated:** 2026-10-07
+**Current architecture version:** 5.35
+**Last updated:** 2026-10-14
 **Status:** Living source of truth
 
 This document explains the major application components, their responsibilities, and how information moves from research to recommendations, approval, broker execution, reconciliation, and performance evaluation.
+
+### Version 5.35 — 2026-10-14
+
+- Connected the existing higher-volatility daily scanner to the Aggressive risk-profile setting as an experimental Alpaca Paper lane.
+- Kept the baseline scanner unchanged for Conservative, Balanced and Growth profiles.
+- Capped aggressive positions and per-trade loss at half the baseline limits, while retaining fresh quote, spread, diversification, protection and broker checks.
+- Labelled aggressive proposals as volatile momentum and shortened their expected holding horizon; no live-trading authority was added.
+
+### Version 5.34 — 2026-10-14
+
+- Classified an empty spread-qualified recommendation scan as a normal, non-fatal recommendation state rather than a broker outage.
+- Added a guarded background-refresh boundary so a post-action scan cannot surface as an unhandled Expo promise error.
+- Preserved the current recommendation card while a later scan has no newly eligible candidate.
 
 The Mermaid source in this file is authoritative. FigJam and other visual exports are derived views and may lag behind this document.
 
@@ -585,6 +598,12 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a CSV discovery-list extension to the isolated aggressive cache, with explicit inclusion and rejection provenance.
 - Expanded coverage of the supplied volatile-stock list from 28 to 248 observed names without changing any eligibility gate.
 - Added descriptive realized-volatility, maximum-drawdown and opening-gap outputs to shadow ruleset v2. They do not affect orders or core recommendations.
+
+### Version 5.33 — 2026-10-12
+
+- Corrected Alpaca bracket/OCO child-leg normalization to retain the originating application decision reference instead of Alpaca's generated child UUID.
+- Made historical target and protective-stop fills replay into the durable ledger on the next read-only reconciliation, so closed positions release capacity without manual ledger edits.
+- Verified the repair against the current Paper account: the completed INTC stop fill cleared the phantom holding and restored complete ownership; no order was created, replaced or cancelled.
 
 ### Version 5.32 — 2026-10-09
 

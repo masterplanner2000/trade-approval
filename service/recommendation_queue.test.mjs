@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPortfolioReview, eligibleQueueCandidates, recommendationTtlMs, wasDeniedForSignal } from "./server.mjs";
+import { buildPortfolioReview, eligibleQueueCandidates, normalizeAggressiveScan, recommendationTtlMs, wasDeniedForSignal } from "./server.mjs";
 import { chooseActiveRecommendationVersions, createQueueSerialExecutor } from "./recommendation_queue.mjs";
 
 test("recommendation expiry shortens as volatility rises", () => {
@@ -15,6 +15,18 @@ test("recommendation set contains every eligible non-excluded candidate", () => 
   }));
   const candidates = eligibleQueueCandidates({ evaluations }, new Set(["TEST4"]));
   assert.deepEqual(candidates.map(({ symbol }) => symbol), ["TEST6", "TEST5", "TEST3", "TEST2", "TEST0"]);
+});
+
+test("aggressive research candidates normalize into a distinct Paper lane", () => {
+  const normalized = normalizeAggressiveScan({ candidates: [
+    { symbol: "FAST", eligible: true, researchScore: 82.5, atrPercent14: 8.2 },
+    { symbol: "PBR.A", eligible: true, researchScore: 80, atrPercent14: 5 },
+  ] });
+  assert.equal(normalized.mode, "aggressive_paper");
+  assert.equal(normalized.evaluations[0].sourceLane, "shadow");
+  assert.equal(normalized.evaluations[0].category, "VOLATILE_MOMENTUM");
+  assert.equal(normalized.evaluations[0].recommendationScore, 82.5);
+  assert.equal(normalized.evaluations.length, 1);
 });
 
 test("a denied symbol is excluded only for the same signal date", () => {

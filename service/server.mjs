@@ -314,6 +314,36 @@ async function scanDailyShadowSignals() {
   }
 }
 
+async function scanAggressiveDailySignals() {
+  try {
+    const { stdout } = await execFileAsync(ibkrPython, [aggressiveShadowScannerScript, "scan"], {
+      timeout: 180_000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    return normalizeAggressiveScan(JSON.parse(stdout));
+  } catch (error) {
+    const output = error.stdout?.trim();
+    if (output) return normalizeAggressiveScan(JSON.parse(output));
+    throw error;
+  }
+}
+
+export function normalizeAggressiveScan(scan = {}) {
+  return {
+    ...scan,
+    mode: "aggressive_paper",
+    evaluations: (scan.candidates ?? [])
+      .filter((candidate) => /^[A-Z0-9]{1,10}$/.test(String(candidate.symbol ?? "")))
+      .map((candidate) => ({
+      ...candidate,
+      category: "VOLATILE_MOMENTUM",
+      recommendationScore: candidate.researchScore,
+      sourceLane: "shadow",
+      marketRisk: candidate.marketRisk ?? null,
+      })),
+  };
+}
+
 function recordShadowScan(scan) {
   if (!scan.selected) return null;
   const selected = scan.selected;
@@ -616,12 +646,17 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
   const ask = snapshot?.quote?.ask ?? referencePrice;
   const limitPrice = roundPrice(Math.max(ask, referencePrice * 1.002));
   const budget = currentStrategyBudget();
-  const availableCapital = Math.min(strategy.perTradeLimit, budget.maxPositionValue, budget.available);
+  const aggressivePaperLane = candidate?.sourceLane === "shadow";
+  const lanePositionLimit = aggressivePaperLane
+    ? Math.min(strategy.perTradeLimit * 0.5, budget.maxPositionValue * 0.5)
+    : strategy.perTradeLimit;
+  const availableCapital = Math.min(lanePositionLimit, budget.maxPositionValue, budget.available);
   const quantity = Math.min(5, Math.floor(availableCapital / limitPrice));
   const stopDistancePercent = Math.min(8, Math.max(2, (candidate?.atrPercent14 ?? 2) * 1.5));
   const stopPrice = roundPrice(referencePrice * (1 - stopDistancePercent / 100));
   const targetPrice = roundPrice(limitPrice + (limitPrice - stopPrice) * 2);
-  const riskQuantity = Math.floor((strategy.maxLossPerTrade ?? 75) / Math.max(limitPrice - stopPrice, 0.01));
+  const laneLossLimit = (strategy.maxLossPerTrade ?? 75) * (aggressivePaperLane ? 0.5 : 1);
+  const riskQuantity = Math.floor(laneLossLimit / Math.max(limitPrice - stopPrice, 0.01));
   const finalQuantity = Math.min(quantity, riskQuantity);
   const proposal = {
     id: randomUUID(),
@@ -642,7 +677,7 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
     limitPrice,
     stopPrice,
     targetPrice,
-    targetTimeframe: strategy.expectedHoldingPeriod,
+    targetTimeframe: aggressivePaperLane ? "Same day–2 trading days" : strategy.expectedHoldingPeriod,
     exitPolicy: {
       mode: "broker_bracket",
       protectiveStopPrice: stopPrice,
@@ -658,7 +693,7 @@ function seedProposal(snapshot = null, secResearch = null, candidate = null) {
     category: candidate?.category ?? "MOMENTUM_CONTINUATION",
     recommendationScore: candidate?.recommendationScore ?? null,
     signalDate: candidate?.signalDate ?? null,
-    universeSource: "alpaca-cache",
+    universeSource: aggressivePaperLane ? "alpaca-aggressive-cache" : "alpaca-cache",
     sourceLane: candidate?.sourceLane ?? "baseline",
     rulesetVersion: candidate?.rulesetVersion ?? null,
     evidenceRunId: candidate?.evidenceRunId ?? null,
@@ -678,8 +713,10 @@ function withRecommendationQueueLock(operation) {
   return serializeRecommendationQueue(operation);
 }
 
-async function buildRecommendationQueue({ additionalExcludedSymbols = [] } = {}) {
+async function buildRecommendationQueue({ additionalExcludedSymbols = [], mode = "balanced" } = {}) {
   if (strategy.status !== "active") throw new Error("strategy_paused");
+  if (!["conservative", "balanced", "growth", "risky"].includes(mode)) throw new Error("invalid_recommendation_mode");
+  const requestedLane = mode === "risky" ? "shadow" : "baseline";
   let strategyBudget = currentStrategyBudget();
 
   // An elapsed quote window does not mean the user rejected the idea. Retire
@@ -700,9 +737,9 @@ async function buildRecommendationQueue({ additionalExcludedSymbols = [] } = {})
     proposalSnapshots.delete(proposal.id);
     auditLog.push({ id: randomUUID(), at: now(), event: "duplicate_recommendation_superseded", proposalId: proposal.id, symbol: proposal.symbol });
   }
-  const existing = activeVersions.active;
+  const existing = activeVersions.active.filter((proposal) => (proposal.sourceLane ?? "baseline") === requestedLane);
 
-  const scan = await scanDailyShadowSignals();
+  const scan = requestedLane === "shadow" ? await scanAggressiveDailySignals() : await scanDailyShadowSignals();
   if (!scan.ok) throw new Error(scan.error ?? "scanner_unavailable");
   if (strategyBudget.available <= 0) {
     let snapshot = reconciliations().latest()?.snapshot ?? null;
@@ -776,7 +813,7 @@ async function buildRecommendationQueue({ additionalExcludedSymbols = [] } = {})
     if (spreadPercent > maximumBidAskSpreadPercent) continue;
     const evidenceIdentity = resolveProposalEvidenceIdentity(dailyEvidencePath, {
       signalDate: evaluated.signalDate,
-      lane: "baseline",
+      lane: requestedLane,
       symbol: evaluated.symbol,
       rulesetVersion: scan.rulesetVersion,
     });
@@ -837,7 +874,7 @@ function recommendationQueue(options = {}) {
   return withRecommendationQueueLock(() => buildRecommendationQueue(options));
 }
 
-async function recalculateRecommendationQueue({ excludedSymbols = [] } = {}) {
+async function recalculateRecommendationQueue({ excludedSymbols = [], mode = "balanced" } = {}) {
   return withRecommendationQueueLock(async () => {
     const replacedProposalIds = [];
     for (const proposal of proposals.values()) {
@@ -854,7 +891,7 @@ async function recalculateRecommendationQueue({ excludedSymbols = [] } = {}) {
       replacedProposalIds,
       excludedSymbols,
     });
-    return buildRecommendationQueue({ additionalExcludedSymbols: excludedSymbols });
+    return buildRecommendationQueue({ additionalExcludedSymbols: excludedSymbols, mode });
   });
 }
 
@@ -1526,7 +1563,8 @@ async function route(request, response) {
 
   if (request.method === "POST" && url.pathname === "/recommendations/queue") {
     try {
-      return json(response, 201, await recommendationQueue());
+      const input = await body(request);
+      return json(response, 201, await recommendationQueue({ mode: input.mode ?? "balanced" }));
     } catch (error) {
       return json(response, 503, { error: error.message ?? "recommendation_queue_unavailable" });
     }
@@ -1805,7 +1843,10 @@ async function route(request, response) {
                     : null;
         if (portfolioPolicyError) {
           try {
-            const recalculated = await recalculateRecommendationQueue({ excludedSymbols: [receipt.symbol] });
+            const recalculated = await recalculateRecommendationQueue({
+              excludedSymbols: [receipt.symbol],
+              mode: proposal.sourceLane === "shadow" ? "risky" : "balanced",
+            });
             return json(response, 409, {
               error: portfolioPolicyError,
               checks: safetyChecks,
@@ -1876,7 +1917,10 @@ async function route(request, response) {
         if (simulatedBroker) recalculated = { recommendations: [], strategy: strategySummary() };
         else {
           try {
-            recalculated = await recalculateRecommendationQueue({ excludedSymbols: [receipt.symbol] });
+            recalculated = await recalculateRecommendationQueue({
+              excludedSymbols: [receipt.symbol],
+              mode: proposal.sourceLane === "shadow" ? "risky" : "balanced",
+            });
           } catch {
             recalculated = { recommendations: [], strategy: strategySummary() };
           }
@@ -2098,7 +2142,10 @@ async function route(request, response) {
       saveStrategy();
       auditLog.push({ id: randomUUID(), at: now(), event: "proposal_denied", proposalId: proposal.id, decisionId: proposal.decisionId });
       try {
-        const recalculated = await recalculateRecommendationQueue({ excludedSymbols: [proposal.symbol] });
+        const recalculated = await recalculateRecommendationQueue({
+          excludedSymbols: [proposal.symbol],
+          mode: proposal.sourceLane === "shadow" ? "risky" : "balanced",
+        });
         return json(response, 200, { proposal, ...recalculated, recalculated: true });
       } catch (error) {
         auditLog.push({

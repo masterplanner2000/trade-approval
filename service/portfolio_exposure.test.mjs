@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canonicalExposureSymbol, evaluatePortfolioAddition } from "./portfolio_exposure.mjs";
+import { canonicalExposureSymbol, evaluatePortfolioAddition, exposureProfile } from "./portfolio_exposure.mjs";
 
 const limits = {
   capitalLimit: 10_000,
@@ -61,4 +61,10 @@ test("position and sector-theme caps are enforced", () => {
   const sector = evaluatePortfolioAddition({ ...limits, symbol: "INTC", notional: 1_000,
     holdings: [{ symbol: "NVDA", notional: 1_300 }, { symbol: "MSFT", notional: 1_300 }] });
   assert.equal(sector.checks.sectorAllowed, false);
+});
+
+test("the current aggressive Paper candidates have complete exposure classifications", () => {
+  for (const symbol of ["PENG", "FIGS", "TALO", "QDEL", "SNAP", "CDW", "MOH", "SDRL", "DHT", "VFC", "TEAM", "INTR", "GO", "AI", "DXC", "MUR", "HUM", "LIF"]) {
+    assert.equal(exposureProfile(symbol).complete, true, symbol);
+  }
 });

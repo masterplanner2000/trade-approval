@@ -548,6 +548,7 @@ Crypto acceptance requires no production credentials or network orders; fresh ex
 - [x] Detect recorded protective-stop breaches without silently loosening risk.
 - [x] Surface breached stops and profitable unprotected rotations as approvable sell cards.
 - [x] Add an idempotent Alpaca Paper direct-exit path with reconciliation.
+- [x] Preserve parent application identity on Alpaca-generated target/stop child legs and replay the INTC stop fill into the ledger.
 - [x] Add focused regression tests and run type checking.
 - [ ] Obtain explicit user approval before submitting the current SMCI or XOM sell.
 - [ ] After any approved fill, reconcile positions, recalculate capacity, and refresh buy recommendations.
