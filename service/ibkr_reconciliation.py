@@ -13,9 +13,12 @@ from ibapi.client import EClient
 from ibapi.execution import ExecutionFilter
 from ibapi.wrapper import EWrapper
 
+from ibkr_connection import paper_connection
 
-HOST = "127.0.0.1"
-PAPER_PORT = 7497
+
+CONNECTION = paper_connection()
+HOST = CONNECTION.host
+PAPER_PORT = CONNECTION.port
 CLIENT_ID = int(os.environ.get("IBKR_RECON_CLIENT_ID", "75"))
 IGNORED_ERROR_CODES = {2104, 2106, 2107, 2108, 2158, 2176}
 
@@ -41,14 +44,22 @@ class ReconciliationSnapshot(EWrapper, EClient):
         self.orders_done = threading.Event()
         self.completed_orders_done = threading.Event()
         self.executions_done = threading.Event()
+        self.pnl_done = threading.Event()
+        self.position_pnl_done = threading.Event()
         self.accounts: list[str] = []
         self.summary: dict[str, dict] = {}
-        self.positions: list[dict] = []
+        # IBKR can repeat a position callback during a snapshot. A contract is
+        # one aggregate holding, so retain the latest callback per account and
+        # contract instead of emitting duplicate portfolio rows.
+        self.positions: dict[str, dict] = {}
         self.orders: dict[str, dict] = {}
         self.completed_orders: dict[str, dict] = {}
         self.executions: list[dict] = []
         self.commissions: dict[str, dict] = {}
         self.errors: list[dict] = []
+        self.pnl_data: dict[str, float | None] = {}
+        self.position_pnl_requests: dict[int, str] = {}
+        self.pending_position_pnl: set[int] = set()
 
     def nextValidId(self, orderId: int) -> None:  # noqa: N802
         self.ready.set()
@@ -64,9 +75,11 @@ class ReconciliationSnapshot(EWrapper, EClient):
 
     def position(self, account, contract, position, avgCost) -> None:
         quantity = number(position)
+        identity = f"{account}:{contract.conId or contract.symbol}:{contract.secType}:{contract.currency}"
         if quantity == 0:
+            self.positions.pop(identity, None)
             return
-        self.positions.append({
+        self.positions[identity] = {
             "account": mask_account(account),
             "contractId": contract.conId,
             "symbol": contract.symbol,
@@ -74,7 +87,7 @@ class ReconciliationSnapshot(EWrapper, EClient):
             "currency": contract.currency,
             "quantity": quantity,
             "averageCost": number(avgCost),
-        })
+        }
 
     def positionEnd(self) -> None:  # noqa: N802
         self.positions_done.set()
@@ -86,6 +99,8 @@ class ReconciliationSnapshot(EWrapper, EClient):
             "orderId": orderId,
             "permanentId": permanent_id or None,
             "parentId": int(order.parentId or 0) or None,
+            "ocaGroup": order.ocaGroup or None,
+            "ocaType": int(order.ocaType or 0) or None,
             "clientId": int(order.clientId or 0),
             "account": mask_account(order.account),
             "symbol": contract.symbol,
@@ -110,6 +125,8 @@ class ReconciliationSnapshot(EWrapper, EClient):
             "orderId": int(order.orderId or 0),
             "permanentId": permanent_id or None,
             "parentId": int(order.parentId or 0) or None,
+            "ocaGroup": order.ocaGroup or None,
+            "ocaType": int(order.ocaType or 0) or None,
             "clientId": int(order.clientId or 0),
             "account": mask_account(order.account),
             "symbol": contract.symbol,
@@ -157,6 +174,26 @@ class ReconciliationSnapshot(EWrapper, EClient):
                 execution.update(commission)
                 break
 
+    def pnl(self, reqId, dailyPnL, unrealizedPnL, realizedPnL) -> None:
+        self.pnl_data = {
+            "dailyPnl": number(dailyPnL), "unrealizedPnl": number(unrealizedPnL),
+            "realizedPnl": number(realizedPnL),
+        }
+        self.pnl_done.set()
+
+    def pnlSingle(self, reqId, pos, dailyPnL, unrealizedPnL, realizedPnL, value) -> None:  # noqa: N802
+        identity = self.position_pnl_requests.get(reqId)
+        if identity in self.positions:
+            self.positions[identity].update({
+                "marketValue": number(value),
+                "dailyPnl": number(dailyPnL),
+                "unrealizedPnl": number(unrealizedPnL),
+                "realizedPnl": number(realizedPnL),
+            })
+        self.pending_position_pnl.discard(reqId)
+        if not self.pending_position_pnl:
+            self.position_pnl_done.set()
+
     def error(self, reqId: int, *args) -> None:
         if len(args) >= 4:
             _, code, message, *_ = args
@@ -166,16 +203,23 @@ class ReconciliationSnapshot(EWrapper, EClient):
             self.errors.append({"code": code, "message": message})
 
 
-def main() -> int:
+def collect_snapshot(*, client_id: int = CLIENT_ID, timeout_seconds: float = 8) -> dict:
+    """Collect one read-only snapshot without printing or granting order authority."""
     app = ReconciliationSnapshot()
+    pnl_requested = False
     try:
-        app.connect(HOST, PAPER_PORT, clientId=CLIENT_ID)
+        app.connect(HOST, PAPER_PORT, clientId=client_id)
         threading.Thread(target=app.run, daemon=True).start()
-        if not app.ready.wait(8):
-            print(json.dumps({"ok": False, "error": "tws_connection_timeout"}))
-            return 1
+        if not app.ready.wait(timeout_seconds):
+            return {"ok": False, "error": "tws_connection_timeout", "complete": False,
+                    "environment": "paper", "readOnly": True}
 
         app.reqManagedAccts()
+        for _ in range(20):
+            if app.accounts:
+                break
+            time.sleep(0.1)
+        account = app.accounts[0] if len(app.accounts) == 1 else None
         app.reqAccountSummary(
             9201,
             "All",
@@ -186,23 +230,35 @@ def main() -> int:
         app.reqAllOpenOrders()
         app.reqCompletedOrders(False)
         app.reqExecutions(9202, ExecutionFilter())
+        if account:
+            app.reqPnL(9203, account, "")
+            pnl_requested = True
 
         completed = {
-            "accountSummary": app.summary_done.wait(8),
-            "positions": app.positions_done.wait(8),
-            "openOrders": app.orders_done.wait(8),
-            "completedOrders": app.completed_orders_done.wait(8),
-            "executions": app.executions_done.wait(8),
+            "accountSummary": app.summary_done.wait(timeout_seconds),
+            "positions": app.positions_done.wait(timeout_seconds),
+            "openOrders": app.orders_done.wait(timeout_seconds),
+            "completedOrders": app.completed_orders_done.wait(timeout_seconds),
+            "executions": app.executions_done.wait(timeout_seconds),
         }
+        position_pnl_requested: list[int] = []
+        if account and completed["positions"]:
+            for offset, (identity, position) in enumerate(app.positions.items()):
+                contract_id = int(position.get("contractId") or 0)
+                if contract_id <= 0:
+                    continue
+                request_id = 9300 + offset
+                app.position_pnl_requests[request_id] = identity
+                app.pending_position_pnl.add(request_id)
+                position_pnl_requested.append(request_id)
+                app.reqPnLSingle(request_id, account, "", contract_id)
+            if position_pnl_requested:
+                app.position_pnl_done.wait(min(timeout_seconds, 4))
         # Commission reports follow execution details and have no end callback.
         # Allow a short bounded window for them to attach to the executions.
         time.sleep(0.35)
-        for _ in range(20):
-            if app.accounts:
-                break
-            time.sleep(0.1)
-
-        account = app.accounts[0] if len(app.accounts) == 1 else None
+        if account:
+            app.pnl_done.wait(timeout_seconds)
         complete = all(completed.values()) and account is not None
         result = {
             "ok": complete,
@@ -213,19 +269,29 @@ def main() -> int:
             "complete": complete,
             "completed": completed,
             "summary": app.summary,
-            "positions": app.positions,
+            "positions": list(app.positions.values()),
             "openOrders": list(app.orders.values()),
             "completedOrders": list(app.completed_orders.values()),
             "executions": app.executions,
+            "pnl": app.pnl_data,
             "warnings": app.errors,
         }
-        print(json.dumps(result))
-        return 0 if complete else 1
+        return result
     finally:
         if app.isConnected():
+            for request_id in getattr(app, "position_pnl_requests", {}):
+                app.cancelPnLSingle(request_id)
+            if pnl_requested:
+                app.cancelPnL(9203)
             app.cancelAccountSummary(9201)
             app.cancelPositions()
             app.disconnect()
+
+
+def main() -> int:
+    result = collect_snapshot()
+    print(json.dumps(result))
+    return 0 if result.get("ok") else 1
 
 
 if __name__ == "__main__":

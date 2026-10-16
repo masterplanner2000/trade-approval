@@ -16,13 +16,14 @@ const summaryNumber = (snapshot, tag) => {
 };
 
 export function proposalReference(orderRef) {
-  const match = /^trade-approval-([0-9a-f-]{1,36})-(entry|target|stop)$/i.exec(orderRef ?? "");
+  const match = /^trade-approval-([0-9a-f-]{1,36})-(entry|target|stop|exit)$/i.exec(orderRef ?? "");
   return match ? { decisionPrefix: match[1], role: match[2] } : null;
 }
 
-const appStyleOrderReference = (orderRef) => /^trade-approval-[0-9a-f-]{8,36}(?:-(?:entry|target|stop))?$/i.test(orderRef ?? "");
+const appStyleOrderReference = (orderRef) => /^trade-approval-[0-9a-f-]{8,36}(?:-(?:entry|target|stop|exit))?$/i.test(orderRef ?? "");
 
 export function reconcileSnapshotToLedger(snapshot, ledger) {
+  const broker = snapshot.broker ?? "IBKR";
   const linked = [];
   const proposals = ledger.listProposals();
   const matches = new Map();
@@ -65,7 +66,8 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
     const reference = proposalReference(payload.orderRef);
     const match = reference ? matches.get(reference.decisionPrefix) : null;
     if (!match) continue;
-    const role = reference.role === "target" ? "profit_target" : reference.role === "stop" ? "protective_stop" : "entry";
+    const role = reference.role === "target" ? "profit_target" : reference.role === "stop" ? "protective_stop"
+      : reference.role === "exit" ? "exit" : "entry";
     const expectedQuantity = Number(match.proposal.terms?.quantity ?? 0);
     const cumulativeQuantity = Number(payload.cumulativeQuantity ?? payload.quantity ?? 0);
     const status = observation.execution && expectedQuantity > 0 && cumulativeQuantity < expectedQuantity
@@ -82,7 +84,7 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
     ledger.recordBrokerOrder({
       proposalId: match.proposal.id,
       submissionAttemptId: attempt?.id ?? null,
-      broker: "IBKR",
+      broker,
       accountId: snapshot.account,
       brokerOrderId,
       parentBrokerOrderId: payload.parentId ?? null,
@@ -104,8 +106,8 @@ export function reconcileSnapshotToLedger(snapshot, ledger) {
     }
     ledger.appendEvent({
       eventKey: observation.payload.executionId
-        ? `ibkr:execution:${observation.payload.executionId}`
-        : `ibkr:order:${snapshot.account}:${brokerOrderId}:${observation.status}`,
+        ? `${broker.toLowerCase()}:execution:${observation.payload.executionId}`
+        : `${broker.toLowerCase()}:order:${snapshot.account}:${brokerOrderId}:${observation.status}`,
       proposalId: match.proposal.id,
       decisionId: match.decision.id,
       submissionAttemptId: attempt?.id ?? null,
@@ -134,6 +136,16 @@ export function authoritativePortfolio(snapshot, { maximumAgeMs = 30_000, now = 
   if (typeof snapshot.capturedAt !== "number" || snapshot.capturedAt > now + 1_000 || now - snapshot.capturedAt > maximumAgeMs) {
     missing.push("freshSnapshot");
   }
+  const positionsByIdentity = new Map();
+  for (const position of Array.isArray(snapshot.positions) ? snapshot.positions : []) {
+    const identity = [
+      position.account ?? snapshot.account ?? "",
+      position.contractId ?? position.symbol ?? "",
+      position.securityType ?? "",
+      position.currency ?? "",
+    ].join(":");
+    positionsByIdentity.set(identity, position);
+  }
   return {
     status: missing.length ? "INCOMPLETE" : "COMPLETE",
     environment: snapshot.environment ?? null,
@@ -143,7 +155,7 @@ export function authoritativePortfolio(snapshot, { maximumAgeMs = 30_000, now = 
     settledCash: summaryNumber(snapshot, "SettledCash"),
     unrealizedPnl: summaryNumber(snapshot, "UnrealizedPnL"),
     realizedPnl: summaryNumber(snapshot, "RealizedPnL"),
-    positions: Array.isArray(snapshot.positions) ? snapshot.positions : [],
+    positions: [...positionsByIdentity.values()],
     openOrders: Array.isArray(snapshot.openOrders) ? snapshot.openOrders : [],
     executions: Array.isArray(snapshot.executions) ? snapshot.executions : [],
     missing,
@@ -181,6 +193,7 @@ export class BrokerReconciliationStore {
   }
 
   record(snapshot, { knownDecisionPrefixes = [] } = {}) {
+    const broker = snapshot.broker ?? "IBKR";
     const portfolio = authoritativePortfolio(snapshot);
     const runId = randomUUID();
     const recordedAt = Date.now();
@@ -189,8 +202,8 @@ export class BrokerReconciliationStore {
       this.database.prepare(`
         INSERT INTO reconciliation_runs
           (id, broker, environment, account_id, captured_at, recorded_at, status, snapshot_json)
-        VALUES (?, 'IBKR', ?, ?, ?, ?, ?, ?)
-      `).run(runId, snapshot.environment, snapshot.account, snapshot.capturedAt, recordedAt, portfolio.status, json(snapshot));
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(runId, broker, snapshot.environment, snapshot.account, snapshot.capturedAt, recordedAt, portfolio.status, json(snapshot));
 
       const known = new Set(knownDecisionPrefixes);
       const activity = [
@@ -206,11 +219,11 @@ export class BrokerReconciliationStore {
           INSERT INTO reconciled_broker_activity
             (broker, environment, account_id, activity_type, broker_identity, symbol, order_ref,
              ownership, first_seen_at, last_seen_at, payload_json)
-          VALUES ('IBKR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (broker, environment, account_id, activity_type, broker_identity) DO UPDATE SET
             symbol = excluded.symbol, order_ref = excluded.order_ref, ownership = excluded.ownership,
             last_seen_at = excluded.last_seen_at, payload_json = excluded.payload_json
-        `).run(snapshot.environment, snapshot.account, item.type, item.identity, item.payload.symbol ?? null,
+        `).run(broker, snapshot.environment, snapshot.account, item.type, item.identity, item.payload.symbol ?? null,
           item.payload.orderRef ?? null, ownership, snapshot.capturedAt, snapshot.capturedAt, json(item.payload));
       }
       this.database.exec("COMMIT");

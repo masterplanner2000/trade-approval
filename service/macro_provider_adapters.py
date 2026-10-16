@@ -123,9 +123,13 @@ class AlpacaSnapshotClient:
         ask = _number(latest_quote.get("ap"))
         last = _number(latest_trade.get("p"))
         volume = _number(daily_bar.get("v"), allow_zero=True)
+        session_open = _number(daily_bar.get("o"))
+        session_high = _number(daily_bar.get("h"))
+        session_low = _number(daily_bar.get("l"))
         previous_close = _number(previous_bar.get("c"))
         quote_at, trade_at = _instant(latest_quote.get("t")), _instant(latest_trade.get("t"))
-        if (None in {bid, ask, last, volume, previous_close, quote_at, trade_at}
+        if (None in {bid, ask, last, volume, session_open, session_high, session_low,
+                     previous_close, quote_at, trade_at}
                 or bid > ask):
             raise ValueError("macro_provider_snapshot_invalid")
         observed = max(quote_at, trade_at)
@@ -136,10 +140,14 @@ class AlpacaSnapshotClient:
             "feed": self.feed,
             "volumeScope": ALLOWED_FEEDS[self.feed],
             "observedAt": _iso(observed),
+            "quoteObservedAt": _iso(quote_at),
             "bid": bid,
             "ask": ask,
             "last": last,
             "sessionVolume": volume,
+            "sessionOpen": session_open,
+            "sessionHigh": session_high,
+            "sessionLow": session_low,
             "previousClose": previous_close,
         }
 

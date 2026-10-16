@@ -1,9 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
+import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemeProvider } from "@shopify/restyle";
-import { CaretDownIcon, CheckCircleIcon, CircleIcon, ClockIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, XIcon } from "phosphor-react-native";
+import { CheckCircleIcon, CircleIcon, ClockCounterClockwiseIcon, ClockIcon, DotsThreeIcon, GaugeIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, WifiSlashIcon, XIcon } from "phosphor-react-native";
 import {
   Alert,
   Animated,
@@ -21,7 +22,6 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ActionButton, Toast } from "./src/components/ui";
-import { StockNews } from "./src/components/StockNews";
 import { AppText as Text, Box as View, darkPalette, darkTheme, palette, radius, spacing, theme, type AppPalette, typeRamp } from "./src/design-system";
 
 type VisualThemeContextValue = {
@@ -38,12 +38,17 @@ function useVisualTheme() {
 }
 
 type Decision = "pending" | "approved" | "denied" | "expired";
+type RecommendationMode = "conservative" | "balanced" | "growth" | "risky";
 type BrokerConnectionStatus = "checking" | "connected" | "disconnected";
+type BrokerConnectionHealth = { state: BrokerConnectionStatus; consecutiveFailures: number; failureThreshold: number;
+  lastCheckedAt: number | null; lastConnectedAt: number | null; lastDisconnectedAt: number | null; lastError: string | null; newOrdersAllowed: boolean };
 type AppToast = { tone: "info" | "success" | "danger"; title: string; message?: string };
-type AppPage = "review" | "activity" | "positions" | "settings" | "preview";
+type AppPage = "review" | "recommendationHistory" | "activity" | "positions" | "performance" | "research" | "settings";
 type ActivityItem = {
-  id: string; symbol: string; side: string; status: string; occurredAt: number;
+  id: string; symbol: string; company?: string | null; side: string; status: string; occurredAt: number;
   quantity: number | null; limitPrice: number | null; environment: string; brokerOrderId: string | null;
+  stopPrice?: number | null; targetPrice?: number | null; targetTimeframe?: string | null;
+  researchContext?: string | null; rationale?: string[];
 };
 type TradeItem = {
   id: string; symbol: string; quantity: number; status: "open" | "closed";
@@ -51,6 +56,7 @@ type TradeItem = {
   entryFee: number | null; exitFee: number | null; feesComplete: boolean;
   grossProfit: number | null; netProfit: number | null; exitReason: "profit_target" | "protective_stop" | "exit" | null;
   openedAt: number; closedAt: number | null; protectiveStopPrice: number | null; profitTargetPrice: number | null;
+  proposedEntryPrice?: number | null; entrySlippageDollars?: number | null; entrySlippageBps?: number | null; timeToFillMs?: number | null;
 };
 type PositionItem = {
   id: string; symbol: string; quantity: number; averageEntryPrice: number; currentPrice: number | null;
@@ -62,8 +68,58 @@ type PositionItem = {
   brokerHistory?: { netQuantity: number; rowCount: number; observedOn: string; status: "matched" | "mismatch"; orderAttribution: "unverified" } | null;
   flexHistory?: { netQuantity: number; orderCount: number; observedOn: string; status: "matched" | "mismatch"; orderAttribution: "verified_application_reference" } | null;
 };
+type PerformanceReport = {
+  asOf: number | null; source: string; status: "COMPLETE" | "INCOMPLETE" | "EMPTY"; limitations: string[];
+  today: {
+    totalPnl: number | null; openPositionPnl: number | null; realizedGrossPnl: number | null;
+    strategyReturnPercent: number | null; qqqReturnPercent: number | null; versusQqqPercentagePoints: number | null;
+    benchmarkDataType: number | string | null;
+  };
+  openPositions: { count: number; unrealizedPnl: number | null; items: Array<{
+    symbol: string; quantity: number; averageEntryPrice: number | null; marketValue: number | null;
+    unrealizedPnl: number | null; entryReturnPercent: number | null; dailyPnl: number | null; dailyReturnPercent: number | null;
+  }> };
+  closedTrades: { count: number; winRatePercent: number | null; sampleSize: number; feesComplete: boolean; knownFees: number; missingFeeTradeCount: number };
+  executionQuality: {
+    sampleSize: number; notionalWeightedSlippageBps: number | null; totalSlippageDollars: number | null;
+    averageTimeToFillMs: number | null; fillTimeSampleSize: number; interpretation: string;
+  };
+};
+type ComparisonSummary = { count: number; meanBps: number | null; medianBps: number | null; winRate: number | null; lower95Bps: number | null; upper95Bps: number | null };
+type StrategyComparison = {
+  generatedAt: string; classification: "research_only"; signalDateCount: number; forwardSessionCount: number;
+  baselineUniverseSize: number; shadowUniverseSize: number; topK: number; roundTripCostBps: number;
+  benchmarkSymbol: string; promotionEvidenceAllowed: boolean; recommendationAuthority: false; orderSubmissionAllowed: false;
+  metrics: Record<string, { baseline: ComparisonSummary; shadow: ComparisonSummary; shadowMinusBaseline: ComparisonSummary;
+    shadowMinusBenchmark: ComparisonSummary; baselineMaxDrawdownBps: number | null; shadowMaxDrawdownBps: number | null; missingForwardSessions: number }>;
+  limitations: string[];
+};
 
 const PREVIEW_MODE_STORAGE_KEY = "trade-approval.preview-mode";
+const CONNECTION_ALERTS_STORAGE_KEY = "trade-approval.connection-alerts";
+const RECOMMENDATION_MODE_STORAGE_KEY = "trade-approval.recommendation-mode";
+
+const NON_FATAL_RECOMMENDATION_STATES = new Set([
+  "no_candidate_with_acceptable_spread",
+  "no_eligible_recommendation",
+  "recommendation_queue_empty",
+  "strategy_capital_limit",
+]);
+
+function isNonFatalRecommendationState(code: string) {
+  return NON_FATAL_RECOMMENDATION_STATES.has(code);
+}
+
+const RISK_PROFILES: Array<{ id: RecommendationMode; label: string }> = [
+  { id: "conservative", label: "Conservative" },
+  { id: "balanced", label: "Balanced" },
+  { id: "growth", label: "Growth" },
+  { id: "risky", label: "Aggressive" },
+];
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
+});
 type RiskPolicy = {
   adaptive: boolean;
   sleeveValue: number;
@@ -86,12 +142,12 @@ const SMART_RISK_POLICY: RiskPolicy = {
   hardRiskPercent: 0.5,
   dailyLossPercent: 0.75,
   totalOpenRiskPercent: 1.25,
-  maximumPositionPercent: 7.5,
-  maximumDeployedPercent: 60,
-  minimumCashReservePercent: 40,
-  maximumSectorPercent: 20,
-  maximumCorrelatedPercent: 25,
-  maximumPositions: 5,
+  maximumPositionPercent: 15,
+  maximumDeployedPercent: 100,
+  minimumCashReservePercent: 0,
+  maximumSectorPercent: 35,
+  maximumCorrelatedPercent: 35,
+  maximumPositions: 8,
 };
 
 type Proposal = {
@@ -129,6 +185,7 @@ type Proposal = {
   signalEligible?: boolean;
   signalDate?: string;
   rulesetVersion?: string;
+  sourceLane?: "baseline" | "shadow";
   marketRisk?: MarketRiskAssessment;
   automaticExits?: boolean;
 };
@@ -208,11 +265,13 @@ type ServiceProposal = {
   rationale: string[];
   researchContext?: string | null;
   marketRisk?: MarketRiskAssessment;
+  category?: string;
+  sourceLane?: "baseline" | "shadow";
   exitPolicy: {
     mode: "broker_bracket";
     protectiveStopPrice: number;
     profitTargetPrice: number;
-    entryTimeInForce: "DAY";
+    entryTimeInForce: "GTC";
     exitTimeInForce: "GTC";
     automatic: true;
   };
@@ -227,7 +286,15 @@ type PortfolioReview = {
   asOf: number | null;
   signalDate: string | null;
   reductionRequired: number;
+  positionReductionRequired: number;
   estimatedPlannedRelease: number;
+  exitReviews: Array<{
+    id: string; symbol: string; quantity: number; estimatedValue: number; estimatedGrossPnl: number;
+    recommendationScore: number | null; urgency: "high" | "normal"; reviewOnly: boolean;
+    orderSubmissionAllowed: boolean; exitMode: "direct_exit" | "replace_target" | null;
+    approvalBlockedReason: string | null; reviewedAt: number;
+    triggers: Array<{ id: string; label: string; severity: "high" | "normal" }>;
+  }>;
   holdings: Array<{
     symbol: string; quantity: number; estimatedValue: number; qualified: boolean;
     protected: boolean; ownership?: "strategy_owned" | "conflict" | "unknown";
@@ -254,7 +321,11 @@ type StrategySummary = {
   completedCount: number;
   universeSource: "alpaca-cache";
   universeLimit: number;
-  budget?: { status: string; available: number; ownershipConflicts?: string[]; protectionGaps?: string[] };
+  budget?: {
+    status: string; available: number; deployed?: number; capitalLimit?: number;
+    openPositionCount?: number; maxOpenPositions?: number; blockers?: string[];
+    ownershipConflicts?: string[]; protectionGaps?: string[];
+  };
 };
 
 type OrderPreview = {
@@ -344,7 +415,7 @@ const PAPER_PROPOSAL: Proposal = {
     "Relative volume is 1.8× its 20-day average",
   ],
   agentName: "Home Momentum Agent",
-  accountLabel: "IBKR Paper ••••1842",
+  accountLabel: "Alpaca Paper",
   expiresAt: Date.now() + 4 * 60 * 1000,
   decision: "pending",
   automaticExits: true,
@@ -508,18 +579,50 @@ const UI_PROPOSALS: Proposal[] = [
   },
 ];
 
-const PREVIEW_ACTIVITY: ActivityItem[] = [
-  { id: "activity-1", symbol: "NVDA", side: "buy", status: "Filled", occurredAt: Date.now() - 18 * 60 * 1000, quantity: 5, limitPrice: 183.2, environment: "paper", brokerOrderId: "10478231" },
-  { id: "activity-2", symbol: "AAPL", side: "buy", status: "PreSubmitted", occurredAt: Date.now() - 52 * 60 * 1000, quantity: 4, limitPrice: 229.55, environment: "paper", brokerOrderId: "10478212" },
-  { id: "activity-3", symbol: "MSFT", side: "buy", status: "denied", occurredAt: Date.now() - 3 * 60 * 60 * 1000, quantity: 2, limitPrice: 506.25, environment: "paper", brokerOrderId: null },
-  { id: "activity-4", symbol: "AMZN", side: "sell", status: "Filled", occurredAt: Date.now() - 26 * 60 * 60 * 1000, quantity: 5, limitPrice: 190, environment: "paper", brokerOrderId: "10477008" },
-];
+const PREVIEW_HISTORY_SYMBOLS = ["NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL", "TSLA", "AMD", "AVGO", "CRM", "PLTR", "HOOD", "XOM", "CVX", "JPM", "V", "COST", "WMT", "LLY", "UNH"];
+const PREVIEW_HISTORY_PRICES: Record<string, number> = {
+  NVDA: 183.2, AAPL: 229.55, MSFT: 506.25, AMZN: 190, META: 548.4,
+  GOOGL: 198.1, TSLA: 347.8, AMD: 164.2, AVGO: 328.6, CRM: 241.66,
+  PLTR: 191.81, HOOD: 121.24, XOM: 118.5, CVX: 157.8, JPM: 302.4,
+  V: 351.2, COST: 942.7, WMT: 104.6, LLY: 792.4, UNH: 361.9,
+};
+const PREVIEW_OPEN_STATUSES = ["Submitted", "PreSubmitted", "approved"];
+const PREVIEW_HISTORY_STATUSES = ["Filled", "denied", "expired", "Filled", "denied", "Filled"];
+const PREVIEW_HISTORY_NOW = Date.now();
+
+function buildPreviewActivity(count = 240): ActivityItem[] {
+  return Array.from({ length: count }, (_, index) => {
+    const symbol = PREVIEW_HISTORY_SYMBOLS[index % PREVIEW_HISTORY_SYMBOLS.length]!;
+    const status = index < 6
+      ? PREVIEW_OPEN_STATUSES[index % PREVIEW_OPEN_STATUSES.length]!
+      : PREVIEW_HISTORY_STATUSES[(index - 6) % PREVIEW_HISTORY_STATUSES.length]!;
+    const brokerBacked = !["denied", "expired", "approved"].includes(status.toLowerCase());
+    return {
+      id: `preview-activity-${index + 1}`,
+      symbol,
+      side: index % 5 === 0 ? "sell" : "buy",
+      status,
+      occurredAt: PREVIEW_HISTORY_NOW - (index * 7 + 3) * 60 * 60 * 1000,
+      quantity: (index % 5) + 1,
+      limitPrice: Math.round((PREVIEW_HISTORY_PRICES[symbol]! * (0.97 + (index % 7) * 0.01)) * 100) / 100,
+      environment: "preview",
+      brokerOrderId: brokerBacked ? String(10490000 - index) : null,
+      stopPrice: Math.round(PREVIEW_HISTORY_PRICES[symbol]! * 0.94 * 100) / 100,
+      targetPrice: Math.round(PREVIEW_HISTORY_PRICES[symbol]! * 1.08 * 100) / 100,
+      targetTimeframe: "1–3 trading days",
+      researchContext: `${symbol} passed the preview momentum, liquidity, and portfolio-risk checks at the time this recommendation was created.`,
+      rationale: ["Price trend passed the momentum rules", "Liquidity met the strategy minimum", "Proposed risk fit the preview allocation"],
+    };
+  });
+}
+
+const PREVIEW_ACTIVITY: ActivityItem[] = buildPreviewActivity();
 
 const PREVIEW_POSITIONS: PositionItem[] = [
   { id: "position-1", symbol: "NVDA", quantity: 5, averageEntryPrice: 182.94, currentPrice: 185.36, protectiveStopPrice: 180.3, profitTargetPrice: 190.5, updatedAt: Date.now() - 12_000, dataState: "preview" },
   { id: "position-2", symbol: "AAPL", quantity: 4, averageEntryPrice: 228.8, currentPrice: 231.14, protectiveStopPrice: 224.9, profitTargetPrice: 238, updatedAt: Date.now() - 18_000, dataState: "preview" },
 ];
-const PREVIEW_TRADES: TradeItem[] = PREVIEW_POSITIONS.map((position) => ({
+const PREVIEW_OPEN_TRADES: TradeItem[] = PREVIEW_POSITIONS.map((position) => ({
   id: position.id, symbol: position.symbol, quantity: position.quantity, status: "open",
   entryPrice: position.averageEntryPrice, exitPrice: null,
   entryValue: position.quantity * position.averageEntryPrice, exitValue: null,
@@ -527,6 +630,38 @@ const PREVIEW_TRADES: TradeItem[] = PREVIEW_POSITIONS.map((position) => ({
   openedAt: position.updatedAt, closedAt: null,
   protectiveStopPrice: position.protectiveStopPrice, profitTargetPrice: position.profitTargetPrice,
 }));
+const PREVIEW_CLOSED_TRADES: TradeItem[] = Array.from({ length: 48 }, (_, index) => {
+  const symbol = PREVIEW_HISTORY_SYMBOLS[index % PREVIEW_HISTORY_SYMBOLS.length]!;
+  const entryPrice = PREVIEW_HISTORY_PRICES[symbol]! * (0.94 + (index % 5) * 0.01);
+  const returnPercent = ((index % 9) - 3) / 100;
+  const exitPrice = entryPrice * (1 + returnPercent);
+  const quantity = (index % 5) + 1;
+  const grossProfit = (exitPrice - entryPrice) * quantity;
+  const entryFee = 0.35;
+  const exitFee = 0.35;
+  return {
+    id: `preview-closed-trade-${index + 1}`, symbol, quantity, status: "closed",
+    entryPrice, exitPrice, entryValue: entryPrice * quantity, exitValue: exitPrice * quantity,
+    entryFee, exitFee, feesComplete: true, grossProfit, netProfit: grossProfit - entryFee - exitFee,
+    exitReason: returnPercent >= 0 ? "profit_target" : "protective_stop",
+    openedAt: PREVIEW_HISTORY_NOW - (index * 4 + 6) * 24 * 60 * 60 * 1000,
+    closedAt: PREVIEW_HISTORY_NOW - (index * 4 + 4) * 24 * 60 * 60 * 1000,
+    protectiveStopPrice: entryPrice * 0.96, profitTargetPrice: entryPrice * 1.04,
+  };
+});
+const PREVIEW_TRADES: TradeItem[] = [...PREVIEW_OPEN_TRADES, ...PREVIEW_CLOSED_TRADES];
+const PREVIEW_PERFORMANCE: PerformanceReport = {
+  asOf: Date.now(), source: "Preview data", status: "COMPLETE", limitations: [],
+  today: { totalPnl: 31.46, openPositionPnl: 31.46, realizedGrossPnl: 0, strategyReturnPercent: 1.73,
+    qqqReturnPercent: 0.64, versusQqqPercentagePoints: 1.09, benchmarkDataType: "preview" },
+  openPositions: { count: 2, unrealizedPnl: 21.46, items: [
+    { symbol: "NVDA", quantity: 5, averageEntryPrice: 182.94, marketValue: 926.8, unrealizedPnl: 12.1, entryReturnPercent: 1.32, dailyPnl: 18.4, dailyReturnPercent: 2.03 },
+    { symbol: "AAPL", quantity: 4, averageEntryPrice: 228.8, marketValue: 924.56, unrealizedPnl: 9.36, entryReturnPercent: 1.02, dailyPnl: 13.06, dailyReturnPercent: 1.43 },
+  ] },
+  closedTrades: { count: 48, winRatePercent: 54.17, sampleSize: 48, feesComplete: true, knownFees: 33.6, missingFeeTradeCount: 0 },
+  executionQuality: { sampleSize: 48, notionalWeightedSlippageBps: 1.8, totalSlippageDollars: 8.42,
+    averageTimeToFillMs: 2400, fillTimeSampleSize: 48, interpretation: "Positive slippage means the fill was worse than the proposed buy price." },
+};
 
 const SHADOW_LOADING: Proposal = {
   ...PAPER_PROPOSAL,
@@ -549,7 +684,7 @@ const SHADOW_LOADING: Proposal = {
   targetTimeframe: "Not defined",
   exitPlan: "No order rules are active.",
   strategyName: "Daily RSI mean-reversion research candidate",
-  strategyContext: "Loading a read-only scan from completed IBKR daily bars.",
+  strategyContext: "Loading the latest completed daily market data.",
   industryContext: "No research observation has loaded yet.",
   companyCatalyst: "Not available.",
   keyRisk: "Historical data must be available before any observation can be evaluated.",
@@ -574,15 +709,52 @@ const COMPANY_DOMAINS: Record<string, string> = {
   TSLA: "tesla.com",
 };
 
+const COMPANY_NAMES: Record<string, string> = {
+  AAPL: "Apple Inc.", AMD: "Advanced Micro Devices, Inc.", AMZN: "Amazon.com, Inc.",
+  AVGO: "Broadcom Inc.", COST: "Costco Wholesale Corporation", CRM: "Salesforce, Inc.",
+  CVX: "Chevron Corporation", GOOGL: "Alphabet Inc.", HOOD: "Robinhood Markets, Inc.",
+  IWM: "iShares Russell 2000 ETF", JPM: "JPMorgan Chase & Co.", LLY: "Eli Lilly and Company", META: "Meta Platforms, Inc.",
+  MSFT: "Microsoft Corporation", NVDA: "NVIDIA Corporation", PLTR: "Palantir Technologies Inc.",
+  QQQ: "Invesco QQQ Trust", SPY: "SPDR S&P 500 ETF Trust", TSLA: "Tesla, Inc.",
+  UNH: "UnitedHealth Group Incorporated", V: "Visa Inc.", WMT: "Walmart Inc.", XOM: "Exxon Mobil Corporation",
+};
+
+function companyName(item: Pick<ActivityItem, "symbol" | "company">) {
+  return item.company && item.company !== item.symbol ? item.company : COMPANY_NAMES[item.symbol] ?? item.symbol;
+}
+
+function mergeRecommendationDeck(current: Proposal[], incoming: Proposal[]) {
+  const incomingBySymbol = new Map<string, Proposal>();
+  for (const item of incoming) incomingBySymbol.set(item.symbol, item);
+  const merged: Proposal[] = [];
+  const seen = new Set<string>();
+  for (const item of current) {
+    if (seen.has(item.symbol)) continue;
+    const refreshed = incomingBySymbol.get(item.symbol);
+    if (!refreshed) continue;
+    merged.push(refreshed);
+    seen.add(item.symbol);
+    incomingBySymbol.delete(item.symbol);
+  }
+  for (const item of incomingBySymbol.values()) {
+    if (seen.has(item.symbol)) continue;
+    merged.push(item);
+    seen.add(item.symbol);
+  }
+  return merged;
+}
+
 function CompanyMark({ symbol, size = 34 }: { symbol: string; size?: number }) {
   const { styles } = useVisualTheme();
   const [failed, setFailed] = useState(false);
   const domain = COMPANY_DOMAINS[symbol];
+  const avatarColors = ["#1D4ED8", "#6D28D9", "#A23B10", "#047857", "#B4235A", "#0F6F71", "#4338CA"];
+  const avatarColor = avatarColors[[...symbol].reduce((total, character) => total + character.charCodeAt(0), 0) % avatarColors.length];
 
   if (!domain || failed) {
     return (
-      <View style={[styles.logoFallback, { width: size, height: size, borderRadius: size / 2 }]}>
-        <Text style={styles.logoFallbackText}>{symbol.slice(0, 2)}</Text>
+      <View accessibilityLabel={`${symbol} stock avatar`} style={[styles.logoFallback, { width: size, height: size, borderRadius: size / 2, backgroundColor: avatarColor }]}>
+        <Text style={[styles.logoFallbackText, { fontSize: Math.max(14, Math.round(size * 0.44)), lineHeight: Math.max(18, Math.round(size * 0.52)) }]}>{symbol.charAt(0).toUpperCase()}</Text>
       </View>
     );
   }
@@ -612,6 +784,9 @@ const qualitativeRisk = (risk?: MarketRiskAssessment) => {
   return risk.level.charAt(0) + risk.level.slice(1).toLowerCase();
 };
 
+const proposalRiskLabel = (proposal: Proposal) =>
+  proposal.sourceLane === "shadow" ? "Higher volatility" : qualitativeRisk(proposal.marketRisk);
+
 function countdown(expiresAt: number) {
   const seconds = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -636,6 +811,21 @@ function marketSessionWindow(timestamp = Date.now()): MarketWindow {
   return { phase: "open", resumes: "Scanning continuously during market hours" };
 }
 
+function recommendationRefreshWindow(timestamp = Date.now()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(timestamp));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  const hour = Number(value("hour"));
+  const slot = hour < 12 ? "09" : hour < 15 ? "12" : "15";
+  return `${value("year")}-${value("month")}-${value("day")}:${slot}`;
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   const { styles } = useVisualTheme();
   return (
@@ -651,7 +841,7 @@ function PreviewCardFace({ proposal }: { proposal: Proposal }) {
   const previewState: Decision = proposal.decision === "expired" || Date.now() >= proposal.expiresAt ? "expired" : proposal.decision;
   const previewExpiringSoon = previewState === "pending" && proposal.expiresAt - Date.now() <= 60_000;
   return (
-    <>
+    <View style={styles.proposalCard}>
       <View style={styles.cardBody}>
         <View style={styles.companyIdentity}>
           <CompanyMark symbol={proposal.symbol} size={42} />
@@ -673,7 +863,7 @@ function PreviewCardFace({ proposal }: { proposal: Proposal }) {
           <View style={styles.tradeTermRow}>
             <Text style={styles.tradeTermLabel}>Risk</Text>
             <View style={styles.riskChip}>
-              <Text style={styles.riskChipText}>{qualitativeRisk(proposal.marketRisk)}</Text>
+              <Text style={styles.riskChipText}>{proposalRiskLabel(proposal)}</Text>
             </View>
           </View>
           <View style={styles.tradeTermRow}>
@@ -727,7 +917,153 @@ function PreviewCardFace({ proposal }: { proposal: Proposal }) {
           <ActionButton label="Approve" tone="primary" onPress={() => {}} />
         </View>
       </View>
-    </>
+    </View>
+  );
+}
+
+function ExitReviewProposalCard({ review, onNext, onApprove, submitting }: {
+  review: PortfolioReview["exitReviews"][number];
+  onNext: () => void; onApprove: () => void; submitting: boolean;
+}) {
+  const { colors, styles } = useVisualTheme();
+  const estimatedPrice = review.quantity > 0 ? review.estimatedValue / review.quantity : 0;
+  return <View style={styles.proposalCard}>
+    <View style={styles.cardBody}>
+      <View style={styles.companyIdentity}>
+        <CompanyMark symbol={review.symbol} size={42} />
+        <Text style={styles.company} numberOfLines={1}>{review.symbol}</Text>
+      </View>
+      <Text style={styles.tradeHeadline}>Sell {money(review.estimatedValue)} of {review.symbol}</Text>
+      <Text style={styles.tradePrice}>at estimated price {money(estimatedPrice)}</Text>
+      <View style={styles.tradeTerms}>
+        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Sell</Text><Text style={styles.tradeTermValue}>{review.quantity} shares</Text></View>
+        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Estimated proceeds</Text><Text style={styles.tradeTermValue}>{money(review.estimatedValue)}</Text></View>
+        <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Estimated P&amp;L</Text><Text style={[styles.tradeTermValue, { color: review.estimatedGrossPnl >= 0 ? colors.actionApprove : colors.danger }]}>{review.estimatedGrossPnl >= 0 ? "+" : ""}{money(review.estimatedGrossPnl)}</Text></View>
+        <View style={styles.tradeTermRow}>
+          <Text style={styles.tradeTermLabel}>Status</Text>
+          <View style={[styles.timer, review.urgency === "high" && styles.timerWarning]}>
+            <Text style={[styles.timerValue, review.urgency === "high" && styles.timerWarningText]}>{review.orderSubmissionAllowed ? "READY" : "REVIEW ONLY"}</Text>
+          </View>
+        </View>
+      </View>
+      <View style={styles.infoCard}>
+        <Text style={styles.infoCardTitle}>Why this sell</Text>
+        <Text style={styles.infoCardBody} numberOfLines={3}>{review.triggers.map((trigger) => trigger.label).join(" · ")}</Text>
+      </View>
+      {!review.orderSubmissionAllowed && <Text style={styles.exitReviewSafety}>{review.approvalBlockedReason}</Text>}
+    </View>
+    <View style={styles.cardFooter}>
+      <View style={styles.actions}>
+        <ActionButton label="Keep" tone="secondary" onPress={onNext} disabled={submitting} />
+        <ActionButton label={submitting ? "Submitting…" : "Approve sell"} tone="primary" onPress={onApprove}
+          disabled={submitting || !review.orderSubmissionAllowed} pending={submitting} />
+      </View>
+    </View>
+  </View>;
+}
+
+function RiskProfileDial({ value, onChange, visible, onClose }: {
+  value: RecommendationMode;
+  onChange: (value: RecommendationMode) => void;
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const { colors, styles } = useVisualTheme();
+  const selectedIndex = Math.max(0, RISK_PROFILES.findIndex((profile) => profile.id === value));
+  const dragStartIndex = useRef(selectedIndex);
+  const dragCurrentIndex = useRef(selectedIndex);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const visibleIndex = dragIndex ?? selectedIndex;
+  const selectedProfile = RISK_PROFILES[visibleIndex] ?? RISK_PROFILES[0]!;
+
+  useEffect(() => {
+    if (dragIndex === null) dragStartIndex.current = selectedIndex;
+  }, [dragIndex, selectedIndex]);
+
+  const selectIndex = useCallback((nextIndex: number) => {
+    const boundedIndex = Math.max(0, Math.min(RISK_PROFILES.length - 1, nextIndex));
+    onChange((RISK_PROFILES[boundedIndex] ?? RISK_PROFILES[0]!).id);
+  }, [onChange]);
+
+  const dragResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_event, gesture) => Math.abs(gesture.dx) > 3,
+    onPanResponderGrant: () => {
+      dragStartIndex.current = selectedIndex;
+      dragCurrentIndex.current = selectedIndex;
+      setDragIndex(selectedIndex);
+    },
+    onPanResponderMove: (_event, gesture) => {
+      const stepDelta = Math.round(gesture.dx / 68);
+      const nextIndex = Math.max(0, Math.min(RISK_PROFILES.length - 1, dragStartIndex.current + stepDelta));
+      dragCurrentIndex.current = nextIndex;
+      setDragIndex(nextIndex);
+    },
+    onPanResponderRelease: () => {
+      setDragIndex(null);
+      selectIndex(dragCurrentIndex.current);
+    },
+    onPanResponderTerminate: () => setDragIndex(null),
+  }), [selectIndex, selectedIndex]);
+
+  const adjust = (direction: "increment" | "decrement") => {
+    selectIndex(selectedIndex + (direction === "increment" ? 1 : -1));
+  };
+
+  return (
+      <Modal visible={visible} transparent animationType="fade" presentationStyle="overFullScreen" statusBarTranslucent onRequestClose={onClose}>
+        <SafeAreaView style={styles.riskDialModalSafe} edges={["top", "left", "right"]}>
+          <Pressable
+            accessible={false}
+            onPress={onClose}
+            style={styles.riskDialBackdrop}
+          >
+            <View accessibilityViewIsModal style={styles.riskDialPanel} onStartShouldSetResponder={() => true}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close risk profile dial"
+                onPress={onClose}
+                style={({ pressed }) => [styles.riskDialHeading, pressed && styles.riskDialPressed]}
+              >
+                <View style={styles.riskDialTitleRow}>
+                  <Text style={styles.riskDialTitle}>Risk</Text>
+                  <Text style={styles.riskDialTitleValue}>{selectedProfile.label}</Text>
+                  <Text style={styles.riskDialChevron}>›</Text>
+                </View>
+              </Pressable>
+              <View
+                accessible
+                accessibilityRole="adjustable"
+                accessibilityLabel="Risk profile"
+                accessibilityValue={{ min: 1, max: 4, now: selectedIndex + 1, text: selectedProfile.label }}
+                accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
+                onAccessibilityAction={(event) => adjust(event.nativeEvent.actionName as "increment" | "decrement")}
+                style={styles.riskDialTrack}
+                {...dragResponder.panHandlers}
+              >
+                <View pointerEvents="box-none" style={styles.riskDialRail}>
+                  <View style={[styles.riskDialFill, { width: `${(visibleIndex / (RISK_PROFILES.length - 1)) * 100}%` }]} />
+                  {RISK_PROFILES.map((profile, index) => (
+                    <Pressable
+                      key={profile.id}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Set risk profile to ${profile.label}`}
+                      onPress={() => selectIndex(index)}
+                      style={[styles.riskDialStopTarget, { left: `${(index / (RISK_PROFILES.length - 1)) * 100}%` }]}
+                    >
+                      <View style={[styles.riskDialStop, index <= visibleIndex && styles.riskDialStopSelected]} />
+                    </Pressable>
+                  ))}
+                  <View
+                    pointerEvents="none"
+                    style={[styles.riskDialKnob, { left: `${(visibleIndex / (RISK_PROFILES.length - 1)) * 100}%` }]}
+                  />
+                </View>
+              </View>
+            </View>
+          </Pressable>
+        </SafeAreaView>
+      </Modal>
   );
 }
 
@@ -761,11 +1097,112 @@ function PolicyField({ label, value, suffix, accessibilityLabel, onChange }: {
   );
 }
 
-function SettingsPage({ policy, operatingPercent, operatingReason, saving, onChange, onSave }: {
+function PerformancePage({ report, loading, error, onRefresh, previewMode }: {
+  report: PerformanceReport | null; loading: boolean; error: string | null; onRefresh: () => void; previewMode: boolean;
+}) {
+  const { colors, styles } = useVisualTheme();
+  const signedMoney = (value: number | null) => value == null ? "—" : `${value > 0 ? "+" : ""}${money(value)}`;
+  const signedPercent = (value: number | null) => value == null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+  const tone = (value: number | null) => value == null ? styles.performanceNeutral : value >= 0 ? styles.performancePositive : styles.performanceNegative;
+  return (
+    <View style={styles.performancePage}>
+      <Text accessibilityRole="header" style={styles.settingsTitle}>Performance</Text>
+      <Text style={styles.settingsIntro}>{previewMode ? "Sample strategy results for exploring the page." : "Results for positions attributed to this strategy in Alpaca Paper."}</Text>
+      {loading ? <Text style={styles.historyMessage}>Updating from Alpaca Paper…</Text> : null}
+      {!loading && error ? (
+        <View style={styles.historyEmpty}>
+          <Text style={styles.historyEmptyTitle}>Performance unavailable</Text>
+          <Text style={styles.historyMessage}>Reconnect Alpaca Paper and try again.</Text>
+          <Pressable accessibilityRole="button" onPress={onRefresh} style={styles.performanceRefresh}><Text style={styles.performanceRefreshText}>Try again</Text></Pressable>
+        </View>
+      ) : null}
+      {!loading && !error && report ? <>
+        <View style={styles.performanceHero}>
+          <Text style={styles.performanceEyebrow}>TODAY</Text>
+          <Text style={[styles.performanceHeroValue, tone(report.today.totalPnl)]}>{signedMoney(report.today.totalPnl)}</Text>
+          <Text style={styles.performanceAsOf}>{report.asOf ? `Updated ${new Date(report.asOf).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Update time unavailable"}</Text>
+        </View>
+        <View style={styles.performanceSummaryGrid}>
+          <View style={styles.performanceSummaryItem}><Text style={styles.performanceLabel}>Open positions today</Text><Text style={[styles.performanceValue, tone(report.today.openPositionPnl)]}>{signedMoney(report.today.openPositionPnl)}</Text></View>
+          <View style={styles.performanceSummaryItem}><Text style={styles.performanceLabel}>Realized today</Text><Text style={[styles.performanceValue, tone(report.today.realizedGrossPnl)]}>{signedMoney(report.today.realizedGrossPnl)}</Text></View>
+          <View style={styles.performanceSummaryItem}><Text style={styles.performanceLabel}>Strategy return</Text><Text style={[styles.performanceValue, tone(report.today.strategyReturnPercent)]}>{signedPercent(report.today.strategyReturnPercent)}</Text></View>
+          <View style={styles.performanceSummaryItem}><Text style={styles.performanceLabel}>QQQ today</Text><Text style={[styles.performanceValue, tone(report.today.qqqReturnPercent)]}>{signedPercent(report.today.qqqReturnPercent)}</Text></View>
+        </View>
+        <View style={styles.performanceComparison}>
+          <Text style={styles.performanceLabel}>Compared with QQQ today</Text>
+          <Text style={[styles.performanceValue, tone(report.today.versusQqqPercentagePoints)]}>{report.today.versusQqqPercentagePoints == null ? "—" : `${report.today.versusQqqPercentagePoints > 0 ? "+" : ""}${report.today.versusQqqPercentagePoints.toFixed(2)} pts`}</Text>
+          <Text style={styles.performanceFootnote}>{report.today.benchmarkDataType === 3 ? "Delayed benchmark quote" : report.today.benchmarkDataType === "broker_position_pnl" ? "Derived from the reconciled QQQ position" : "Broker benchmark quote"}</Text>
+        </View>
+        <Text style={styles.performanceSectionTitle}>Open positions ({report.openPositions.count})</Text>
+        <View style={styles.performanceRows}>
+          {report.openPositions.items.map((item) => <View key={item.symbol} style={styles.performanceRow}>
+            <CompanyMark symbol={item.symbol} size={38} />
+            <View style={styles.performanceRowCopy}><Text style={styles.performanceSymbol}>{item.symbol}</Text><Text style={styles.performanceFootnote}>{item.quantity} shares · {item.marketValue == null ? "value unavailable" : money(item.marketValue)}</Text></View>
+            <View style={styles.performanceRowValue}><Text style={[styles.performanceValue, tone(item.unrealizedPnl)]}>{signedMoney(item.unrealizedPnl)}</Text><Text style={styles.performanceFootnote}>{signedPercent(item.entryReturnPercent)} since entry</Text></View>
+          </View>)}
+        </View>
+        <View style={styles.performanceStats}>
+          <View><Text style={styles.performanceLabel}>Open unrealized</Text><Text style={[styles.performanceValue, tone(report.openPositions.unrealizedPnl)]}>{signedMoney(report.openPositions.unrealizedPnl)}</Text></View>
+          <View><Text style={styles.performanceLabel}>Closed-trade win rate</Text><Text style={styles.performanceValue}>{report.closedTrades.winRatePercent == null ? "Not enough data" : `${report.closedTrades.winRatePercent.toFixed(1)}%`}</Text><Text style={styles.performanceFootnote}>{report.closedTrades.sampleSize} closed trades</Text></View>
+          <View><Text style={styles.performanceLabel}>Fees recorded</Text><Text style={styles.performanceValue}>{money(report.closedTrades.knownFees)}</Text><Text style={styles.performanceFootnote}>{report.closedTrades.feesComplete ? "Complete for closed trades" : "Incomplete — gross results shown"}</Text></View>
+        </View>
+        <Text style={styles.performanceSectionTitle}>Execution quality</Text>
+        <View style={styles.performanceStats}>
+          <View><Text style={styles.performanceLabel}>Fill vs proposed price</Text><Text style={[styles.performanceValue, tone(report.executionQuality.notionalWeightedSlippageBps == null ? null : -report.executionQuality.notionalWeightedSlippageBps)]}>{report.executionQuality.notionalWeightedSlippageBps == null ? "—" : `${report.executionQuality.notionalWeightedSlippageBps > 0 ? "+" : ""}${report.executionQuality.notionalWeightedSlippageBps.toFixed(2)} bps`}</Text><Text style={styles.performanceFootnote}>{report.executionQuality.sampleSize} filled entries</Text></View>
+          <View><Text style={styles.performanceLabel}>Slippage cost</Text><Text style={[styles.performanceValue, tone(report.executionQuality.totalSlippageDollars == null ? null : -report.executionQuality.totalSlippageDollars)]}>{signedMoney(report.executionQuality.totalSlippageDollars)}</Text><Text style={styles.performanceFootnote}>Against the approved limit terms</Text></View>
+          <View><Text style={styles.performanceLabel}>Average time to fill</Text><Text style={styles.performanceValue}>{report.executionQuality.averageTimeToFillMs == null ? "—" : `${(report.executionQuality.averageTimeToFillMs / 1000).toFixed(1)} sec`}</Text><Text style={styles.performanceFootnote}>{report.executionQuality.fillTimeSampleSize} timed fills</Text></View>
+        </View>
+        {!report.closedTrades.feesComplete ? <View style={styles.performanceNotice}><Text style={styles.performanceNoticeTitle}>Net results pending</Text><Text style={styles.performanceFootnote}>{report.closedTrades.missingFeeTradeCount} closed trades still need broker commission records. Gross performance remains visible; missing fees are never treated as zero.</Text></View> : null}
+        {report.limitations.length ? <View style={styles.performanceNotice}><Text style={styles.performanceNoticeTitle}>Data notes</Text>{report.limitations.map((item) => <Text key={item} style={styles.performanceFootnote}>• {item}</Text>)}</View> : null}
+      </> : null}
+    </View>
+  );
+}
+
+function ResearchPage({ report, loading, error, onRefresh }: {
+  report: StrategyComparison | null; loading: boolean; error: string | null; onRefresh: () => void;
+}) {
+  const { styles } = useVisualTheme();
+  const bps = (value: number | null) => value == null ? "—" : `${value > 0 ? "+" : ""}${(value / 100).toFixed(2)}%`;
+  const rate = (value: number | null) => value == null ? "—" : `${(value * 100).toFixed(0)}%`;
+  return <View style={styles.performancePage}>
+    <Text accessibilityRole="header" style={styles.settingsTitle}>Strategy research</Text>
+    <Text style={styles.settingsIntro}>A separate test of whether a broader, more volatile stock universe finds better opportunities than the current scanner.</Text>
+    <View style={styles.researchBoundary}><Text style={styles.researchBoundaryTitle}>Research only</Text><Text style={styles.performanceFootnote}>These results cannot create recommendations, change position sizes, or submit orders.</Text></View>
+    {loading ? <Text style={styles.historyMessage}>Loading the latest comparison…</Text> : null}
+    {!loading && error ? <View style={styles.historyEmpty}><Text style={styles.historyEmptyTitle}>Comparison unavailable</Text><Text style={styles.historyMessage}>Run the comparison after both market caches have been refreshed.</Text><Pressable accessibilityRole="button" onPress={onRefresh} style={styles.performanceRefresh}><Text style={styles.performanceRefreshText}>Try again</Text></Pressable></View> : null}
+    {!loading && !error && report ? <>
+      <View style={styles.researchOverview}>
+        <View><Text style={styles.performanceLabel}>Current scanner</Text><Text style={styles.researchUniverse}>{report.baselineUniverseSize.toLocaleString()} stocks</Text></View>
+        <View><Text style={styles.performanceLabel}>Volatile shadow lane</Text><Text style={styles.researchUniverse}>{report.shadowUniverseSize.toLocaleString()} stocks</Text></View>
+      </View>
+      <Text style={styles.performanceFootnote}>{report.forwardSessionCount} held-out sessions · top {report.topK} per lane · {(report.roundTripCostBps / 100).toFixed(2)}% assumed round-trip cost</Text>
+      <Text style={styles.performanceSectionTitle}>Outcome comparison</Text>
+      {Object.entries(report.metrics).map(([horizon, metric]) => <View key={horizon} style={styles.researchHorizon}>
+        <Text style={styles.researchHorizonTitle}>{horizon} session{horizon === "1" ? "" : "s"}</Text>
+        <View style={styles.researchMetricRow}><Text style={styles.performanceLabel}>Current scanner average</Text><Text style={styles.performanceValue}>{bps(metric.baseline.meanBps)}</Text></View>
+        <View style={styles.researchMetricRow}><Text style={styles.performanceLabel}>Volatile lane average</Text><Text style={styles.performanceValue}>{bps(metric.shadow.meanBps)}</Text></View>
+        <View style={styles.researchMetricRow}><Text style={styles.performanceLabel}>Volatile lane win rate</Text><Text style={styles.performanceValue}>{rate(metric.shadow.winRate)}</Text></View>
+        <View style={styles.researchMetricRow}><Text style={styles.performanceLabel}>Advantage over current</Text><Text style={styles.performanceValue}>{bps(metric.shadowMinusBaseline.meanBps)}</Text></View>
+        <View style={styles.researchMetricRow}><Text style={styles.performanceLabel}>Advantage over {report.benchmarkSymbol}</Text><Text style={styles.performanceValue}>{bps(metric.shadowMinusBenchmark.meanBps)}</Text></View>
+      </View>)}
+      <View style={styles.performanceNotice}>
+        <Text style={styles.performanceNoticeTitle}>Current conclusion</Text>
+        <Text style={styles.performanceFootnote}>{report.promotionEvidenceAllowed ? "Eligible for formal promotion review; no automatic promotion occurs." : "Not eligible for promotion. The current symbol universe introduces selection bias, and the uncertainty ranges remain too wide."}</Text>
+      </View>
+      <View style={styles.performanceNotice}><Text style={styles.performanceNoticeTitle}>Limitations</Text>{report.limitations.map((item) => <Text key={item} style={styles.performanceFootnote}>• {item}</Text>)}</View>
+      <Text style={styles.performanceAsOf}>Generated {new Date(report.generatedAt).toLocaleString()}</Text>
+    </> : null}
+  </View>;
+}
+
+function SettingsPage({ policy, operatingPercent, operatingReason, saving, connectionAlertsEnabled, onConnectionAlertsChange, onChange, onSave }: {
   policy: RiskPolicy;
   operatingPercent: number;
   operatingReason: string;
   saving: boolean;
+  connectionAlertsEnabled: boolean;
+  onConnectionAlertsChange: (enabled: boolean) => void;
   onChange: (policy: RiskPolicy) => void;
   onSave: () => void;
 }) {
@@ -776,6 +1213,22 @@ function SettingsPage({ policy, operatingPercent, operatingReason, saving, onCha
       <Text style={styles.settingsEyebrow}>PAPER RISK POLICY</Text>
       <Text accessibilityRole="header" style={styles.settingsTitle}>Settings</Text>
       <Text style={styles.settingsIntro}>Set the boundaries. Adaptive mode may reduce risk as conditions worsen, but it can never exceed your limits.</Text>
+
+      <View style={styles.policySection}>
+        <View style={styles.adaptiveRow}>
+          <View style={styles.adaptiveCopy}>
+            <Text style={styles.policySectionTitle}>Connection alerts</Text>
+            <Text style={styles.policyHelp}>Notify this phone when the running app observes that Alpaca Paper is unavailable. A production background alert will require a development or TestFlight build and remote push delivery.</Text>
+          </View>
+          <Switch
+            accessibilityLabel="Connection alerts"
+            value={connectionAlertsEnabled}
+            onValueChange={onConnectionAlertsChange}
+            trackColor={{ false: colors.border, true: colors.actionApprove }}
+            thumbColor="#FFFFFF"
+          />
+        </View>
+      </View>
 
       <View style={styles.policySection}>
         <View style={styles.adaptiveRow}>
@@ -831,61 +1284,80 @@ function SettingsPage({ policy, operatingPercent, operatingReason, saving, onCha
   );
 }
 
-function PreviewModePage({ enabled, onChange }: { enabled: boolean; onChange: (enabled: boolean) => void }) {
-  const { colors, styles } = useVisualTheme();
-  return (
-    <View style={styles.settingsPage}>
-      <Text style={styles.settingsEyebrow}>DEMO WORKSPACE</Text>
-      <Text accessibilityRole="header" style={styles.settingsTitle}>Preview mode</Text>
-      <Text style={styles.settingsIntro}>Explore the complete app with realistic sample recommendations, positions, and activity. Nothing is sent to a broker.</Text>
-
-      <View style={styles.policySection}>
-        <View style={styles.adaptiveRow}>
-          <View style={styles.adaptiveCopy}>
-            <Text style={styles.policySectionTitle}>Use preview data</Text>
-            <Text style={styles.policyHelp}>{enabled ? "Sample data is active throughout the app." : "Paper account data is active."}</Text>
-          </View>
-          <Switch
-            accessibilityLabel="Use preview data"
-            accessibilityHint="Replaces brokerage information throughout the app with simulated sample data"
-            value={enabled}
-            onValueChange={onChange}
-            trackColor={{ false: colors.border, true: colors.actionApprove }}
-            thumbColor="#FFFFFF"
-          />
-        </View>
-      </View>
-
-      <View style={styles.previewExplanation}>
-        <Text style={styles.policySectionTitle}>What changes</Text>
-        <Text style={styles.previewExplanationText}>Recommendations become sample cards. Approvals create simulated positions and activity; denials appear in activity. Broker submission is always disabled.</Text>
-      </View>
-    </View>
-  );
-}
-
 function HistoryPage({ page, activity, positions, trades, loading, error, onRefresh, previewMode }: {
-  page: "activity" | "positions"; activity: ActivityItem[]; positions: PositionItem[]; trades: TradeItem[];
+  page: "recommendationHistory" | "activity" | "positions"; activity: ActivityItem[]; positions: PositionItem[]; trades: TradeItem[];
   loading: boolean; error: string | null; onRefresh: () => void; previewMode: boolean;
 }) {
   const { colors, styles } = useVisualTheme();
   const [activitySearch, setActivitySearch] = useState("");
-  const empty = page === "activity" ? activity.length === 0 : positions.length === 0;
-  const matchingActivity = activity.filter((item) => {
-    const query = activitySearch.trim().toLowerCase();
-    return !query || item.symbol.toLowerCase().includes(query) || item.status.toLowerCase().includes(query) || item.side.toLowerCase().includes(query);
-  });
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [draftTypeFilter, setDraftTypeFilter] = useState("All");
+  const [draftStatusFilter, setDraftStatusFilter] = useState("All");
+  const [selectedActivityDetail, setSelectedActivityDetail] = useState<{ kind: "activity"; item: ActivityItem } | { kind: "trade"; item: TradeItem } | null>(null);
+  const [historyVisibleCount, setHistoryVisibleCount] = useState(50);
   const openStatuses = new Set(["presubmitted", "submitted", "pendingsubmit", "pendingcancel"]);
   const pendingStatuses = new Set(["approved", "started", "unknown"]);
+  const decisionStatuses = new Set(["approved", "denied", "expired"]);
+  const scannerOnlyStatuses = new Set(["pending", "replaced"]);
+  const normalizeStatus = (status: string) => status.replaceAll("_", "").toLowerCase();
+  const recommendationActivity = activity.filter((item) => decisionStatuses.has(normalizeStatus(item.status)));
+  const brokerActivity = activity.filter((item) => item.brokerOrderId !== null && !decisionStatuses.has(normalizeStatus(item.status)));
+  const activitySource = page === "recommendationHistory" ? recommendationActivity : brokerActivity;
+  const empty = page === "recommendationHistory"
+    ? recommendationActivity.length === 0
+    : page === "activity"
+      ? brokerActivity.length === 0 && trades.length === 0
+      : positions.length === 0;
+  const searchMatches = (symbol: string, ...values: string[]) => {
+    const query = activitySearch.trim().toLowerCase();
+    return !query || symbol.toLowerCase().includes(query) || values.some((value) => value.toLowerCase().includes(query));
+  };
+  const matchingActivity = activitySource.filter((item) => {
+    const status = normalizeStatus(item.status);
+    const typeMatches = typeFilter === "All"
+      || (typeFilter === "Orders" && !decisionStatuses.has(status))
+      || (typeFilter === "Decisions" && decisionStatuses.has(status));
+    const statusMatches = statusFilter === "All"
+      || (statusFilter === "Open" && (openStatuses.has(status) || pendingStatuses.has(status)))
+      || status === statusFilter.toLowerCase();
+    return typeFilter !== "Trades" && typeMatches && statusMatches
+      && searchMatches(item.symbol, item.status, item.side);
+  });
+  const matchingTrades = trades.filter((trade) => {
+    const typeMatches = typeFilter === "All" || typeFilter === "Trades";
+    const statusMatches = statusFilter === "All"
+      || (statusFilter === "Open" && trade.status === "open")
+      || (statusFilter === "Closed" && trade.status === "closed");
+    return typeMatches && statusMatches
+      && searchMatches(trade.symbol, trade.status, trade.exitReason ?? "");
+  });
+  useEffect(() => setHistoryVisibleCount(50), [activitySearch, typeFilter, statusFilter]);
   const decisionActivity = matchingActivity.filter((item) =>
-    item.side.toLowerCase() !== "sell"
-    || !openStatuses.has(item.status.replaceAll("_", "").toLowerCase())
+    item.side.toLowerCase() !== "sell" || !openStatuses.has(normalizeStatus(item.status))
   );
   const tradeIds = new Set(trades.map((trade) => trade.id));
-  const activitySections = [
-    { title: "Pending orders", items: decisionActivity.filter((item) => !tradeIds.has(item.id) && (openStatuses.has(item.status.replaceAll("_", "").toLowerCase()) || pendingStatuses.has(item.status.replaceAll("_", "").toLowerCase()))) },
-    { title: "Recent decisions", items: decisionActivity.filter((item) => !tradeIds.has(item.id) && !openStatuses.has(item.status.replaceAll("_", "").toLowerCase()) && !pendingStatuses.has(item.status.replaceAll("_", "").toLowerCase())) },
-  ].filter((section) => section.items.length > 0);
+  const openActivity = decisionActivity.filter((item) => !tradeIds.has(item.id)
+    && item.brokerOrderId !== null && openStatuses.has(normalizeStatus(item.status)));
+  const historicalActivity = decisionActivity.filter((item) => !tradeIds.has(item.id)
+    && !openStatuses.has(normalizeStatus(item.status))
+    && !scannerOnlyStatuses.has(normalizeStatus(item.status)));
+  const openTrades = matchingTrades.filter((trade) => trade.status === "open");
+  const closedTrades = matchingTrades.filter((trade) => trade.status === "closed");
+  const visibleHistoricalActivity = historicalActivity.slice(0, historyVisibleCount);
+  const visibleClosedTrades = closedTrades.slice(0, historyVisibleCount);
+  const hasMoreHistory = historicalActivity.length > visibleHistoricalActivity.length || closedTrades.length > visibleClosedTrades.length;
+  const openFilters = () => {
+    setDraftTypeFilter(typeFilter);
+    setDraftStatusFilter(statusFilter);
+    setFilterSheetOpen(true);
+  };
+  const applyFilters = () => {
+    setTypeFilter(draftTypeFilter);
+    setStatusFilter(draftStatusFilter);
+    setFilterSheetOpen(false);
+  };
   const friendlyStatus = (status: string) => ({
     presubmitted: "Accepted · waiting",
     submitted: "Working",
@@ -897,68 +1369,92 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
     expired: "Expired",
     replaced: "Updated",
   }[status.replaceAll("_", "").toLowerCase()] ?? status.replaceAll("_", " "));
+  const selectedDetailTitle = selectedActivityDetail
+    ? `${selectedActivityDetail.item.symbol} ${selectedActivityDetail.kind === "trade" ? "trade" : selectedActivityDetail.item.side.toLowerCase()}`
+    : "Activity detail";
+  const selectedDetailRows: Array<{ label: string; value: string }> = selectedActivityDetail?.kind === "activity"
+    ? [
+        { label: "Status", value: friendlyStatus(selectedActivityDetail.item.status) },
+        { label: "Action", value: selectedActivityDetail.item.side.toUpperCase() },
+        { label: "Quantity", value: selectedActivityDetail.item.quantity == null ? "—" : `${selectedActivityDetail.item.quantity} shares` },
+        { label: "Limit price", value: selectedActivityDetail.item.limitPrice == null ? "—" : money(selectedActivityDetail.item.limitPrice) },
+        { label: "Date", value: new Date(selectedActivityDetail.item.occurredAt).toLocaleString() },
+        { label: "Broker order", value: selectedActivityDetail.item.brokerOrderId ?? (previewMode ? "Preview only" : "—") },
+        { label: "Environment", value: selectedActivityDetail.item.environment },
+      ]
+    : selectedActivityDetail?.kind === "trade"
+      ? [
+          { label: "Status", value: selectedActivityDetail.item.status === "open" ? "Position open" : "Trade closed" },
+          { label: "Quantity", value: `${selectedActivityDetail.item.quantity} shares` },
+          { label: "Entry price", value: money(selectedActivityDetail.item.entryPrice) },
+          { label: "Entry value", value: money(selectedActivityDetail.item.entryValue) },
+          { label: "Opened", value: new Date(selectedActivityDetail.item.openedAt).toLocaleString() },
+          ...(selectedActivityDetail.item.exitPrice == null ? [] : [{ label: "Exit price", value: money(selectedActivityDetail.item.exitPrice) }]),
+          ...(selectedActivityDetail.item.closedAt == null ? [] : [{ label: "Closed", value: new Date(selectedActivityDetail.item.closedAt).toLocaleString() }]),
+          ...(selectedActivityDetail.item.grossProfit == null ? [] : [{ label: selectedActivityDetail.item.feesComplete ? "Net profit/loss" : "Gross profit/loss", value: `${selectedActivityDetail.item.grossProfit >= 0 ? "+" : ""}${money(selectedActivityDetail.item.feesComplete && selectedActivityDetail.item.netProfit != null ? selectedActivityDetail.item.netProfit : selectedActivityDetail.item.grossProfit)}` }]),
+          { label: "Protective stop", value: selectedActivityDetail.item.protectiveStopPrice == null ? "—" : money(selectedActivityDetail.item.protectiveStopPrice) },
+          { label: "Profit target", value: selectedActivityDetail.item.profitTargetPrice == null ? "—" : money(selectedActivityDetail.item.profitTargetPrice) },
+        ]
+      : [];
   return (
     <View style={styles.historyPage}>
-      <Text accessibilityRole="header" style={styles.settingsTitle}>{page === "activity" ? "Activity" : "Positions"}</Text>
+      <Text accessibilityRole="header" style={styles.settingsTitle}>{page === "recommendationHistory" ? "Recommendation history" : page === "activity" ? "Activity" : "Positions"}</Text>
       {page === "positions" ? <Text style={styles.settingsIntro}>
-        {previewMode ? "Sample positions created while you explore the app." : "Current IBKR Paper positions and ownership checks."}
+        {previewMode ? "Sample positions created while you explore the app." : "Current Alpaca Paper positions and ownership checks."}
       </Text> : null}
-      {page === "activity" ? (
+      {page === "activity" || page === "recommendationHistory" ? (
         <>
           <View style={styles.activitySearch}>
             <MagnifyingGlassIcon size={19} color={colors.muted} weight="regular" />
             <TextInput
-              accessibilityLabel="Search activity"
-              placeholder="Search activity"
+              accessibilityLabel={page === "recommendationHistory" ? "Search recommendation history" : "Search activity"}
+              placeholder={page === "recommendationHistory" ? "Search recommendations" : "Search activity"}
               placeholderTextColor={colors.muted}
               value={activitySearch}
               onChangeText={setActivitySearch}
               style={styles.activitySearchInput}
             />
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activityFilters}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Open activity filters" style={styles.activityFilterIcon}>
+            {page === "activity" ? <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open activity filters${typeFilter !== "All" || statusFilter !== "All" ? ", filters active" : ""}`}
+              onPress={openFilters}
+              style={styles.activityFilterIcon}
+            >
               <SlidersHorizontalIcon size={18} color={colors.ink} weight="regular" />
-            </Pressable>
-            {["Type", "Status", "Symbol"].map((label) => (
-              <Pressable key={label} accessibilityRole="button" accessibilityLabel={`Filter by ${label}`} style={styles.activityFilterChip}>
-                <Text style={styles.activityFilterText}>{label}</Text>
-                <CaretDownIcon size={14} color={colors.ink} weight="bold" />
-              </Pressable>
-            ))}
-          </ScrollView>
+            </Pressable> : null}
+          </View>
         </>
       ) : null}
       {loading ? <Text style={styles.historyMessage}>Loading…</Text> : error ? <Text style={styles.historyMessage}>Activity service is unavailable.</Text> : null}
       {!loading && !error && empty ? (
         <View style={styles.historyEmpty}>
-          <Text style={styles.historyEmptyTitle}>{page === "activity" ? "No activity yet" : "No recorded positions"}</Text>
-          <Text style={styles.historyMessage}>{page === "activity" ? "Decisions and order updates will appear here." : "A position appears after the ledger observes a filled entry."}</Text>
+          <Text style={styles.historyEmptyTitle}>{page === "recommendationHistory" ? "No completed recommendations" : page === "activity" ? "No activity yet" : "No recorded positions"}</Text>
+          <Text style={styles.historyMessage}>{page === "recommendationHistory" ? "Recommendations appear here after they are approved, denied, or expire." : page === "activity" ? "Broker orders and completed trades will appear here." : "A position appears after the ledger observes a filled entry."}</Text>
         </View>
       ) : null}
-      {!loading && !error && page === "activity" && activitySections.map((section) => (
-        <View key={section.title} style={styles.activitySection}>
-          <Text style={styles.activitySectionTitle}>{section.title} ({section.items.length})</Text>
-          {section.items.map((item) => (
-            <View key={item.id} style={styles.activityRow}>
+      {!loading && !error && page === "activity" && openActivity.length > 0 ? (
+        <View style={styles.activitySection}>
+          <Text style={styles.activitySectionTitle}>Open orders ({openActivity.length})</Text>
+          {openActivity.map((item) => (
+            <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`Open ${item.symbol} order details`} onPress={() => setSelectedActivityDetail({ kind: "activity", item })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
               <CompanyMark symbol={item.symbol} size={36} />
               <View style={styles.historyRowMain}>
-                <Text style={styles.historySymbol}>{item.symbol} {item.side.toLowerCase()}</Text>
+                <Text style={styles.historySymbol}>{item.symbol} {item.side.toLowerCase()} order</Text>
                 <Text style={styles.historyMeta}>{item.quantity ?? "—"} shares · {new Date(item.occurredAt).toLocaleDateString()}</Text>
               </View>
               <View style={styles.historyRowEnd}>
                 <Text style={styles.historyStatus}>{friendlyStatus(item.status)}</Text>
                 <Text style={styles.historyTime}>{item.limitPrice ? money(item.limitPrice) : previewMode ? "Preview" : "—"}</Text>
               </View>
-            </View>
+            </Pressable>
           ))}
         </View>
-      ))}
-      {!loading && !error && page === "activity" && trades.filter((trade) => trade.status === "open").length > 0 ? (
+      ) : null}
+      {!loading && !error && page === "activity" && openTrades.length > 0 ? (
         <View style={styles.activitySection}>
-          <Text style={styles.activitySectionTitle}>Open trades ({trades.filter((trade) => trade.status === "open").length})</Text>
-          {trades.filter((trade) => trade.status === "open").map((trade) => (
-            <View key={trade.id} style={styles.activityRow}>
+          <Text style={styles.activitySectionTitle}>Open positions ({openTrades.length})</Text>
+          {openTrades.map((trade) => (
+            <Pressable key={trade.id} accessibilityRole="button" accessibilityLabel={`Open ${trade.symbol} position details`} onPress={() => setSelectedActivityDetail({ kind: "trade", item: trade })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
               <CompanyMark symbol={trade.symbol} size={36} />
               <View style={styles.historyRowMain}>
                 <Text style={styles.historySymbol}>{trade.symbol}</Text>
@@ -968,17 +1464,52 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
                 <Text style={styles.historyStatus}>Position open</Text>
                 <Text style={styles.historyTime}>{money(trade.entryValue)} invested</Text>
               </View>
-            </View>
+            </Pressable>
           ))}
         </View>
       ) : null}
-      {!loading && !error && page === "activity" && trades.filter((trade) => trade.status === "closed").length > 0 ? (
+      {!loading && !error && page === "recommendationHistory" && visibleHistoricalActivity.length > 0 ? (
         <View style={styles.activitySection}>
-          <Text style={styles.activitySectionTitle}>Closed trades ({trades.filter((trade) => trade.status === "closed").length})</Text>
-          {trades.filter((trade) => trade.status === "closed").map((trade) => {
+          <Text style={styles.activitySectionTitle}>History ({historicalActivity.length})</Text>
+          {visibleHistoricalActivity.map((item) => (
+            <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`Open ${item.side} ${item.quantity ?? ""} ${item.symbol} details`} onPress={() => setSelectedActivityDetail({ kind: "activity", item })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
+              <CompanyMark symbol={item.symbol} size={36} />
+              <View style={styles.historyRowMain}>
+                <Text numberOfLines={1} style={styles.historySymbol}>{item.side.charAt(0).toUpperCase()}{item.side.slice(1).toLowerCase()} {item.quantity ?? "—"} {item.symbol}</Text>
+                <Text numberOfLines={1} style={styles.historyMeta}>{item.symbol} · {companyName(item)}</Text>
+              </View>
+              <View style={styles.historyRowEnd}>
+                <Text numberOfLines={1} style={styles.historyStatus}>{friendlyStatus(item.status)}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {!loading && !error && page === "activity" && visibleHistoricalActivity.length > 0 ? (
+        <View style={styles.activitySection}>
+          <Text style={styles.activitySectionTitle}>Order history ({historicalActivity.length})</Text>
+          {visibleHistoricalActivity.map((item) => (
+            <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`Open ${item.symbol} order details`} onPress={() => setSelectedActivityDetail({ kind: "activity", item })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
+              <CompanyMark symbol={item.symbol} size={36} />
+              <View style={styles.historyRowMain}>
+                <Text style={styles.historySymbol}>{item.symbol} {item.side.toLowerCase()}</Text>
+                <Text style={styles.historyMeta}>{item.quantity ?? "—"} shares · {new Date(item.occurredAt).toLocaleDateString()}</Text>
+              </View>
+              <View style={styles.historyRowEnd}>
+                <Text style={styles.historyStatus}>{friendlyStatus(item.status)}</Text>
+                <Text style={styles.historyTime}>{item.limitPrice ? money(item.limitPrice) : previewMode ? "Preview" : "—"}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {!loading && !error && page === "activity" && visibleClosedTrades.length > 0 ? (
+        <View style={styles.activitySection}>
+          <Text style={styles.activitySectionTitle}>Closed trades ({closedTrades.length})</Text>
+          {visibleClosedTrades.map((trade) => {
             const profit = trade.feesComplete ? trade.netProfit : trade.grossProfit;
             return (
-              <View key={trade.id} style={styles.activityRow}>
+              <Pressable key={trade.id} accessibilityRole="button" accessibilityLabel={`Open ${trade.symbol} closed trade details`} onPress={() => setSelectedActivityDetail({ kind: "trade", item: trade })} style={({ pressed }) => [styles.activityRow, pressed && styles.activityRowPressed]}>
                 <CompanyMark symbol={trade.symbol} size={36} />
                 <View style={styles.historyRowMain}>
                   <Text style={styles.historySymbol}>{trade.symbol}</Text>
@@ -988,17 +1519,23 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
                   <Text style={[styles.historyStatus, { color: (profit ?? 0) >= 0 ? colors.actionApprove : colors.danger }]}>{profit == null ? "—" : `${profit >= 0 ? "+" : ""}${money(profit)}`}</Text>
                   <Text style={styles.historyTime}>{trade.feesComplete ? "Net profit/loss" : "Gross · fees pending"}</Text>
                 </View>
-              </View>
+              </Pressable>
             );
           })}
         </View>
       ) : null}
-      {!loading && !error && page === "activity" && !empty && matchingActivity.length === 0 ? (
-        <Text style={styles.historyMessage}>No activity matches your search.</Text>
+      {!loading && !error && (page === "activity" || page === "recommendationHistory") && hasMoreHistory ? (
+        <Pressable accessibilityRole="button" onPress={() => setHistoryVisibleCount((count) => count + 50)} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
+          <Text style={styles.previewProposalButtonText}>{page === "recommendationHistory" ? "Load older recommendations" : "Load older activity"}</Text>
+        </Pressable>
+      ) : null}
+      {!loading && !error && (page === "activity" || page === "recommendationHistory") && !empty && matchingActivity.length === 0 && (page === "recommendationHistory" || matchingTrades.length === 0) ? (
+        <Text style={styles.historyMessage}>{page === "recommendationHistory" ? "No recommendations match your search." : "No activity matches your search."}</Text>
       ) : null}
       {!loading && !error && page === "positions" && positions.map((item) => (
         <View key={item.id} style={styles.positionCard}>
           <View style={styles.historyRow}>
+            <CompanyMark symbol={item.symbol} size={40} />
             <View style={styles.historyRowMain}><Text style={styles.historySymbol}>{item.symbol}</Text><Text style={styles.historyMeta}>{item.quantity} shares</Text></View>
             <Text style={styles.historyStatus}>{money(item.quantity * item.averageEntryPrice)}</Text>
           </View>
@@ -1010,12 +1547,99 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
             <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Protective stop</Text><Text style={styles.tradeTermValue}>{item.protectiveStopPrice ? money(item.protectiveStopPrice) : "—"}</Text></View>
             <View style={styles.tradeTermRow}><Text style={styles.tradeTermLabel}>Profit target</Text><Text style={styles.tradeTermValue}>{item.profitTargetPrice ? money(item.profitTargetPrice) : "—"}</Text></View>
           </View>
-          <Text style={styles.positionNotice}>{item.dataState === "preview" ? "Preview data · no broker order" : item.dataState === "reconciled" ? item.reasons?.join(" · ") ?? "Broker quantity confirmed; ownership unverified" : "Awaiting IBKR Paper reconciliation"}</Text>
+          <Text style={styles.positionNotice}>{item.dataState === "preview" ? "Preview data · no broker order" : item.dataState === "reconciled" ? item.reasons?.join(" · ") ?? "Broker quantity confirmed; ownership unverified" : "Awaiting Alpaca Paper reconciliation"}</Text>
         </View>
       ))}
       {!previewMode ? <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}>
         <Text style={styles.previewProposalButtonText}>Refresh</Text>
       </Pressable> : null}
+      <Modal visible={filterSheetOpen} transparent animationType="fade" onRequestClose={() => setFilterSheetOpen(false)}>
+        <View style={styles.filterSheetLayer}>
+          <Pressable accessibilityLabel="Close filters" onPress={() => setFilterSheetOpen(false)} style={styles.filterSheetBackdrop} />
+          <SafeAreaView style={styles.filterSheet} edges={["bottom"]}>
+            <View style={styles.filterSheetHandle} />
+            <View style={styles.filterSheetHeader}>
+              <Text style={styles.filterSheetTitle}>Filters</Text>
+              <Pressable accessibilityRole="button" onPress={() => { setDraftTypeFilter("All"); setDraftStatusFilter("All"); }} hitSlop={8}>
+                <Text style={styles.filterSheetClear}>Clear</Text>
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.filterSheetContent} showsVerticalScrollIndicator={false}>
+              {([
+                { label: "Type", options: ["All", "Orders", "Decisions", "Trades"], value: draftTypeFilter, setValue: setDraftTypeFilter },
+                { label: "Status", options: ["All", "Open", "Filled", "Denied", "Expired", "Closed"], value: draftStatusFilter, setValue: setDraftStatusFilter },
+              ] as const).map((section) => (
+                <View key={section.label} style={styles.filterSheetSection}>
+                  <Text style={styles.filterSheetSectionTitle}>{section.label}</Text>
+                  <View style={styles.filterSheetChoices}>
+                    {section.options.map((option) => {
+                      const selected = section.value === option;
+                      return <Pressable key={option} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => section.setValue(option)} style={[styles.filterSheetChoice, selected && styles.filterSheetChoiceSelected]}>
+                        <Text style={[styles.filterSheetChoiceText, selected && styles.filterSheetChoiceTextSelected]}>{option}</Text>
+                      </Pressable>;
+                    })}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+            <Pressable accessibilityRole="button" onPress={applyFilters} style={({ pressed }) => [styles.filterSheetApply, pressed && styles.homeActionPressed]}>
+              <Text style={styles.filterSheetApplyText}>Apply filters</Text>
+            </Pressable>
+          </SafeAreaView>
+        </View>
+      </Modal>
+      <Modal visible={selectedActivityDetail !== null} transparent animationType="fade" onRequestClose={() => setSelectedActivityDetail(null)}>
+        <View style={styles.filterSheetLayer}>
+          <Pressable accessibilityLabel="Close activity details" onPress={() => setSelectedActivityDetail(null)} style={styles.filterSheetBackdrop} />
+          <SafeAreaView style={styles.activityDetailSheet} edges={["bottom"]}>
+            <View style={styles.filterSheetHandle} />
+            <View style={styles.filterSheetHeader}>
+              <View style={styles.activityDetailTitleRow}>
+                {selectedActivityDetail ? <CompanyMark symbol={selectedActivityDetail.item.symbol} size={40} /> : null}
+                <Text style={styles.filterSheetTitle}>{selectedDetailTitle}</Text>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close activity details" onPress={() => setSelectedActivityDetail(null)} style={styles.sheetClose}>
+                <XIcon size={20} color={colors.ink} weight="regular" />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.activityDetailContent} showsVerticalScrollIndicator={false}>
+              {selectedDetailRows.map((row) => (
+                <View key={row.label} style={styles.activityDetailRow}>
+                  <Text style={styles.tradeTermLabel}>{row.label}</Text>
+                  <Text style={styles.activityDetailValue}>{row.value}</Text>
+                </View>
+              ))}
+              {page === "recommendationHistory" && selectedActivityDetail?.kind === "activity" ? (
+                <View style={styles.sheetSection}>
+                  <Text style={styles.sheetSectionTitle}>Why this trade</Text>
+                  <Text style={styles.sheetBody}>{selectedActivityDetail.item.researchContext ?? "Detailed rationale was not recorded for this recommendation."}</Text>
+                  {(selectedActivityDetail.item.rationale ?? []).map((reason) => (
+                    <View key={reason} style={styles.infoRow}>
+                      <CheckCircleIcon size={17} color={colors.accent} weight="regular" />
+                      <Text style={styles.infoRowText}>{reason}</Text>
+                    </View>
+                  ))}
+                  <View style={styles.sheetSection}>
+                    <Text style={styles.sheetSectionTitle}>Original trade plan</Text>
+                    <View style={styles.activityDetailRow}>
+                      <Text style={styles.tradeTermLabel}>Profit target</Text>
+                      <Text style={styles.activityDetailValue}>{selectedActivityDetail.item.targetPrice == null ? "—" : money(selectedActivityDetail.item.targetPrice)}</Text>
+                    </View>
+                    <View style={styles.activityDetailRow}>
+                      <Text style={styles.tradeTermLabel}>Protective stop</Text>
+                      <Text style={styles.activityDetailValue}>{selectedActivityDetail.item.stopPrice == null ? "—" : money(selectedActivityDetail.item.stopPrice)}</Text>
+                    </View>
+                    <View style={styles.activityDetailRow}>
+                      <Text style={styles.tradeTermLabel}>Time horizon</Text>
+                      <Text style={styles.activityDetailValue}>{selectedActivityDetail.item.targetTimeframe ?? "—"}</Text>
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1023,6 +1647,8 @@ function HistoryPage({ page, activity, positions, trades, loading, error, onRefr
 export default function App() {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [darkMode, setDarkMode] = useState(false);
+  const [recommendationMode, setRecommendationMode] = useState<RecommendationMode>("conservative");
+  const recommendationModeRef = useRef<RecommendationMode>("conservative");
   const [activePage, setActivePage] = useState<AppPage>("review");
   const [riskPolicy, setRiskPolicy] = useState<RiskPolicy>(SMART_RISK_POLICY);
   const [policySaving, setPolicySaving] = useState(false);
@@ -1033,6 +1659,12 @@ export default function App() {
   const [previewPositionItems, setPreviewPositionItems] = useState<PositionItem[]>(PREVIEW_POSITIONS);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [performanceReport, setPerformanceReport] = useState<PerformanceReport | null>(null);
+  const [performanceLoading, setPerformanceLoading] = useState(false);
+  const [performanceError, setPerformanceError] = useState<string | null>(null);
+  const [strategyComparison, setStrategyComparison] = useState<StrategyComparison | null>(null);
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [researchError, setResearchError] = useState<string | null>(null);
   const colors = darkMode ? darkPalette : palette;
   const activeTheme = darkMode ? darkTheme : theme;
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -1043,32 +1675,40 @@ export default function App() {
   const [, tick] = useState(0);
   const [broker, setBroker] = useState<BrokerSnapshot | null>(null);
   const [brokerConnectionStatus, setBrokerConnectionStatus] = useState<BrokerConnectionStatus>("checking");
+  const [brokerConnectionHealth, setBrokerConnectionHealth] = useState<BrokerConnectionHealth | null>(null);
+  const [connectionAlertsEnabled, setConnectionAlertsEnabled] = useState(false);
   const [brokerUnavailable, setBrokerUnavailable] = useState(false);
   const [noEligibleRecommendation, setNoEligibleRecommendation] = useState(false);
   const [strategyCapitalReached, setStrategyCapitalReached] = useState(false);
   const [portfolioReview, setPortfolioReview] = useState<PortfolioReview | null>(null);
+  const [exitReviewIndex, setExitReviewIndex] = useState(0);
+  const dismissedExitReviewKeysRef = useRef(new Set<string>());
+  const [exitReviewSubmittingId, setExitReviewSubmittingId] = useState<string | null>(null);
   const [orderPreview, setOrderPreview] = useState<OrderPreview | null>(null);
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResult | null>(null);
   const [paperSubmission, setPaperSubmission] = useState<PaperSubmission | null>(null);
   const [submittedProposalIds, setSubmittedProposalIds] = useState<string[]>([]);
+  const [queuedProposalIds, setQueuedProposalIds] = useState<string[]>([]);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [appToast, setAppToast] = useState<AppToast | null>(null);
   const [processing, setProcessing] = useState(false);
   const [showRecommendationSkeleton, setShowRecommendationSkeleton] = useState(false);
-  const [decisionInFlight, setDecisionInFlight] = useState<"approved" | "denied" | null>(null);
+  const [decisionsInFlight, setDecisionsInFlight] = useState<Record<string, "approved" | "denied">>({});
   const [strategy, setStrategy] = useState<StrategySummary | null>(null);
   const [uiPreview, setUiPreview] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [reviewedExampleIds, setReviewedExampleIds] = useState<string[]>([]);
   const [sampleDeckComplete, setSampleDeckComplete] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [riskDialOpen, setRiskDialOpen] = useState(false);
   const [realRecommendations, setRealRecommendations] = useState<Proposal[]>([]);
+  const recommendationDeckRef = useRef<Proposal[]>([]);
+  const activeProposalRef = useRef<Proposal>(SHADOW_LOADING);
   const [realDeckComplete, setRealDeckComplete] = useState(false);
   const [transitionCard, setTransitionCard] = useState<Proposal | null>(null);
-  const [openSection, setOpenSection] = useState<"rationale" | "strategy" | "news" | null>(null);
   const [cardWidth, setCardWidth] = useState(0);
   const [cardBodyHeight, setCardBodyHeight] = useState(0);
-  const [rationaleTop, setRationaleTop] = useState(0);
   const cardPosition = useRef(new Animated.ValueXY()).current;
   const cardEntryProgress = useRef(new Animated.Value(1)).current;
   const menuProgress = useRef(new Animated.Value(0)).current;
@@ -1078,9 +1718,13 @@ export default function App() {
   const suppressCardTapUntil = useRef(0);
   const brokerCheckInFlight = useRef(false);
   const brokerFailureCount = useRef(0);
+  const previousBrokerStatus = useRef<BrokerConnectionStatus>("checking");
   const orderWorkflowsInFlight = useRef(0);
+  const queuedOrdersRef = useRef<Proposal[]>([]);
+  const queuedProposalIdsRef = useRef(new Set<string>());
+  const orderQueueRunningRef = useRef(false);
   const recommendationScanInFlight = useRef(false);
-  const recalculatedRecommendations = useRef<Proposal[] | null>(null);
+  const expiredRefreshInFlight = useRef(false);
   const uiPreviewRef = useRef(false);
   const dismissToast = useCallback(() => setAppToast(null), []);
   const adaptiveOperatingPercent = !riskPolicy.adaptive
@@ -1114,6 +1758,60 @@ export default function App() {
       .catch(() => undefined);
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(CONNECTION_ALERTS_STORAGE_KEY)
+      .then((value) => setConnectionAlertsEnabled(value === "true"))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(RECOMMENDATION_MODE_STORAGE_KEY)
+      .then((value) => {
+        if (value === "conservative" || value === "balanced" || value === "growth" || value === "risky") {
+          recommendationModeRef.current = value;
+          setRecommendationMode(value);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const previous = previousBrokerStatus.current;
+    previousBrokerStatus.current = brokerConnectionStatus;
+    if (uiPreview || previous === brokerConnectionStatus) return;
+    if (brokerConnectionStatus === "disconnected") {
+      const disconnectedAt = brokerConnectionHealth?.lastDisconnectedAt ?? Date.now();
+      void AsyncStorage.setItem("trade-approval.last-connection-alert", JSON.stringify({ status: "disconnected", at: disconnectedAt }));
+      setAppToast({ tone: "danger", title: "Alpaca Paper unavailable", message: "New orders are blocked. Existing broker-hosted orders remain active." });
+      if (connectionAlertsEnabled) {
+        void Notifications.scheduleNotificationAsync({
+          content: { title: "Alpaca Paper unavailable", body: "Trade Approval blocked new orders. Open the app to check the service." },
+          trigger: null,
+        }).catch(() => undefined);
+      }
+    } else if (brokerConnectionStatus === "connected" && previous === "disconnected") {
+      void AsyncStorage.setItem("trade-approval.last-connection-alert", JSON.stringify({ status: "recovered", at: Date.now() }));
+      setAppToast({ tone: "success", title: "Alpaca Paper reconnected", message: "Fresh broker checks are available again." });
+    }
+  }, [brokerConnectionStatus, brokerConnectionHealth?.lastDisconnectedAt, connectionAlertsEnabled, uiPreview]);
+
+  async function changeConnectionAlerts(enabled: boolean) {
+    if (!enabled) {
+      setConnectionAlertsEnabled(false);
+      await AsyncStorage.setItem(CONNECTION_ALERTS_STORAGE_KEY, "false");
+      return;
+    }
+    const current = await Notifications.getPermissionsAsync();
+    const allowed = current.granted || current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+    const requested = allowed ? current : await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowSound: true, allowBadge: false } });
+    const granted = requested.granted || requested.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+    setConnectionAlertsEnabled(granted);
+    await AsyncStorage.setItem(CONNECTION_ALERTS_STORAGE_KEY, String(granted));
+    setAppToast(granted
+      ? { tone: "success", title: "Connection alerts enabled", message: "This device can alert you when the running app detects a broker disconnect." }
+      : { tone: "danger", title: "Notifications not enabled", message: "Allow notifications in iPhone Settings to receive connection alerts." });
+  }
 
   useEffect(() => {
     let active = true;
@@ -1194,7 +1892,54 @@ export default function App() {
     }
   }
 
-  function openHistory(page: "activity" | "positions") {
+  async function loadPerformance() {
+    if (uiPreviewRef.current) {
+      setPerformanceReport(PREVIEW_PERFORMANCE);
+      setPerformanceError(null);
+      setPerformanceLoading(false);
+      return;
+    }
+    setPerformanceLoading(true);
+    setPerformanceError(null);
+    try {
+      const headers = { "x-app-token": APP_TOKEN };
+      const reconciliation = await fetch(`${API_BASE_URL}/broker/reconcile`, { method: "POST", headers });
+      if (!reconciliation.ok) throw new Error("reconciliation_unavailable");
+      const response = await fetch(`${API_BASE_URL}/performance`, { headers });
+      if (!response.ok) throw new Error("performance_unavailable");
+      setPerformanceReport(await response.json());
+    } catch {
+      setPerformanceError("performance_unavailable");
+    } finally {
+      setPerformanceLoading(false);
+    }
+  }
+
+  function openPerformance() {
+    setActivePage("performance");
+    void loadPerformance();
+  }
+
+  async function loadResearch() {
+    setResearchLoading(true);
+    setResearchError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/research/strategy-comparison`, { headers: { "x-app-token": APP_TOKEN } });
+      if (!response.ok) throw new Error("strategy_comparison_unavailable");
+      setStrategyComparison(await response.json());
+    } catch {
+      setResearchError("strategy_comparison_unavailable");
+    } finally {
+      setResearchLoading(false);
+    }
+  }
+
+  function openResearch() {
+    setActivePage("research");
+    void loadResearch();
+  }
+
+  function openHistory(page: "recommendationHistory" | "activity" | "positions") {
     setActivePage(page);
     if (uiPreview) {
       setHistoryError(null);
@@ -1289,17 +2034,18 @@ export default function App() {
       potentialUpsidePercent: ((serviceProposal.targetPrice - serviceProposal.limitPrice) / serviceProposal.limitPrice) * 100,
       rationale: serviceProposal.rationale,
       companyCatalyst: serviceProposal.researchContext ?? "This recommendation passed the current deterministic market, liquidity, and risk rules.",
-      strategyName: strategySummary.name,
+      strategyName: serviceProposal.sourceLane === "shadow" ? "Experimental volatile momentum" : strategySummary.name,
       strategyContext: `${money(strategySummary.currentExposure)} currently allocated of a ${money(strategySummary.capitalLimit)} paper limit across up to ${strategySummary.maxOpenPositions} positions.`,
-      accountLabel: `IBKR Paper ${snapshot.account ?? "connected"}`,
-      quoteAge: serviceProposal.quoteDataType === 3 ? "Delayed IBKR reference" : "IBKR market data",
+      accountLabel: `Alpaca Paper ${snapshot.account ?? "connected"}`,
+      quoteAge: "Alpaca market data",
       expiresAt: serviceProposal.expiresAt,
       decision: "pending",
       shadowMode: false,
       signalEligible: true,
       automaticExits: serviceProposal.exitPolicy.automatic,
+      sourceLane: serviceProposal.sourceLane,
       marketRisk: serviceProposal.marketRisk,
-      exitPlan: `If the buy fills, IBKR Paper will automatically place a profit-taking sell at ${money(serviceProposal.exitPolicy.profitTargetPrice)} and a protective stop sell triggered at ${money(serviceProposal.exitPolicy.protectiveStopPrice)}.`,
+      exitPlan: `If the buy fills, Alpaca Paper will hold a profit-taking sell at ${money(serviceProposal.exitPolicy.profitTargetPrice)} and a protective stop sell triggered at ${money(serviceProposal.exitPolicy.protectiveStopPrice)}.`,
     };
   }
 
@@ -1316,16 +2062,30 @@ export default function App() {
     setProposal(serviceProposalToCard(serviceProposal, snapshot, strategySummary));
   }
 
-  async function createPaperProposal() {
+  async function createPaperProposal(preferredSymbol?: string, requestedMode = recommendationModeRef.current) {
     const response = await fetch(`${API_BASE_URL}/recommendations/queue`, {
       method: "POST",
-      headers: { "x-app-token": APP_TOKEN },
+      headers: { "content-type": "application/json", "x-app-token": APP_TOKEN },
+      body: JSON.stringify({ mode: requestedMode }),
     });
     const result = await response.json() as { recommendations: QueuedServiceRecommendation[]; strategy: StrategySummary; portfolioReview?: PortfolioReview; error?: string };
     if (!response.ok) throw new Error(result.error ?? "proposal_unavailable");
+    if (requestedMode !== recommendationModeRef.current) return;
     setStrategy(result.strategy);
     if (result.portfolioReview) {
-      setPortfolioReview(result.portfolioReview);
+      const refreshWindow = recommendationRefreshWindow();
+      const visiblePortfolioReview = {
+        ...result.portfolioReview,
+        exitReviews: result.portfolioReview.exitReviews.filter((review) =>
+          review.orderSubmissionAllowed
+          && !dismissedExitReviewKeysRef.current.has(`${refreshWindow}:${review.symbol}`)),
+      };
+      recommendationDeckRef.current = [];
+      setRealRecommendations([]);
+      setProposal(SHADOW_LOADING);
+      setRealDeckComplete(false);
+      setPortfolioReview(visiblePortfolioReview);
+      setExitReviewIndex(0);
       setStrategyCapitalReached(true);
       setNoEligibleRecommendation(false);
       setBrokerUnavailable(false);
@@ -1336,9 +2096,14 @@ export default function App() {
       .filter((item) => item.broker?.ok)
       .map((item) => serviceProposalToCard(item.proposal, item.broker, result.strategy));
     if (cards.length === 0) throw new Error("recommendation_queue_empty");
-    const first = result.recommendations.find((item) => item.proposal.id === cards[0]?.id);
+    const mergedCards = mergeRecommendationDeck(recommendationDeckRef.current, cards);
+    const activeCard = (preferredSymbol ? mergedCards.find((item) => item.symbol === preferredSymbol) : null)
+      ?? mergedCards.find((item) => item.symbol === proposal.symbol)
+      ?? mergedCards[0];
+    const first = result.recommendations.find((item) => item.proposal.id === activeCard?.id);
     if (!first?.broker?.ok) throw new Error("recommendation_queue_empty");
-    setRealRecommendations(cards);
+    recommendationDeckRef.current = mergedCards;
+    setRealRecommendations(mergedCards);
     setRealDeckComplete(false);
     setStrategyCapitalReached(false);
     setPortfolioReview(null);
@@ -1346,6 +2111,21 @@ export default function App() {
     setNoEligibleRecommendation(false);
     setBrokerConnectionStatus("connected");
     setUiPreview(false);
+  }
+
+  async function refreshPaperRecommendationsInBackground() {
+    try {
+      await createPaperProposal();
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "proposal_unavailable";
+      if (isNonFatalRecommendationState(code)) {
+        setNoEligibleRecommendation(code === "no_eligible_recommendation" || code === "no_candidate_with_acceptable_spread" || code === "recommendation_queue_empty");
+        setStrategyCapitalReached(code === "strategy_capital_limit");
+        setBrokerUnavailable(false);
+        return;
+      }
+      setBrokerUnavailable(true);
+    }
   }
 
   async function checkBrokerConnection() {
@@ -1356,15 +2136,16 @@ export default function App() {
     if (brokerCheckInFlight.current || orderWorkflowsInFlight.current > 0) return;
     brokerCheckInFlight.current = true;
     try {
-      const response = await fetch(`${API_BASE_URL}/broker/snapshot?symbol=NVDA`, {
+      const response = await fetch(`${API_BASE_URL}/health`, {
         headers: { "x-app-token": APP_TOKEN },
       });
-      const snapshot = await response.json() as BrokerSnapshot;
-      const connected = response.ok && snapshot.ok && snapshot.environment === "paper";
-      if (!connected) throw new Error("paper_snapshot_unavailable");
+      const result = await response.json() as { ok: boolean; environment: "paper"; brokerConnection?: BrokerConnectionHealth };
+      const health = result.brokerConnection ?? null;
+      if (!response.ok || !result.ok || result.environment !== "paper" || !health) throw new Error("paper_snapshot_unavailable");
       brokerFailureCount.current = 0;
-      setBrokerConnectionStatus("connected");
-      setBroker(snapshot);
+      setBrokerConnectionHealth(health);
+      setBrokerConnectionStatus(health.state);
+      if (health.state === "disconnected") setBroker(null);
     } catch {
       brokerFailureCount.current += 1;
       if (brokerFailureCount.current >= 3) {
@@ -1390,12 +2171,60 @@ export default function App() {
     } catch {
       Alert.alert(
         "Paper recommendation unavailable",
-        "Confirm TWS is open in Paper Trading, API access is enabled, and the local trade service is running.",
+        "Confirm IB Gateway is open in Paper Trading, API access is enabled, and the local trade service is running.",
       );
     } finally {
       recommendationScanInFlight.current = false;
       setProcessing(false);
     }
+  }
+
+  async function approvePaperExit(review: PortfolioReview["exitReviews"][number]) {
+    if (exitReviewSubmittingId) return;
+    setExitReviewSubmittingId(review.id);
+    setAppToast({ tone: "info", title: "Submitting paper sell", message: `Verifying ${review.symbol} and its broker protection.` });
+    try {
+      const response = await fetch(`${API_BASE_URL}/exit-reviews/${encodeURIComponent(review.id)}/approve-paper`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-app-token": APP_TOKEN },
+        body: JSON.stringify({ confirmed: true }),
+      });
+      const result = await response.json() as { ok?: boolean; error?: string; reason?: string; phase?: string };
+      if (!response.ok || !result.ok) throw new Error(result.reason ?? result.error ?? "paper_exit_blocked");
+      setPortfolioReview((current) => current ? {
+        ...current,
+        exitReviews: current.exitReviews.filter((item) => item.id !== review.id),
+      } : current);
+      setExitReviewIndex(0);
+      setAppToast({ tone: "success", title: "Paper sell accepted", message: `${review.symbol} is working at Alpaca Paper. The card will remain in Positions until the fill is confirmed.` });
+      setTimeout(() => void refreshPaperRecommendationsInBackground(), 2500);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "paper_exit_blocked";
+      const detail = message.includes("live data unavailable") || message.includes("quote")
+        ? "A fresh execution quote is unavailable. No Paper order was changed."
+        : message === "orders_owned_by_different_api_client"
+          ? "The protective orders belong to a different broker session. No Paper order was changed."
+          : message === "exact_protected_order_pair_required"
+            ? "The exact target and protective stop could not be verified. No Paper order was changed."
+            : `${message.replaceAll("_", " ")}. No Paper order was changed.`;
+      setAppToast({ tone: "danger", title: "Sell not submitted", message: detail });
+    } finally {
+      setExitReviewSubmittingId(null);
+    }
+  }
+
+  function keepPaperPosition(review: PortfolioReview["exitReviews"][number]) {
+    dismissedExitReviewKeysRef.current.add(`${recommendationRefreshWindow()}:${review.symbol}`);
+    setPortfolioReview((current) => current ? {
+      ...current,
+      exitReviews: current.exitReviews.filter((item) => item.id !== review.id),
+    } : current);
+    setExitReviewIndex(0);
+    setAppToast({
+      tone: "info",
+      title: `${review.symbol} kept`,
+      message: "This sell recommendation is cleared until the next scheduled refresh.",
+    });
   }
 
   useEffect(() => {
@@ -1406,6 +2235,10 @@ export default function App() {
   useEffect(() => {
     uiPreviewRef.current = uiPreview;
   }, [uiPreview]);
+
+  useEffect(() => {
+    activeProposalRef.current = proposal;
+  }, [proposal]);
 
   useEffect(() => {
     Animated.timing(menuProgress, {
@@ -1460,9 +2293,12 @@ export default function App() {
       } catch (error) {
         if (!active) return;
         const code = error instanceof Error ? error.message : "proposal_unavailable";
-        setNoEligibleRecommendation(code === "no_eligible_recommendation");
+        const noEligibleCandidate = code === "no_eligible_recommendation"
+          || code === "no_candidate_with_acceptable_spread"
+          || code === "recommendation_queue_empty";
+        setNoEligibleRecommendation(noEligibleCandidate);
         setStrategyCapitalReached(code === "strategy_capital_limit");
-        setBrokerUnavailable(code !== "no_eligible_recommendation" && code !== "strategy_capital_limit");
+        setBrokerUnavailable(!isNonFatalRecommendationState(code));
       } finally {
         recommendationScanInFlight.current = false;
         if (active) setProcessing(false);
@@ -1475,32 +2311,65 @@ export default function App() {
       active = false;
       clearInterval(scanTimer);
     };
-  }, [brokerConnectionStatus, proposal.shadowMode, marketWindow.phase]);
+  }, [brokerConnectionStatus, proposal.shadowMode, marketWindow.phase, recommendationMode]);
 
   const expired = proposal.decision === "pending" && Date.now() >= proposal.expiresAt;
   const state: Decision = expired ? "expired" : proposal.decision;
   const expiringSoon = state === "pending" && proposal.expiresAt - Date.now() <= 60_000;
   const brokerReady = broker !== null && brokerConnectionStatus === "connected";
   const actionable = state === "pending" && brokerReady && !proposal.shadowMode;
+  const activeDecisionInFlight = decisionsInFlight[proposal.id] ?? null;
   const timer = countdown(proposal.expiresAt);
 
   useEffect(() => {
     if (expired) setProposal((current) => ({ ...current, decision: "expired" }));
   }, [expired]);
 
+  async function refreshExpiredRecommendation() {
+    if (expiredRefreshInFlight.current) return;
+    if (uiPreview) {
+      setProposal((current) => ({ ...current, decision: "pending", expiresAt: Date.now() + 3 * 60_000 }));
+      setAppToast({ tone: "success", title: "Recommendation refreshed", message: `${proposal.symbol} now uses a current preview window.` });
+      return;
+    }
+    if (proposal.shadowMode || brokerConnectionStatus !== "connected") {
+      setAppToast({ tone: "danger", title: "Recommendation not refreshed", message: "Reconnect Alpaca Paper before refreshing this recommendation." });
+      return;
+    }
+    let active = true;
+    expiredRefreshInFlight.current = true;
+    setProcessing(true);
+    setAppToast({ tone: "info", title: "Refreshing recommendation", message: `Updating ${proposal.symbol} with a current price and trade plan.` });
+    try {
+      await createPaperProposal(proposal.symbol);
+    } catch (error) {
+      if (!active) return;
+      const code = error instanceof Error ? error.message : "recommendation_refresh_unavailable";
+      setAppToast({ tone: "danger", title: "Recommendation not refreshed", message: code === "no_eligible_recommendation" ? `${proposal.symbol} no longer qualifies.` : "The current recommendation could not be refreshed yet." });
+    } finally {
+      expiredRefreshInFlight.current = false;
+      if (active) setProcessing(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!expired || uiPreview || proposal.shadowMode || brokerConnectionStatus !== "connected" || expiredRefreshInFlight.current) return;
+    void refreshExpiredRecommendation();
+  }, [expired, proposal.id, proposal.shadowMode, proposal.symbol, uiPreview, brokerConnectionStatus]);
+
   async function executeDecision(
     decision: "approved" | "denied",
     targetProposal: Proposal = proposal,
     background = false,
-  ): Promise<boolean> {
+  ): Promise<{ succeeded: boolean; replacementCards: Proposal[] | null }> {
     orderWorkflowsInFlight.current += 1;
     setWorkflowError(null);
     if (!background) setAppToast(decision === "approved"
-      ? { tone: "info", title: "Checking paper order", message: "Validating the account, price, and order with IBKR Paper." }
+      ? { tone: "info", title: "Checking paper order", message: "Validating the account, price, and order with Alpaca Paper." }
       : null);
     if (!background) {
       setProcessing(true);
-      setDecisionInFlight(decision);
+      setDecisionsInFlight((current) => ({ ...current, [targetProposal.id]: decision }));
     }
     try {
       const response = await fetch(`${API_BASE_URL}/proposals/${targetProposal.id}/decision`, {
@@ -1521,7 +2390,6 @@ export default function App() {
             .filter((item) => item.broker?.ok)
             .map((item) => serviceProposalToCard(item.proposal, item.broker, result.strategy!))
           : [];
-        recalculatedRecommendations.current = refreshedCards;
         if (result.strategy) setStrategy(result.strategy);
         setAppToast({
           tone: "info",
@@ -1530,7 +2398,7 @@ export default function App() {
             ? "No order was sent. Remaining recommendations were recalculated."
             : "No order was sent. The scanner will continue looking for current recommendations.",
         });
-        return true;
+        return { succeeded: true, replacementCards: refreshedCards };
       }
       const token = result.approval?.token;
       if (!token) throw new Error("approval_missing");
@@ -1540,8 +2408,12 @@ export default function App() {
         headers: { "content-type": "application/json", "x-app-token": APP_TOKEN },
         body: JSON.stringify({ token }),
       });
-      const previewResult = await previewResponse.json() as { preview?: OrderPreview };
-      if (!previewResponse.ok || !previewResult.preview) throw new Error("preview_blocked");
+      const previewResult = await previewResponse.json() as { preview?: OrderPreview & { checks?: { notExpired?: boolean; withinLimit?: boolean } } };
+      if (!previewResponse.ok || !previewResult.preview) {
+        if (previewResult.preview?.checks?.notExpired === false) throw new Error("invalid_or_expired_approval");
+        if (previewResult.preview?.checks?.withinLimit === false) throw new Error("price_above_approved_limit");
+        throw new Error("preview_blocked");
+      }
       setOrderPreview(previewResult.preview);
 
       const whatIfResponse = await fetch(`${API_BASE_URL}/orders/what-if`, {
@@ -1554,11 +2426,13 @@ export default function App() {
       setWhatIfResult(whatIfPayload.whatIf);
       const commission = whatIfPayload.whatIf.result?.commission;
       if (typeof commission === "number") {
-        setRealRecommendations((current) => current.map((item) =>
-          item.id === targetProposal.id ? { ...item, estimatedFees: commission } : item));
+        const withCommission = recommendationDeckRef.current.map((item) =>
+          item.id === targetProposal.id ? { ...item, estimatedFees: commission } : item);
+        recommendationDeckRef.current = withCommission;
+        setRealRecommendations(withCommission);
       }
 
-      if (!background) setAppToast({ tone: "info", title: "Submitting paper bracket", message: "Waiting for IBKR to acknowledge the buy and both automatic exit orders." });
+      if (!background) setAppToast({ tone: "info", title: "Submitting paper bracket", message: "Waiting for Alpaca to acknowledge the buy and both exit orders." });
 
       const submitResponse = await fetch(`${API_BASE_URL}/orders/submit-paper`, {
         method: "POST",
@@ -1567,49 +2441,57 @@ export default function App() {
       });
       const submitPayload = await submitResponse.json() as {
         error?: string;
+        checks?: {
+          priceWithinLimit?: boolean; strategyCapitalAllowed?: boolean; diversificationAllowed?: boolean;
+          sectorAllowed?: boolean; themeAllowed?: boolean; positionSlotAllowed?: boolean; securityExposureAllowed?: boolean;
+        };
         submission?: PaperSubmission & { error?: string; errors?: Array<{ code?: number; message?: string }> };
         recommendations?: QueuedServiceRecommendation[];
         strategy?: StrategySummary;
+        recalculated?: boolean;
       };
       if (!submitResponse.ok || !submitPayload.submission?.ok) {
-        if (submitPayload.error === "strategy_capital_changed" && submitPayload.strategy) {
+        if (submitPayload.recalculated && submitPayload.strategy) {
           const refreshedCards = (submitPayload.recommendations ?? [])
             .filter((item) => item.broker?.ok)
             .map((item) => serviceProposalToCard(item.proposal, item.broker, submitPayload.strategy!));
           setStrategy(submitPayload.strategy);
-          setRealRecommendations(refreshedCards);
-          if (refreshedCards[0]) setProposal(refreshedCards[0]);
+          const mergedCards = mergeRecommendationDeck(recommendationDeckRef.current, refreshedCards);
+          recommendationDeckRef.current = mergedCards;
+          setRealRecommendations(mergedCards);
+          if (mergedCards[0]) setProposal(mergedCards[0]);
           else {
             setRealDeckComplete(true);
             setProposal(SHADOW_LOADING);
           }
         }
+        if (submitPayload.checks?.priceWithinLimit === false) throw new Error("price_above_approved_limit");
         const brokerError = submitPayload.submission?.errors?.[0];
         throw new Error(
           submitPayload.error
           ?? submitPayload.submission?.error
-          ?? (brokerError?.message ? `IBKR${brokerError.code ? ` ${brokerError.code}` : ""}: ${brokerError.message}` : undefined)
+          ?? (brokerError?.message ? `Alpaca${brokerError.code ? ` ${brokerError.code}` : ""}: ${brokerError.message}` : undefined)
           ?? "paper_submission_blocked"
         );
       }
       setPaperSubmission(submitPayload.submission);
+      let refreshedCards: Proposal[] | null = null;
       if (submitPayload.strategy) {
-        const refreshedCards = (submitPayload.recommendations ?? [])
+        refreshedCards = (submitPayload.recommendations ?? [])
           .filter((item) => item.broker?.ok)
           .map((item) => serviceProposalToCard(item.proposal, item.broker, submitPayload.strategy!));
-        recalculatedRecommendations.current = refreshedCards;
         setStrategy(submitPayload.strategy);
       }
       setSubmittedProposalIds((current) => current.includes(targetProposal.id)
         ? current : [...current, targetProposal.id]);
       const queuedForOpen = submitPayload.submission.result?.status === "PreSubmitted"
         && submitPayload.submission.warnings?.some((warning) => warning.code === 399);
-      if (!background) setAppToast({
+      setAppToast({
           tone: "info",
           title: queuedForOpen ? "Paper order queued" : "Paper order working",
           message: queuedForOpen
-            ? `${targetProposal.quantity} ${targetProposal.symbol} · accepted by IBKR and scheduled for the next regular market open.`
-            : `${targetProposal.quantity} ${targetProposal.symbol} · acknowledged by IBKR.`,
+            ? `${targetProposal.quantity} ${targetProposal.symbol} · accepted by Alpaca and scheduled for the next regular market open.`
+            : `${targetProposal.quantity} ${targetProposal.symbol} · acknowledged by Alpaca.`,
         });
       setStrategy((current) => current ? {
         ...current,
@@ -1617,39 +2499,75 @@ export default function App() {
         remainingCapital: Math.max(0, current.remainingCapital - targetProposal.positionValue),
         completedCount: current.completedCount + 1,
       } : current);
-      return true;
+      return { succeeded: true, replacementCards: refreshedCards };
     } catch (error) {
       const code = error instanceof Error ? error.message : "paper_submission_blocked";
       const message = code === "invalid_or_expired_approval"
         ? "The approval expired before submission. Request a new recommendation."
+        : code === "price_above_approved_limit"
+          ? "The market price moved above the price you approved. Nothing was submitted; review a freshly priced recommendation."
         : code === "strategy_capital_changed"
           ? "Available strategy cash changed after another order. This recommendation has been resized; review it again before approving."
+        : code === "portfolio_diversification_required"
+          ? `${targetProposal.symbol} was not submitted because an additional position must diversify the portfolio's existing sector and theme exposure.`
+        : code === "portfolio_sector_limit_reached"
+          ? `${targetProposal.symbol} was not submitted because it would exceed the 35% sector limit.`
+        : code === "portfolio_theme_limit_reached"
+          ? `${targetProposal.symbol} was not submitted because it would exceed the 35% theme limit.`
+        : code === "portfolio_position_limit_reached"
+          ? `${targetProposal.symbol} was not submitted because all available position slots are in use.`
+        : code === "portfolio_position_size_limit_reached"
+          ? `${targetProposal.symbol} was not submitted because it would exceed the $1,500 position limit.`
         : code === "final_safety_check_blocked"
           ? "The price, account, or order no longer matched the approved safety limits."
-          : code === "ibkr_unavailable_approval_consumed"
-            ? "IBKR became unavailable during submission. Check TWS before requesting a new recommendation."
+          : code === "broker_unavailable_submission_outcome_unknown"
+            ? "Alpaca became unavailable during submission. Check the service connection before requesting a new recommendation."
             : `The order was not sent. ${code.replaceAll("_", " ")}.`;
       setWorkflowError(message);
       setAppToast({ tone: "danger", title: "Paper order not submitted", message });
-      if (background && code !== "strategy_capital_changed") {
-        const retryable = { ...targetProposal, decision: "pending" as Decision };
-        setRealRecommendations((current) => [retryable, ...current.filter((item) => item.id !== retryable.id)]);
-        setProposal(retryable);
-        setRealDeckComplete(false);
-      }
-      return false;
+      return { succeeded: false, replacementCards: null };
     } finally {
       orderWorkflowsInFlight.current = Math.max(0, orderWorkflowsInFlight.current - 1);
       if (!background) {
         setProcessing(false);
-        setDecisionInFlight(null);
+        setDecisionsInFlight((current) => {
+          const next = { ...current };
+          delete next[targetProposal.id];
+          return next;
+        });
       }
+    }
+  }
+
+  function removeResolvedLiveCard(
+    targetProposal: Proposal,
+    decision: "approved" | "denied",
+    replacementCards: Proposal[] | null,
+  ) {
+    if (activeProposalRef.current.id === targetProposal.id) {
+      dismissResolvedLiveCard(decision, replacementCards);
+      return;
+    }
+
+    const refreshedDeck = replacementCards
+      ? mergeRecommendationDeck(recommendationDeckRef.current, replacementCards)
+      : recommendationDeckRef.current;
+    const remaining = refreshedDeck.filter((item) => item.id !== targetProposal.id);
+    recommendationDeckRef.current = remaining;
+    setRealRecommendations(remaining);
+
+    const visible = remaining.find((item) => item.id === activeProposalRef.current.id);
+    if (visible) return;
+    if (remaining[0]) setProposal(remaining[0]);
+    else {
+      setRealDeckComplete(true);
+      setProposal(SHADOW_LOADING);
     }
   }
 
   function dismissResolvedLiveCard(decision: "approved" | "denied", replacementCards: Proposal[] | null = null) {
     if (cardAnimating.current) return;
-    const remaining = replacementCards ?? realRecommendations.filter((item) => item.id !== proposal.id);
+    const remaining = replacementCards ?? recommendationDeckRef.current.filter((item) => item.id !== proposal.id);
     const next = remaining[0] ?? null;
     cardAnimating.current = true;
     setTransitionCard(next);
@@ -1660,6 +2578,7 @@ export default function App() {
       useNativeDriver: true,
     }).start(() => {
       cardEntryProgress.setValue(0);
+      recommendationDeckRef.current = remaining;
       setRealRecommendations(remaining);
       if (next) setProposal(next);
       else {
@@ -1668,8 +2587,18 @@ export default function App() {
       }
       requestAnimationFrame(() => {
         cardPosition.setValue({ x: 0, y: 0 });
-        cardEntryProgress.setValue(1);
-        requestAnimationFrame(() => {
+        if (!next) {
+          cardEntryProgress.setValue(1);
+          setTransitionCard(null);
+          cardAnimating.current = false;
+          return;
+        }
+        Animated.timing(cardEntryProgress, {
+          toValue: 1,
+          duration: 160,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }).start(() => {
           setTransitionCard(null);
           cardAnimating.current = false;
         });
@@ -1677,17 +2606,69 @@ export default function App() {
     });
   }
 
-  async function completeDecision(decision: "approved" | "denied") {
+  function mergeQueuedOrderRecalculation(cards: Proposal[] | null) {
+    if (!cards) return;
+    const available = cards.filter((item) => !queuedProposalIdsRef.current.has(item.id));
+    const merged = mergeRecommendationDeck(recommendationDeckRef.current, available);
+    recommendationDeckRef.current = merged;
+    setRealRecommendations(merged);
+    const current = merged.find((item) => item.id === activeProposalRef.current.id);
+    if (current) return;
+    if (merged[0]) {
+      setProposal(merged[0]);
+      setRealDeckComplete(false);
+    } else {
+      setProposal(SHADOW_LOADING);
+      setRealDeckComplete(true);
+    }
+  }
+
+  async function processQueuedOrders() {
+    if (orderQueueRunningRef.current) return;
+    orderQueueRunningRef.current = true;
+    try {
+      while (queuedOrdersRef.current.length > 0) {
+        const target = queuedOrdersRef.current.shift();
+        if (!target) continue;
+        setDecisionsInFlight((current) => ({ ...current, [target.id]: "approved" }));
+        setAppToast({ tone: "info", title: "Submitting paper order", message: `${target.quantity} ${target.symbol} is being validated with Alpaca Paper.` });
+        const result = await executeDecision("approved", target, true);
+        queuedProposalIdsRef.current.delete(target.id);
+        setQueuedProposalIds([...queuedProposalIdsRef.current]);
+        setDecisionsInFlight((current) => {
+          const next = { ...current };
+          delete next[target.id];
+          return next;
+        });
+        if (result.succeeded) mergeQueuedOrderRecalculation(result.replacementCards);
+      }
+    } finally {
+      orderQueueRunningRef.current = false;
+    }
+  }
+
+  function queueApprovedProposal(targetProposal: Proposal) {
+    if (queuedProposalIdsRef.current.has(targetProposal.id)) return;
+    queuedProposalIdsRef.current.add(targetProposal.id);
+    queuedOrdersRef.current.push(targetProposal);
+    setQueuedProposalIds([...queuedProposalIdsRef.current]);
+    setDecisionsInFlight((current) => ({ ...current, [targetProposal.id]: "approved" }));
+    dismissResolvedLiveCard("approved");
+    setAppToast({
+      tone: "info",
+      title: "Paper order queued",
+      message: `${targetProposal.quantity} ${targetProposal.symbol} will be validated and submitted in order.`,
+    });
+    void processQueuedOrders();
+  }
+
+  async function completeDecision(decision: "approved" | "denied", targetProposal: Proposal = proposal) {
     if (decision === "approved") {
-      const targetProposal = proposal;
-      dismissResolvedLiveCard("approved");
-      void executeDecision("approved", targetProposal, true);
+      queueApprovedProposal(targetProposal);
       return;
     }
-    const succeeded = await executeDecision(decision);
-    const replacementCards = decision === "denied" ? recalculatedRecommendations.current : null;
-    if (decision === "denied") recalculatedRecommendations.current = null;
-    if (succeeded && decision === "denied") dismissResolvedLiveCard(decision, replacementCards);
+    const result = await executeDecision(decision, targetProposal);
+    if (result.succeeded) removeResolvedLiveCard(targetProposal, decision, result.replacementCards);
   }
 
   useEffect(() => {
@@ -1726,39 +2707,25 @@ export default function App() {
   }, [submittedProposalIds, uiPreview]);
 
   function decide(decision: "approved" | "denied") {
-    if (!actionable) return;
-    if (decision === "denied") {
-      void completeDecision("denied");
-      return;
-    }
-    Alert.alert(
-      "Approve this PAPER buy and automatic exits?",
-      `Buy exactly ${proposal.quantity} shares of ${proposal.symbol} at a ${money(proposal.limitPrice)} limit. If filled, IBKR Paper may automatically sell at the ${money(proposal.targetPrice)} profit target or the ${money(proposal.stopPrice)} protective stop. A stop does not guarantee the execution price.`,
-      [
-        { text: "Go back", style: "cancel" },
-        {
-          text: "Approve buy & exits",
-          style: "default",
-          onPress: () => void completeDecision("approved"),
-        },
-      ],
-    );
+    const targetProposal = proposal;
+    if (!actionable || decisionsInFlight[targetProposal.id]) return;
+    void completeDecision(decision, targetProposal);
   }
 
   async function resetDemo() {
     try {
       await createShadowObservation();
     } catch {
-      Alert.alert("Unable to scan", "Completed daily history is unavailable. Confirm TWS paper is open and historical data is permitted.");
+      Alert.alert("Unable to scan", "Completed daily history is unavailable. Confirm IB Gateway Paper is open and historical data is permitted.");
     }
     setDetailsOpen(false);
     setRationaleOpen(false);
   }
 
-  function previewActiveProposal() {
+  function previewActiveProposal(navigateToRecommendations = true) {
     uiPreviewRef.current = true;
     setUiPreview(true);
-    setActivePage("review");
+    if (navigateToRecommendations) setActivePage("review");
     setBrokerConnectionStatus("connected");
     setActivityItems(previewActivityItems);
     setPositionItems(previewPositionItems);
@@ -1780,11 +2747,17 @@ export default function App() {
     const activity: ActivityItem = {
       id: `preview-${proposal.id}-${occurredAt}`,
       symbol: proposal.symbol,
+      company: proposal.company,
       side: proposal.side.toLowerCase(),
       status: decision === "approved" ? "Simulated fill" : "denied",
       occurredAt,
       quantity: proposal.quantity,
       limitPrice: proposal.limitPrice,
+      stopPrice: proposal.stopPrice,
+      targetPrice: proposal.targetPrice,
+      targetTimeframe: proposal.targetTimeframe,
+      researchContext: proposal.companyCatalyst,
+      rationale: proposal.rationale,
       environment: "preview",
       brokerOrderId: null,
     };
@@ -1836,7 +2809,16 @@ export default function App() {
 
   function animateSampleDecision(decision: "approved" | "denied") {
     if (cardAnimating.current) return;
+    const reviewed = [...reviewedExampleIds, proposal.id];
+    const nextIndex = UI_PROPOSALS.findIndex((item) => !reviewed.includes(item.id));
+    const next = nextIndex === -1 ? null : UI_PROPOSALS[nextIndex]!;
+    const preparedNext = next ? {
+      ...next,
+      decision: next.decision === "expired" ? "expired" as const : "pending" as const,
+      expiresAt: next.decision === "expired" ? Date.now() - 30 * 1000 : Date.now() + (nextIndex + 3) * 60 * 1000,
+    } : null;
     cardAnimating.current = true;
+    setTransitionCard(preparedNext);
     Animated.timing(cardPosition, {
       toValue: { x: decision === "approved" ? 520 : -520, y: 18 },
       duration: 280,
@@ -1847,12 +2829,21 @@ export default function App() {
       cardPosition.setValue({ x: 0, y: 0 });
       finishSampleDecision(decision);
       requestAnimationFrame(() => {
+        if (!preparedNext) {
+          cardEntryProgress.setValue(1);
+          setTransitionCard(null);
+          cardAnimating.current = false;
+          return;
+        }
         Animated.timing(cardEntryProgress, {
           toValue: 1,
-          duration: 220,
+          duration: 160,
           easing: Easing.bezier(0.22, 1, 0.36, 1),
           useNativeDriver: true,
-        }).start(() => { cardAnimating.current = false; });
+        }).start(() => {
+          setTransitionCard(null);
+          cardAnimating.current = false;
+        });
       });
     });
   }
@@ -1893,8 +2884,12 @@ export default function App() {
         setProposal(preparedNext);
         requestAnimationFrame(() => {
           cardPosition.setValue({ x: 0, y: 0 });
-          cardEntryProgress.setValue(1);
-          requestAnimationFrame(() => {
+          Animated.timing(cardEntryProgress, {
+            toValue: 1,
+            duration: 160,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }).start(() => {
             setTransitionCard(null);
             cardAnimating.current = false;
           });
@@ -1985,71 +2980,62 @@ export default function App() {
   const backPreviewCard = activePreviewPosition >= 0 && availableDeckCards.length > 2
     ? availableDeckCards[(activePreviewPosition + 2) % availableDeckCards.length]
     : null;
-  const rationaleLines = cardBodyHeight > 0 && rationaleTop > 0
-    ? Math.max(1, Math.min(20, Math.floor((cardBodyHeight - rationaleTop - 51) / typeRamp.body.lineHeight)))
-    : 2;
-
   function returnToScanner() {
-    setOpenSection(null);
     setUiPreview(false);
     setWorkflowError(null);
     setOrderPreview(null);
     setWhatIfResult(null);
     setPaperSubmission(null);
     setProcessing(false);
-    setDecisionInFlight(null);
+    setDecisionsInFlight({});
+    recommendationDeckRef.current = [];
     setRealRecommendations([]);
     setRealDeckComplete(false);
     setProposal(SHADOW_LOADING);
   }
 
-  function exitPreviewMode() {
+  function exitPreviewMode(navigateToRecommendations = true) {
     uiPreviewRef.current = false;
     setUiPreview(false);
     setActivityItems([]);
     setPositionItems([]);
-    setActivePage("review");
+    setTradeItems([]);
+    if (navigateToRecommendations) setActivePage("review");
     returnToScanner();
   }
 
   function setPreviewMode(enabled: boolean) {
     void AsyncStorage.setItem(PREVIEW_MODE_STORAGE_KEY, String(enabled));
     if (enabled) {
-      previewActiveProposal();
-      setActivePage("preview");
+      previewActiveProposal(false);
       setAppToast({ tone: "success", title: "Preview mode on", message: "Sample data is now active throughout the app." });
     } else {
-      exitPreviewMode();
-      setActivePage("preview");
+      exitPreviewMode(false);
+      if (activePage === "recommendationHistory" || activePage === "activity" || activePage === "positions") void loadHistory();
       setAppToast({ tone: "info", title: "Preview mode off", message: "The app is using your paper workspace again." });
     }
   }
 
-  const menuActions: Array<{ label: string; onPress: () => void; emphasized?: boolean }> = [
-    { label: `News for ${proposal.symbol}`, onPress: () => setOpenSection("news") },
-    ...(activePage !== "review" ? [{ label: "Recommendations", onPress: () => setActivePage("review") }] : []),
-    ...(activePage !== "activity" ? [{ label: "Activity", onPress: () => openHistory("activity") }] : []),
-    ...(activePage !== "positions" ? [{ label: "Positions", onPress: () => openHistory("positions") }] : []),
-    ...(activePage !== "settings" ? [{ label: "Settings", onPress: () => setActivePage("settings") }] : []),
-    ...(activePage !== "preview" ? [{ label: "Preview mode", onPress: () => setActivePage("preview"), emphasized: uiPreview }] : []),
+  function changeRecommendationMode(mode: RecommendationMode) {
+    recommendationModeRef.current = mode;
+    setRecommendationMode(mode);
+    void AsyncStorage.setItem(RECOMMENDATION_MODE_STORAGE_KEY, mode);
+    recommendationDeckRef.current = [];
+    setRealRecommendations([]);
+    setProposal(SHADOW_LOADING);
+    setRealDeckComplete(false);
+    if (!uiPreviewRef.current) void createPaperProposal(undefined, mode).catch(() => undefined);
+  }
+
+  const menuActions: Array<{ label: string; onPress: () => void; active: boolean }> = [
+    { label: "Recommendations", onPress: () => setActivePage("review"), active: activePage === "review" },
+    { label: "Activity", onPress: () => openHistory("activity"), active: activePage === "activity" },
+    { label: "Positions", onPress: () => openHistory("positions"), active: activePage === "positions" },
+    { label: "Performance", onPress: openPerformance, active: activePage === "performance" },
+    { label: "Strategy research", onPress: openResearch, active: activePage === "research" },
+    { label: "Settings", onPress: () => setActivePage("settings"), active: activePage === "settings" },
   ];
-  const headerStatusLabel = uiPreview
-    ? "Preview mode"
-    : brokerConnectionStatus === "disconnected"
-      ? "Paper offline"
-      : brokerConnectionStatus === "checking"
-        ? "Checking paper"
-        : proposal.shadowMode && marketWindow.phase === "weekend"
-            ? "Paper · weekend"
-            : proposal.shadowMode && marketWindow.phase !== "open"
-              ? "Paper · market closed"
-              : proposal.shadowMode && processing
-                ? "Paper · scanning"
-                : proposal.shadowMode && noEligibleRecommendation
-                  ? "Paper · no setups"
-                  : proposal.shadowMode
-                    ? "Paper · monitoring"
-                    : "Paper link online";
+  const headerStatusLabel = uiPreview ? "Preview" : "Paper";
   const headerStatusColor = uiPreview
     ? colors.accent
     : brokerConnectionStatus === "disconnected"
@@ -2072,6 +3058,17 @@ export default function App() {
             <ListIcon size={23} color={colors.ink} weight="regular" />
           </Pressable>
           <View style={styles.headerActions}>
+            {activePage === "review" ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Risk profile: ${RISK_PROFILES.find((profile) => profile.id === recommendationMode)?.label ?? "Conservative"}`}
+                accessibilityHint="Opens the risk profile dial"
+                onPress={() => setRiskDialOpen(true)}
+                style={({ pressed }) => [styles.riskDialCompact, pressed && styles.riskDialPressed]}
+              >
+                <GaugeIcon size={23} color={colors.ink} weight="regular" />
+              </Pressable>
+            ) : null}
             <View style={styles.marketPill}>
               <CircleIcon
                 size={8}
@@ -2081,44 +3078,100 @@ export default function App() {
               <Text style={styles.marketText}>{headerStatusLabel}</Text>
             </View>
             <Pressable
-              accessibilityRole="switch"
-              accessibilityLabel={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-              accessibilityState={{ checked: darkMode }}
+              accessibilityRole="button"
+              accessibilityLabel="Open display and history menu"
+              accessibilityState={{ expanded: headerMenuOpen }}
               hitSlop={6}
-              onPress={() => setDarkMode((value) => !value)}
+              onPress={() => setHeaderMenuOpen(true)}
               style={({ pressed }) => [styles.themeToggle, pressed && styles.themeTogglePressed]}
             >
-              {darkMode
-                ? <SunIcon size={18} color={colors.ink} weight="regular" />
-                : <MoonIcon size={18} color={colors.ink} weight="regular" />}
+              <DotsThreeIcon size={22} color={colors.ink} weight="bold" />
             </Pressable>
           </View>
         </View>
+
+        <RiskProfileDial
+          value={recommendationMode}
+          onChange={changeRecommendationMode}
+          visible={riskDialOpen}
+          onClose={() => setRiskDialOpen(false)}
+        />
+
+        <Modal visible={headerMenuOpen} transparent animationType="fade" presentationStyle="overFullScreen" statusBarTranslucent onRequestClose={() => setHeaderMenuOpen(false)}>
+          <SafeAreaView style={styles.headerMenuSafe} edges={["top", "left", "right"]}>
+            <Pressable style={styles.headerMenuBackdrop} onPress={() => setHeaderMenuOpen(false)}>
+              <View accessibilityViewIsModal style={styles.headerContextMenu} onStartShouldSetResponder={() => true}>
+                {activePage === "review" ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Open recommendation history"
+                    onPress={() => { setHeaderMenuOpen(false); openHistory("recommendationHistory"); }}
+                    style={({ pressed }) => [styles.headerContextMenuItem, pressed && styles.contextMenuItemPressed]}
+                  >
+                    <ClockCounterClockwiseIcon size={19} color={colors.ink} weight="regular" />
+                    <Text style={styles.headerContextMenuText}>Recommendation history</Text>
+                  </Pressable>
+                ) : null}
+                <View style={styles.headerContextMenuItem}>
+                  {darkMode
+                    ? <SunIcon size={19} color={colors.ink} weight="regular" />
+                    : <MoonIcon size={19} color={colors.ink} weight="regular" />}
+                  <Text style={styles.headerContextMenuText}>Dark mode</Text>
+                  <Switch
+                    accessibilityLabel="Dark mode"
+                    value={darkMode}
+                    onValueChange={setDarkMode}
+                    trackColor={{ false: colors.border, true: colors.accent }}
+                    thumbColor={colors.surface}
+                    ios_backgroundColor={colors.border}
+                  />
+                </View>
+              </View>
+            </Pressable>
+          </SafeAreaView>
+        </Modal>
 
         {appToast && (
           <View style={styles.toastLayer}>
             <Toast {...appToast} compact loading={appToast.tone === "info" && processing} onDismiss={dismissToast} duration={appToast.tone === "info" && processing ? 0 : 5500} />
           </View>
         )}
+        {!uiPreview && brokerConnectionStatus === "disconnected" ? (
+          <View accessibilityRole="alert" style={styles.connectionBanner}>
+            <View style={styles.connectionBannerIcon}>
+              <WifiSlashIcon size={22} color={colors.danger} weight="bold" />
+            </View>
+            <View style={styles.connectionBannerCopy}>
+              <Text style={styles.connectionBannerTitle}>Paper disconnected</Text>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Retry broker connection" onPress={() => void checkBrokerConnection()} style={styles.connectionBannerAction}>
+              <Text style={styles.connectionBannerActionText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
-        {activePage === "preview" ? (
-          <PreviewModePage enabled={uiPreview} onChange={setPreviewMode} />
-        ) : activePage === "settings" ? (
+        {activePage === "settings" ? (
           <SettingsPage
             policy={riskPolicy}
             operatingPercent={adaptiveOperatingPercent}
             operatingReason={adaptiveOperatingReason}
             saving={policySaving}
+            connectionAlertsEnabled={connectionAlertsEnabled}
+            onConnectionAlertsChange={(enabled) => void changeConnectionAlerts(enabled)}
             onChange={setRiskPolicy}
             onSave={() => void savePaperRiskPolicy()}
           />
-        ) : activePage === "activity" || activePage === "positions" ? (
+        ) : activePage === "performance" ? (
+          <PerformancePage report={performanceReport} loading={performanceLoading} error={performanceError} onRefresh={() => void loadPerformance()} previewMode={uiPreview} />
+        ) : activePage === "research" ? (
+          <ResearchPage report={strategyComparison} loading={researchLoading} error={researchError} onRefresh={() => void loadResearch()} />
+        ) : activePage === "recommendationHistory" || activePage === "activity" || activePage === "positions" ? (
           <HistoryPage page={activePage} activity={activityItems} positions={positionItems} trades={tradeItems} loading={historyLoading} error={historyError} onRefresh={() => void loadHistory()} previewMode={uiPreview} />
         ) : (
         <>
 
         {proposal.shadowMode && showRecommendationSkeleton && !realDeckComplete && (
-          <View style={[styles.deckStage, { height: Math.max(420, viewportHeight - 150) }]}>
+          <View style={[styles.deckStage, { height: Math.max(460, viewportHeight - 250) }]}>
             <View pointerEvents="none" style={[styles.stackCard, styles.stackCardBack]} />
             <View pointerEvents="none" style={[styles.stackCard, styles.stackCardNext]} />
             <View style={styles.proposalCard}>
@@ -2153,25 +3206,25 @@ export default function App() {
           </View>
         )}
 
-        {proposal.shadowMode && !showRecommendationSkeleton && (
-          <View style={styles.homeDashboard}>
-            <Text style={styles.homeEyebrow}>{marketWindow.phase === "open" ? "SCANNER ACTIVE" : "SCANNER STANDBY"}</Text>
-            <Text style={styles.homeTitle}>
-              {brokerConnectionStatus === "disconnected"
-                ? "Paper is offline"
-                : marketWindow.phase === "weekend"
+        {proposal.shadowMode && !showRecommendationSkeleton && !realDeckComplete && brokerConnectionStatus !== "disconnected" && (
+          <View style={[styles.homeDashboard, strategyCapitalReached && portfolioReview?.exitReviews.length ? styles.homeDashboardExitReview : null]}>
+            {!(strategyCapitalReached && portfolioReview?.exitReviews.length) && <>
+              <Text style={styles.homeEyebrow}>{marketWindow.phase === "open" ? "SCANNER ACTIVE" : "SCANNER STANDBY"}</Text>
+              <Text style={styles.homeTitle}>
+              {marketWindow.phase === "weekend"
                   ? "Markets are closed for the weekend"
                   : marketWindow.phase !== "open"
                     ? "Market is currently closed"
                     : strategyCapitalReached
                       ? strategy?.budget?.status === "ownership_incomplete" ? "Position ownership needs review"
                         : strategy?.budget?.status === "protection_incomplete" ? "Position protection needs review"
-                          : "Allocation fully deployed"
+                          : strategy?.budget?.status === "policy_exceeded" ? "Portfolio policy exceeded"
+                            : "Allocation fully deployed"
                     : noEligibleRecommendation
                       ? "No recommendations right now"
                       : "Scanning the market"}
-            </Text>
-            <Text style={styles.homeSummary}>
+              </Text>
+              <Text style={styles.homeSummary}>
               {brokerConnectionStatus === "connected" && marketWindow.phase !== "open"
                 ? `No new recommendations will be created while the market is closed. Scanning resumes ${marketWindow.resumes}.`
                 : strategyCapitalReached
@@ -2179,32 +3232,54 @@ export default function App() {
                   ? "Some broker shares cannot be attributed to this strategy. New buys and automatic sells are blocked until the records are reconciled."
                   : strategy?.budget?.status === "protection_incomplete"
                     ? "A strategy position has no verified broker stop. New buys and automatic sells are blocked until protection is reviewed."
-                    : "The strategy has used its current allocation. Scanning continues and compares new candidates with current holdings for possible profitable rotations."
+                    : strategy?.budget?.status === "policy_exceeded"
+                      ? `New buys are paused. ${strategy.budget.openPositionCount ?? 0} positions are open against a limit of ${strategy.budget.maxOpenPositions ?? strategy.maxOpenPositions}, with ${money(strategy.budget.deployed ?? strategy.currentExposure)} deployed against ${money(strategy.budget.capitalLimit ?? strategy.capitalLimit)}.`
+                      : "The strategy has used its current allocation. Scanning continues and compares new candidates with current holdings for possible profitable rotations."
                 : brokerUnavailable
                 ? "The scanner could not load a recommendation. You can try again when the connection is ready."
                 : noEligibleRecommendation
                   ? "Paper is connected and the scanner is still monitoring. Nothing currently passes every momentum, liquidity, and risk rule."
-                : brokerConnectionStatus === "disconnected"
-                  ? "Open TWS Paper and the local service. Recommendations will appear automatically after they reconnect."
-                  : "Paper is connected. The scanner is reviewing the market now; a card appears only when a setup passes every rule."}
-            </Text>
+                : "Paper is connected. The scanner is reviewing the market now; a card appears only when a setup passes every rule."}
+              </Text>
+            </>}
 
-            <View style={styles.homeScannerPanel}>
+            {strategyCapitalReached && portfolioReview?.exitReviews.length ? (
+              <View style={[styles.exitReviewStage, { height: Math.max(460, viewportHeight - 212) }]}>
+                <View style={styles.exitReviewBanner}>
+                  <Text style={styles.exitReviewBannerTitle}>Exit review</Text>
+                  {portfolioReview.exitReviews.length > 1 ? (
+                    <Text style={styles.exitReviewBannerCount}>{exitReviewIndex % portfolioReview.exitReviews.length + 1} of {portfolioReview.exitReviews.length}</Text>
+                  ) : null}
+                </View>
+                <View style={styles.exitReviewDeck}>
+                  {portfolioReview.exitReviews.length > 1 ? <>
+                    <View pointerEvents="none" style={[styles.stackCard, styles.stackCardBack]} />
+                    <View pointerEvents="none" style={[styles.stackCard, styles.stackCardNext]} />
+                  </> : null}
+                  <ExitReviewProposalCard
+                    review={portfolioReview.exitReviews[exitReviewIndex % portfolioReview.exitReviews.length]!}
+                    onNext={() => keepPaperPosition(portfolioReview.exitReviews[exitReviewIndex % portfolioReview.exitReviews.length]!)}
+                    onApprove={() => void approvePaperExit(portfolioReview.exitReviews[exitReviewIndex % portfolioReview.exitReviews.length]!)}
+                    submitting={exitReviewSubmittingId === portfolioReview.exitReviews[exitReviewIndex % portfolioReview.exitReviews.length]!.id}
+                  />
+                </View>
+              </View>
+            ) : <View style={styles.homeScannerPanel}>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Scan</Text>
                 <Text style={styles.homeScannerValue}>{marketWindow.phase === "open" ? "Continuous · fresh quote checks" : `Resumes ${marketWindow.resumes}`}</Text>
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Recommendations</Text>
-                <Text style={styles.homeScannerValue}>{strategyCapitalReached ? strategy?.budget?.status === "reconciled" ? "Continuously ranked against holdings" : "Paused for safety review" : "All currently qualified buys"}</Text>
+                <Text style={styles.homeScannerValue}>{strategyCapitalReached ? strategy?.budget?.status === "reconciled" ? "Continuously ranked against holdings" : "Scanning continues · new buys blocked by portfolio limits" : "All currently qualified buys"}</Text>
               </View>
               <View style={styles.homeScannerRow}>
                 <Text style={styles.homeScannerLabel}>Protection</Text>
                 <Text style={styles.homeScannerValue}>Check broker stops in Positions</Text>
               </View>
-            </View>
+            </View>}
 
-            {strategyCapitalReached && portfolioReview && (
+            {strategyCapitalReached && portfolioReview && portfolioReview.exitReviews.length === 0 && (
               <View style={styles.rotationPanel}>
                 <Text style={styles.rotationTitle}>Portfolio review</Text>
                 <Text style={styles.rotationSummary}>
@@ -2213,9 +3288,43 @@ export default function App() {
                     : strategy?.budget?.status === "protection_incomplete"
                       ? `Review broker protection for ${strategy.budget.protectionGaps?.join(", ") || "held positions"} before considering another trade.`
                       : portfolioReview.reductionRequired > 0
-                        ? `Review enough positions to release at least ${money(portfolioReview.reductionRequired)} before considering another buy.`
+                        ? `Reduce at least ${money(portfolioReview.reductionRequired)} and ${portfolioReview.positionReductionRequired > 0 ? `${portfolioReview.positionReductionRequired} positions` : "remain within the position limit"} before considering another buy.`
+                        : portfolioReview.positionReductionRequired > 0
+                          ? `Reduce at least ${portfolioReview.positionReductionRequired} positions before considering another buy.`
                         : "New candidates are continuously compared with current holdings. Ordinary rotations are considered only when a stronger candidate exists and the proposed sale is estimated at break-even or better."}
                 </Text>
+                {portfolioReview.exitReviews.length > 0 && (
+                  <>
+                    <Text style={styles.rotationSubhead}>Exit reviews</Text>
+                    {portfolioReview.exitReviews.map((review) => (
+                      <View key={review.id} style={styles.exitReviewCard}>
+                        <View style={styles.exitReviewHeader}>
+                          <View style={styles.exitReviewIdentity}>
+                            <CompanyMark symbol={review.symbol} size={36} />
+                            <View>
+                              <Text style={styles.exitReviewTitle}>Review selling {review.quantity} {review.symbol}</Text>
+                              <Text style={styles.exitReviewValue}>{money(review.estimatedValue)} position · {review.estimatedGrossPnl >= 0 ? "+" : ""}{money(review.estimatedGrossPnl)} estimated</Text>
+                            </View>
+                          </View>
+                          <View style={[styles.rotationChip, review.urgency === "high" ? styles.rotationExitChip : styles.exitReviewChip]}>
+                            <Text style={[styles.rotationChipText, review.urgency === "high" ? styles.rotationExitText : styles.exitReviewChipText]}>Review only</Text>
+                          </View>
+                        </View>
+                        {review.triggers.map((trigger) => (
+                          <Text key={trigger.id} style={styles.exitReviewReason}>• {trigger.label}</Text>
+                        ))}
+                        <Text style={styles.exitReviewSafety}>No sell order can be submitted from this review.</Text>
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => openHistory("positions")}
+                          style={({ pressed }) => [styles.exitReviewAction, pressed && styles.homeActionPressed]}
+                        >
+                          <Text style={styles.exitReviewActionText}>Open position</Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </>
+                )}
                 {portfolioReview.holdings.map((holding) => (
                   <View key={holding.symbol} style={styles.rotationRow}>
                     <View style={styles.rotationRowCopy}>
@@ -2241,15 +3350,7 @@ export default function App() {
               </View>
             )}
 
-            {strategyCapitalReached ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => openHistory("positions")}
-                style={({ pressed }) => [styles.homeAction, pressed && styles.homeActionPressed]}
-              >
-                <Text style={styles.homeActionText}>Review current positions</Text>
-              </Pressable>
-            ) : brokerUnavailable && brokerConnectionStatus === "connected" ? (
+            {!strategyCapitalReached && brokerUnavailable && brokerConnectionStatus === "connected" ? (
               <Pressable
                 accessibilityRole="button"
                 disabled={processing}
@@ -2263,37 +3364,66 @@ export default function App() {
         )}
 
         {uiPreview && !proposal.shadowMode && sampleDeckComplete && (
-          <View style={styles.deckComplete}>
-            <View style={styles.deckCompleteIcon}>
-              <CheckCircleIcon size={34} color={colors.actionApprove} weight="fill" />
+          <View style={[styles.deckStage, { height: Math.max(460, viewportHeight - 250) }]}>
+            <View style={styles.proposalCard}>
+              <View style={[styles.cardBody, styles.deckComplete]}>
+                <View style={styles.deckCompleteIcon}>
+                  <CheckCircleIcon size={32} color={colors.actionApprove} weight="fill" />
+                </View>
+                <Text style={styles.deckCompleteTitle}>All reviewed</Text>
+              </View>
+              <View style={styles.cardFooter}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Review sample trades again"
+                  onPress={() => previewActiveProposal()}
+                  style={({ pressed }) => [styles.emptyStateAction, pressed && styles.homeActionPressed]}
+                >
+                  <Text style={styles.emptyStateActionText}>Review again</Text>
+                </Pressable>
+              </View>
             </View>
-            <Text style={styles.deckCompleteEyebrow}>0 recommendations remaining</Text>
-            <Text style={styles.deckCompleteTitle}>You’re all caught up</Text>
-            <Text style={styles.deckCompleteBody}>{`You reviewed all ${UI_PROPOSALS.length} sample trades.`}</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Review sample trades again"
-              onPress={previewActiveProposal}
-              style={({ pressed }) => [styles.previewProposalButton, pressed && styles.homeActionPressed]}
-            >
-              <Text style={styles.previewProposalButtonText}>Review sample trades again</Text>
-            </Pressable>
+          </View>
+        )}
+
+        {!uiPreview && realDeckComplete && (
+          <View style={[styles.deckStage, { height: Math.max(460, viewportHeight - 250) }]}>
+            <View style={styles.proposalCard}>
+              <View style={[styles.cardBody, styles.deckComplete]}>
+                <View style={styles.deckCompleteIcon}>
+                  <CheckCircleIcon size={32} color={colors.actionApprove} weight="fill" />
+                </View>
+                <Text style={styles.deckCompleteTitle}>{queuedProposalIds.length > 0 ? `${queuedProposalIds.length} order${queuedProposalIds.length === 1 ? "" : "s"} queued` : "No recommendations"}</Text>
+                <Text style={styles.deckCompleteBody}>{queuedProposalIds.length > 0 ? "You can leave this screen while Paper orders are submitted in sequence." : "Monitoring for new setups."}</Text>
+              </View>
+              <View style={styles.cardFooter}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="View recommendation history"
+                  onPress={() => openHistory("recommendationHistory")}
+                  style={({ pressed }) => [styles.emptyStateAction, pressed && styles.homeActionPressed]}
+                >
+                  <ClockCounterClockwiseIcon size={20} color={colors.ink} />
+                  <Text style={styles.emptyStateActionText}>View history</Text>
+                </Pressable>
+              </View>
+            </View>
           </View>
         )}
 
         {!proposal.shadowMode && !sampleDeckComplete && !realDeckComplete && (
-          <View style={[styles.deckStage, { height: Math.max(420, viewportHeight - 150) }]}>
-            {backPreviewCard && (
+          <View style={[styles.deckStage, { height: Math.max(460, viewportHeight - 250) }]}>
+            {!transitionCard && backPreviewCard && (
               <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardBack]}>
                 <PreviewCardFace proposal={backPreviewCard} />
               </Animated.View>
             )}
-            {nextPreviewCard && (
+            {!transitionCard && nextPreviewCard && (
               <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: nextCardOpacity }]}>
                 <PreviewCardFace proposal={nextPreviewCard} />
               </Animated.View>
             )}
-            {previousPreviewCard && previousPreviewCard.id !== nextPreviewCard?.id && (
+            {!transitionCard && previousPreviewCard && previousPreviewCard.id !== nextPreviewCard?.id && (
               <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: previousCardOpacity }]}>
                 <PreviewCardFace proposal={previousPreviewCard} />
               </Animated.View>
@@ -2304,7 +3434,6 @@ export default function App() {
               </Animated.View>
             )}
             <Animated.View
-            {...((uiPreview || realRecommendations.length > 1) ? cardPanResponder.panHandlers : {})}
             style={[
               styles.proposalCard,
               {
@@ -2319,6 +3448,7 @@ export default function App() {
             ]}
           >
             <Pressable
+              {...((uiPreview || realRecommendations.length > 1) ? cardPanResponder.panHandlers : {})}
               onLayout={(event) => {
                 setCardWidth(event.nativeEvent.layout.width);
                 setCardBodyHeight(event.nativeEvent.layout.height);
@@ -2351,7 +3481,7 @@ export default function App() {
                 <View style={styles.tradeTermRow}>
                   <Text style={styles.tradeTermLabel}>Risk</Text>
                   <View style={styles.riskChip}>
-                    <Text style={styles.riskChipText}>{qualitativeRisk(proposal.marketRisk)}</Text>
+                    <Text style={styles.riskChipText}>{proposalRiskLabel(proposal)}</Text>
                   </View>
                 </View>
                 <View style={styles.tradeTermRow}>
@@ -2393,43 +3523,35 @@ export default function App() {
                 )}
               </View>
 
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Read the full trade rationale"
-                accessibilityHint="Opens a sheet with the complete rationale and key risks"
-                onLayout={(event) => setRationaleTop(event.nativeEvent.layout.y)}
-                onPress={(event) => {
-                  event.stopPropagation();
-                  setOpenSection("rationale");
-                }}
-                style={({ pressed }) => [styles.infoCard, pressed && styles.infoCardPressed]}
-              >
+              <View style={styles.infoCard}>
                 <Text style={styles.infoCardTitle}>Why this trade</Text>
-                <Text style={styles.infoCardBody} numberOfLines={rationaleLines} ellipsizeMode="tail">{proposal.companyCatalyst}</Text>
-              </Pressable>
+                <Text style={styles.infoCardBody} numberOfLines={2} ellipsizeMode="tail">{proposal.companyCatalyst}</Text>
+              </View>
             </Pressable>
             <View style={styles.cardFooter}>
               {state === "pending" ? <View style={styles.actions}>
                 <ActionButton
-                  label={decisionInFlight === "denied" ? "Denying…" : "Deny"}
+                  label={activeDecisionInFlight === "denied" ? "Denying…" : "Deny"}
                   tone="secondary"
-                  pending={decisionInFlight === "denied"}
-                  disabled={!uiPreview && (!actionable || processing)}
+                  pending={activeDecisionInFlight === "denied"}
+                  disabled={!uiPreview && (!actionable || activeDecisionInFlight !== null)}
                   onPress={() => uiPreview ? animateSampleDecision("denied") : decide("denied")}
                 />
                 <ActionButton
-                  label={decisionInFlight === "approved" ? "Submitting…" : "Approve"}
+                  label={activeDecisionInFlight === "approved" ? "Submitting…" : "Approve"}
                   tone="primary"
-                  pending={decisionInFlight === "approved"}
-                  disabled={!uiPreview && (!actionable || processing)}
+                  pending={activeDecisionInFlight === "approved"}
+                  disabled={!uiPreview && (!actionable || activeDecisionInFlight !== null)}
                   onPress={() => uiPreview ? animateSampleDecision("approved") : decide("approved")}
                 />
               </View> : state === "expired" ? (
                 <View style={styles.actions}>
                   <ActionButton
-                    label="Dismiss"
+                    label={processing ? "Refreshing…" : "Refresh recommendation"}
                     tone="secondary"
-                    onPress={() => uiPreview ? animateSampleDecision("denied") : dismissResolvedLiveCard("denied")}
+                    pending={processing}
+                    disabled={processing || (!uiPreview && brokerConnectionStatus !== "connected")}
+                    onPress={() => void refreshExpiredRecommendation()}
                   />
                 </View>
               ) : (
@@ -2472,83 +3594,39 @@ export default function App() {
             </View>
             <View style={styles.contextMenuStatus}>
               <Text style={styles.contextMenuEyebrow}>{uiPreview ? "PREVIEW MODE" : "SCANNER RUNNING"}</Text>
-              <Text style={styles.contextMenuStatusText}>{uiPreview ? "Realistic sample data · broker actions disabled" : `IBKR Paper · ${brokerConnectionStatus}`}</Text>
+              <Text style={styles.contextMenuStatusText}>{uiPreview ? "Realistic sample data · broker actions disabled" : `Alpaca Paper · ${brokerConnectionStatus}`}</Text>
             </View>
             <View style={styles.navigationDrawerItems}>
             {menuActions.map((action) => (
               <Pressable
                 key={action.label}
                 accessibilityRole="menuitem"
+                accessibilityState={{ selected: action.active }}
                 onPress={() => { setMenuOpen(false); action.onPress(); }}
-                style={({ pressed }) => [styles.contextMenuItem, pressed && styles.contextMenuItemPressed]}
+                style={({ pressed }) => [styles.contextMenuItem, action.active && styles.contextMenuItemActive, pressed && styles.contextMenuItemPressed]}
               >
-                <Text style={[styles.contextMenuItemText, action.emphasized && styles.contextMenuItemEmphasized]}>{action.label}</Text>
+                <Text style={[styles.contextMenuItemText, action.active && styles.contextMenuItemActiveText]}>{action.label}</Text>
               </Pressable>
             ))}
+            <View style={styles.contextMenuToggle}>
+              <View style={styles.contextMenuToggleCopy}>
+                <Text style={styles.contextMenuItemText}>Preview mode</Text>
+                <Text style={styles.contextMenuToggleHelp}>Use realistic sample data</Text>
+              </View>
+              <Switch
+                accessibilityLabel="Preview mode"
+                accessibilityHint="Replaces brokerage information throughout the app with simulated sample data"
+                value={uiPreview}
+                onValueChange={setPreviewMode}
+                trackColor={{ false: colors.border, true: colors.actionApprove }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
             </View>
           </SafeAreaView>
         </Animated.View>
       </View>
 
-      <Modal
-        visible={openSection !== null}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setOpenSection(null)}
-      >
-        <SafeAreaView style={styles.sheetSafe} edges={["top", "bottom", "left", "right"]}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>
-              {openSection === "rationale" ? "Why this trade" : openSection === "strategy" ? "Strategy" : "Recent news"}
-            </Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close details" onPress={() => setOpenSection(null)} style={styles.sheetClose}>
-              <Text style={styles.sheetCloseText}>Done</Text>
-            </Pressable>
-          </View>
-          <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
-            {openSection === "rationale" && (
-              <>
-                <Text style={styles.sheetBody}>{proposal.companyCatalyst}</Text>
-                {proposal.rationale.map((reason) => (
-                  <View key={reason} style={styles.infoRow}>
-                    <CheckCircleIcon size={17} color={colors.accent} weight="regular" />
-                    <Text style={styles.infoRowText}>{reason}</Text>
-                  </View>
-                ))}
-                <View style={styles.sheetSection}>
-                  <Text style={styles.sheetSectionTitle}>Key risk</Text>
-                  <Text style={styles.sheetBody}>{proposal.keyRisk}</Text>
-                </View>
-                <ActionButton label={`Read ${proposal.symbol} news`} tone="secondary" onPress={() => setOpenSection("news")} />
-              </>
-            )}
-
-            {openSection === "strategy" && (
-              <>
-                <Text style={styles.strategyCardName}>{proposal.strategyName}</Text>
-                <Text style={styles.sheetBody}>{proposal.strategyContext}</Text>
-                <View style={styles.sheetSection}>
-                  <Text style={styles.sheetSectionTitle}>Trade parameters</Text>
-                  <View style={styles.metrics}>
-                    <Metric label="Total commitment" value={money(proposal.positionValue)} />
-                    <Metric label="Shares" value={`${proposal.quantity}`} />
-                    <Metric label="Protective stop" value={money(proposal.stopPrice)} />
-                    <Metric label="Target timeframe" value={proposal.targetTimeframe} />
-                  </View>
-                </View>
-              </>
-            )}
-
-            {openSection === "news" && (
-              <View style={styles.sheetSection}>
-                <StockNews key={`${proposal.symbol}:${uiPreview}`} symbol={proposal.symbol} preview={uiPreview}
-                  apiUrl={API_BASE_URL} appToken={APP_TOKEN} colors={colors}
-                  onLinkError={() => setAppToast({ tone: "danger", title: "Could not open article", message: "Please try the article link again." })} />
-              </View>
-            )}
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
     </SafeAreaProvider>
     </ThemeProvider>
@@ -2566,6 +3644,28 @@ return StyleSheet.create({
   page: { flexGrow: 1, width: "100%", maxWidth: 680, alignSelf: "center", paddingHorizontal: spacing.large, paddingTop: spacing.small, paddingBottom: spacing.large },
   appHeader: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  riskDialCompact: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: colors.surfaceMuted, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  riskDialPressed: { opacity: 0.68 },
+  riskDialModalSafe: { flex: 1 },
+  riskDialBackdrop: { flex: 1, alignItems: "flex-end", paddingHorizontal: spacing.large, backgroundColor: colors.canvas === darkPalette.canvas ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.08)" },
+  riskDialPanel: { width: "78%", maxWidth: 330, marginTop: 54, marginRight: 54, paddingTop: 14, paddingHorizontal: 12, paddingBottom: 16, borderRadius: 16, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, shadowColor: "#000", shadowOpacity: colors.canvas === darkPalette.canvas ? 0.32 : 0.16, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 12 },
+  riskDialHeading: { alignSelf: "center", marginBottom: 12, paddingHorizontal: 12, paddingVertical: 2 },
+  riskDialTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
+  riskDialTitle: { color: colors.ink, fontSize: 18, lineHeight: 23, fontWeight: "500" },
+  riskDialTitleValue: { color: colors.muted, fontSize: 18, lineHeight: 23, fontWeight: "400" },
+  riskDialChevron: { color: colors.muted, fontSize: 25, lineHeight: 25, fontWeight: "500", marginLeft: 2 },
+  riskDialTrack: { height: 58, marginHorizontal: 21, borderRadius: 29, backgroundColor: colors.surfaceMuted, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, overflow: "visible" },
+  riskDialRail: { position: "absolute", top: 0, right: 24, bottom: 0, left: 24 },
+  riskDialFill: { position: "absolute", top: 0, bottom: 0, left: 0, borderRadius: 29, backgroundColor: "#11BFA5" },
+  riskDialStopTarget: { position: "absolute", top: 0, bottom: 0, width: 44, marginLeft: -22, alignItems: "center", justifyContent: "center", zIndex: 2 },
+  riskDialStop: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.muted },
+  riskDialStopSelected: { backgroundColor: "rgba(255,255,255,0.22)" },
+  riskDialKnob: { position: "absolute", top: 5, width: 48, height: 48, marginLeft: -24, borderRadius: 24, backgroundColor: "#FFFFFF", shadowColor: "#000", shadowOpacity: 0.24, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 6, zIndex: 3 },
+  headerMenuSafe: { flex: 1 },
+  headerMenuBackdrop: { flex: 1, alignItems: "flex-end", paddingHorizontal: spacing.large },
+  headerContextMenu: { width: 254, marginTop: 48, overflow: "hidden", backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, borderRadius: 16, shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 10 },
+  headerContextMenuItem: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  headerContextMenuText: { flex: 1, color: colors.ink, ...typeRamp.body, fontWeight: "500" },
   navigationDrawerLayer: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 100, flexDirection: "row" },
   navigationDrawerBackdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(0,0,0,0.34)" },
   navigationDrawer: { width: "84%", maxWidth: 330, height: "100%", backgroundColor: colors.surface, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border, shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 22, shadowOffset: { width: 8, height: 0 }, elevation: 12 },
@@ -2579,9 +3679,21 @@ return StyleSheet.create({
   contextMenuStatusText: { color: colors.text, ...typeRamp.caption, marginTop: 2, textTransform: "capitalize" },
   contextMenuItem: { minHeight: 46, justifyContent: "center", paddingHorizontal: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   contextMenuItemPressed: { backgroundColor: colors.surfaceMuted },
+  contextMenuItemActive: { backgroundColor: colors.surfaceMuted },
+  contextMenuItemActiveText: { color: colors.ink, fontWeight: "600" },
   contextMenuItemText: { color: colors.text, ...typeRamp.body },
   contextMenuItemEmphasized: { color: colors.accentDark, fontWeight: "600" },
+  contextMenuToggle: { minHeight: 64, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, paddingHorizontal: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  contextMenuToggleCopy: { flex: 1 },
+  contextMenuToggleHelp: { color: colors.muted, ...typeRamp.caption, marginTop: 2 },
   toastLayer: { position: "absolute", top: 62, left: spacing.small, right: spacing.small, zIndex: 20 },
+  connectionBanner: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: colors.dangerSoft, borderRadius: radius.medium, padding: 14, marginTop: 14 },
+  connectionBannerIcon: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.surface },
+  connectionBannerCopy: { flex: 1 },
+  connectionBannerTitle: { color: colors.danger, ...typeRamp.label, fontWeight: "600" },
+  connectionBannerBody: { color: colors.text, ...typeRamp.caption, marginTop: 2 },
+  connectionBannerAction: { minWidth: 64, minHeight: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, borderWidth: 1, borderColor: colors.danger },
+  connectionBannerActionText: { color: colors.danger, ...typeRamp.label, fontWeight: "500" },
   settingsPage: { paddingTop: 30, paddingBottom: 44 },
   settingsEyebrow: { color: colors.muted, ...typeRamp.caption, fontWeight: "400", letterSpacing: 1.1 },
   settingsTitle: { color: colors.ink, ...typeRamp.display, marginTop: 2 },
@@ -2596,8 +3708,6 @@ return StyleSheet.create({
   operatingValue: { color: colors.ink, fontSize: 30, lineHeight: 36, fontWeight: "800", marginTop: 3 },
   operatingReason: { color: colors.text, ...typeRamp.body, marginTop: 5 },
   operatingFootnote: { color: colors.muted, ...typeRamp.caption, marginTop: 10 },
-  previewExplanation: { backgroundColor: colors.surfaceMuted, borderRadius: radius.large, padding: 18, marginTop: 18 },
-  previewExplanationText: { color: colors.text, ...typeRamp.body, marginTop: 7 },
   policyField: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   policyFieldLabel: { flex: 1, color: colors.muted, ...typeRamp.body },
   policyInputWrap: { minWidth: 112, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5 },
@@ -2606,18 +3716,70 @@ return StyleSheet.create({
   policySave: { minHeight: 56, alignItems: "center", justifyContent: "center", backgroundColor: colors.actionApprove, borderRadius: radius.pill, marginTop: 12, paddingHorizontal: 20 },
   policySaveText: { color: colors.actionApproveText, fontSize: 16, lineHeight: 22, fontWeight: "400" },
   historyPage: { flex: 1, paddingTop: 10, paddingBottom: 30 },
-  activitySearch: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 16, marginTop: 18 },
-  activitySearchInput: { flex: 1, minHeight: 48, color: colors.ink, ...typeRamp.body, paddingVertical: 0 },
-  activityFilters: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 14, paddingBottom: 8 },
-  activityFilterIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, borderRadius: radius.pill },
-  activityFilterChip: { height: 42, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 15 },
-  activityFilterText: { color: colors.ink, ...typeRamp.caption, fontWeight: "500" },
+  activitySearch: { height: 50, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingLeft: 16, paddingRight: 4, marginTop: 18 },
+  activitySearchInput: { flex: 1, height: 50, color: colors.ink, ...typeRamp.body, paddingTop: 0, paddingBottom: 0, textAlignVertical: "center" },
+  activityFilterIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  filterSheetLayer: { flex: 1, justifyContent: "flex-end" },
+  filterSheetBackdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(12, 18, 28, 0.38)" },
+  filterSheet: { maxHeight: "64%", minHeight: "52%", backgroundColor: colors.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 8 },
+  filterSheetHandle: { width: 38, height: 5, borderRadius: 3, backgroundColor: colors.border, alignSelf: "center", marginBottom: 12 },
+  filterSheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 42 },
+  filterSheetTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600" },
+  filterSheetClear: { color: colors.accent, ...typeRamp.body, fontWeight: "500" },
+  filterSheetContent: { paddingBottom: 14 },
+  filterSheetSection: { paddingTop: 13 },
+  filterSheetSectionTitle: { color: colors.muted, ...typeRamp.caption, marginBottom: 9 },
+  filterSheetChoices: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  filterSheetChoice: { minHeight: 38, justifyContent: "center", paddingHorizontal: 14, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  filterSheetChoiceSelected: { borderColor: colors.ink, backgroundColor: colors.ink },
+  filterSheetChoiceText: { color: colors.text, ...typeRamp.caption, fontWeight: "500" },
+  filterSheetChoiceTextSelected: { color: colors.surface },
+  filterSheetApply: { minHeight: 52, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.ink, marginTop: 6, marginBottom: 8 },
+  filterSheetApplyText: { color: colors.surface, fontSize: 16, lineHeight: 22, fontWeight: "600" },
   activitySection: { marginTop: 22, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   activitySectionTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600", marginBottom: 7 },
   activityRow: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 12 },
+  activityRowPressed: { opacity: 0.62 },
+  activityDetailSheet: { maxHeight: "72%", minHeight: "44%", backgroundColor: colors.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 8 },
+  activityDetailTitleRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  activityDetailContent: { paddingTop: 10, paddingBottom: 24 },
+  activityDetailRow: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  activityDetailValue: { flex: 1, color: colors.ink, ...typeRamp.body, textAlign: "right" },
   historyMessage: { color: colors.muted, ...typeRamp.body, marginTop: 8 },
   historyEmpty: { backgroundColor: colors.surfaceMuted, borderRadius: radius.medium, padding: 20, marginTop: 24 },
   historyEmptyTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600" },
+  performancePage: { flex: 1, paddingTop: 10, paddingBottom: 40 },
+  performanceHero: { paddingVertical: 18, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceEyebrow: { color: colors.muted, ...typeRamp.caption, letterSpacing: 1.1 },
+  performanceHeroValue: { fontSize: 40, lineHeight: 48, fontWeight: "800", letterSpacing: -1.1, marginTop: 3 },
+  performanceAsOf: { color: colors.muted, ...typeRamp.caption, marginTop: 2 },
+  performanceSummaryGrid: { flexDirection: "row", flexWrap: "wrap", borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceSummaryItem: { width: "50%", minHeight: 88, justifyContent: "center", paddingVertical: 14, paddingRight: 12 },
+  performanceLabel: { color: colors.muted, ...typeRamp.caption },
+  performanceValue: { color: colors.ink, ...typeRamp.heading, fontWeight: "500", marginTop: 3 },
+  performancePositive: { color: colors.success },
+  performanceNegative: { color: colors.danger },
+  performanceNeutral: { color: colors.ink },
+  performanceComparison: { paddingVertical: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceSectionTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600", marginTop: 26, marginBottom: 5 },
+  performanceRows: { borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceRow: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceRowCopy: { flex: 1 },
+  performanceSymbol: { color: colors.ink, ...typeRamp.label, fontWeight: "600" },
+  performanceRowValue: { alignItems: "flex-end" },
+  performanceFootnote: { color: colors.muted, ...typeRamp.caption, marginTop: 2 },
+  performanceStats: { gap: 18, paddingVertical: 24, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  performanceNotice: { backgroundColor: colors.surfaceMuted, borderRadius: radius.medium, padding: 16, gap: 6, marginTop: 20 },
+  performanceNoticeTitle: { color: colors.ink, ...typeRamp.label, fontWeight: "600" },
+  performanceRefresh: { minHeight: 48, alignItems: "center", justifyContent: "center", backgroundColor: colors.ink, borderRadius: radius.pill, marginTop: 16 },
+  performanceRefreshText: { color: colors.surface, ...typeRamp.label, fontWeight: "500" },
+  researchBoundary: { backgroundColor: colors.warningSoft, borderRadius: radius.medium, padding: 16, marginBottom: 20 },
+  researchBoundaryTitle: { color: colors.warning, ...typeRamp.label, fontWeight: "600", marginBottom: 3 },
+  researchOverview: { flexDirection: "row", justifyContent: "space-between", gap: 20, paddingVertical: 20, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  researchUniverse: { color: colors.ink, ...typeRamp.heading, fontWeight: "600", marginTop: 3 },
+  researchHorizon: { paddingVertical: 18, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  researchHorizonTitle: { color: colors.ink, ...typeRamp.heading, fontWeight: "600", marginBottom: 7 },
+  researchMetricRow: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
   historyRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, minHeight: 72, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   historyRowMain: { flex: 1 },
   historyRowEnd: { maxWidth: "45%", alignItems: "flex-end" },
@@ -2629,7 +3791,7 @@ return StyleSheet.create({
   positionTerms: { paddingVertical: 8 },
   positionNotice: { color: colors.warning, ...typeRamp.caption, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingVertical: 12 },
   menuButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 20 },
-  marketPill: { height: 34, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.surfaceMuted, borderWidth: 0, borderRadius: radius.pill, paddingHorizontal: 12 },
+  marketPill: { height: 32, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.surfaceMuted, borderWidth: 0, borderRadius: radius.pill, paddingHorizontal: 10 },
   marketText: { color: colors.text, ...typeRamp.caption, fontWeight: "400" },
   themeToggle: { width: 34, height: 34, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, borderRadius: radius.pill },
   themeTogglePressed: { opacity: 0.68, transform: [{ scale: 0.96 }] },
@@ -2658,6 +3820,7 @@ return StyleSheet.create({
   strategyStatusCount: { color: colors.muted, fontSize: 10, fontWeight: "700" },
   strategyStatusDetail: { color: colors.text, fontSize: 10, marginTop: 5 },
   homeDashboard: { flex: 1, minHeight: 500, paddingTop: 52, paddingBottom: 20 },
+  homeDashboardExitReview: { paddingTop: 10, paddingBottom: 0 },
   homeEyebrow: { color: colors.muted, ...typeRamp.caption, fontWeight: "400", letterSpacing: 1.1 },
   homeTitle: { color: colors.ink, fontSize: 30, lineHeight: 36, fontWeight: "800", letterSpacing: -0.8 },
   homeSummary: { color: colors.muted, ...typeRamp.body, marginTop: 8, maxWidth: 520 },
@@ -2677,6 +3840,17 @@ return StyleSheet.create({
   rotationHoldText: { color: colors.success },
   rotationSubhead: { color: colors.ink, fontSize: 15, lineHeight: 21, fontWeight: "600", marginTop: 2 },
   rotationCandidates: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: "600" },
+  exitReviewCard: { borderColor: colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 14, gap: 8 },
+  exitReviewHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  exitReviewIdentity: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
+  exitReviewTitle: { color: colors.ink, fontSize: 16, lineHeight: 21, fontWeight: "600" },
+  exitReviewValue: { color: colors.muted, fontSize: 13, lineHeight: 18, fontWeight: "400" },
+  exitReviewChip: { backgroundColor: colors.surfaceMuted },
+  exitReviewChipText: { color: colors.muted },
+  exitReviewReason: { color: colors.text, fontSize: 14, lineHeight: 19, fontWeight: "400" },
+  exitReviewSafety: { color: colors.muted, fontSize: 12, lineHeight: 16, fontWeight: "400" },
+  exitReviewAction: { minHeight: 44, borderColor: colors.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", marginTop: 2 },
+  exitReviewActionText: { color: colors.ink, fontSize: 15, lineHeight: 20, fontWeight: "500" },
   homeScannerRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   homeScannerLabel: { color: colors.muted, ...typeRamp.body },
   homeScannerValue: { color: colors.ink, ...typeRamp.body, fontWeight: "400", textAlign: "right" },
@@ -2690,14 +3864,19 @@ return StyleSheet.create({
   symbolChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 18 },
   symbolChip: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingLeft: 5, paddingRight: 12, paddingVertical: 5 },
   symbolChipText: { color: colors.ink, ...typeRamp.caption, fontWeight: "400" },
-  logoFallback: { alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  logoFallbackText: { color: colors.ink, fontSize: 9, lineHeight: 12, fontWeight: "800" },
+  logoFallback: { alignItems: "center", justifyContent: "center" },
+  logoFallbackText: { color: "#FFFFFF", fontWeight: "800" },
   previewProposalButton: { alignItems: "center", justifyContent: "center", minHeight: 46, borderWidth: 1, borderColor: colors.border, borderRadius: radius.medium, marginTop: 20, paddingHorizontal: 14 },
   previewProposalButtonText: { color: colors.ink, ...typeRamp.label, fontWeight: "700" },
   previewNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
   nextExample: { paddingVertical: 4, paddingLeft: 12 },
   nextExampleText: { color: colors.text, ...typeRamp.caption, fontWeight: "600" },
   deckStage: { position: "relative", width: "100%", marginTop: 8, marginBottom: 12 },
+  exitReviewStage: { width: "100%", minHeight: 0 },
+  exitReviewBanner: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingHorizontal: 4, marginBottom: 8 },
+  exitReviewBannerTitle: { color: colors.ink, ...typeRamp.label, fontWeight: "600" },
+  exitReviewBannerCount: { color: colors.muted, ...typeRamp.caption },
+  exitReviewDeck: { position: "relative", flex: 1, minHeight: 0, width: "100%", marginBottom: 4 },
   stackCard: { position: "absolute", overflow: "hidden", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 28, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowRadius: 8 },
   stackCardLayer: { position: "absolute", top: 0, bottom: 0, left: 0, right: 0 },
   stackCardBack: { zIndex: 1 },
@@ -2719,11 +3898,13 @@ return StyleSheet.create({
   skeletonInfoLine: { width: "100%", height: 14, marginTop: 12 },
   skeletonInfoLineShort: { width: "68%", height: 14, marginTop: 8 },
   skeletonButton: { flex: 1, height: 56, borderRadius: radius.pill, backgroundColor: colors.surfaceMuted },
-  deckComplete: { minHeight: 420, alignItems: "center", justifyContent: "center", marginTop: 8, paddingHorizontal: 28, paddingVertical: 40 },
+  deckComplete: { flex: 1, minHeight: 0, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, paddingVertical: 40 },
   deckCompleteIcon: { width: 64, height: 64, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, marginBottom: 18 },
   deckCompleteEyebrow: { color: colors.muted, ...typeRamp.caption, textAlign: "center", marginBottom: 7 },
   deckCompleteTitle: { color: colors.ink, ...typeRamp.title, textAlign: "center" },
   deckCompleteBody: { color: colors.muted, ...typeRamp.body, textAlign: "center", marginTop: 9, maxWidth: 340 },
+  emptyStateAction: { minHeight: 56, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, backgroundColor: colors.surface },
+  emptyStateActionText: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: "600" },
   cardBody: { flex: 1, minHeight: 0, overflow: "hidden", paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 },
   cardPosition: { alignItems: "center", marginBottom: 10 },
   cardPositionText: { color: colors.muted, ...typeRamp.caption },

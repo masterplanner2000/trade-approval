@@ -43,6 +43,14 @@ test("optional PnL and settled-cash fields do not invalidate otherwise complete 
   assert.equal(portfolio.realizedPnl, null);
 });
 
+test("authoritative portfolio emits one holding per broker contract", () => {
+  const duplicate = { account: "DUR…217", contractId: 4815747, symbol: "TSM", securityType: "STK",
+    currency: "USD", quantity: 3, averageCost: 449.12 };
+  const portfolio = authoritativePortfolio(snapshot({ positions: [duplicate, { ...duplicate }] }), { now: 20_000 });
+  assert.equal(portfolio.positions.length, 1);
+  assert.deepEqual(portfolio.positions[0], duplicate);
+});
+
 test("reconciliation is durable, idempotent by broker identity, and detects external activity", () => {
   const store = new BrokerReconciliationStore(":memory:");
   const input = snapshot({

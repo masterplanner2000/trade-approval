@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateRiskPolicy } from "./server.mjs";
+import { unitService } from "./testing/unit_service.mjs";
+const { validateRiskPolicy } = unitService;
 
 const policy = {
   adaptive: true,

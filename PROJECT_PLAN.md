@@ -1,7 +1,35 @@
 # Trade Approval — Project Plan
 
-**Last updated:** 2026-09-23
+**Last updated:** 2026-09-30
 **Current objective:** Establish a trustworthy paper-trading and learning loop—owned positions, protection, execution state, measured selections and measured missed opportunities—before promoting strategy changes or enabling automatic exits.
+
+## 2026-09-30 operating review
+
+- Reconciled the live IBKR Paper account: nine strategy-owned positions, with verified protective coverage and no automatic sell submitted.
+- Added app-facing execution-quality reporting for proposal-to-fill slippage, dollar slippage, and time-to-fill. Positive slippage is explicitly defined as worse for a buy.
+- Added a benchmark fallback that derives the current QQQ daily return from the reconciled strategy-owned QQQ position when the separate quote request is unavailable.
+- Added an explicit missing-fee count. Net performance remains unavailable for the two closed trades until a current IBKR Paper Flex CSV supplies exact commissions; missing fees are never assumed to be zero.
+- Completed the safe connection-recovery drill against the deterministic Paper simulator. Disconnect, reconnect, partial fill, rejection/cancellation, duplicate callback, and lost-acknowledgement protections passed without disturbing the live Paper session.
+- Current evidence remains below the frozen review gate: 7 captured sessions, 6 usable one-session outcomes, 2 usable five-session outcomes, and 0 usable ten-session outcomes. No recommendation rule is promoted from these early results.
+
+## Gateway migration — 2026-09-28
+
+1. **Completed:** Centralized the local IBKR Paper socket configuration and made IB Gateway on localhost port 4002 the default. Retained an explicit TWS Paper fallback on port 7497.
+2. **Pending on this Mac:** Install IB Gateway, sign into Paper, enable socket clients on port 4002 and configure daily auto-restart.
+3. **Acceptance test:** Obtain a complete read-only Paper reconciliation through Gateway, verify the scanner and What-If path, restart the local service, and confirm TWS is not required.
+4. **Next reliability milestone:** Add connection supervision and a phone alert for lost authentication, while failing closed for new orders and preserving broker-native protection.
+
+## Forward-test week — 2026-09-28 through 2026-10-02
+
+The strategy, intraday rules, frozen seven-symbol research universe and news classifier remain unchanged for the full week unless a reproducible implementation or evidence-integrity defect requires repair. The objective is a clean prospective dataset, not more recommendations or midweek threshold tuning.
+
+1. **Monday — clean-session qualification:** require the pre-open profile refresh, five-minute intraday collection, complete Paper portfolio context, news-source health and post-close evidence archive. A qualified intraday session requires at least 90% slot coverage, 95% record completeness, complete portfolio context for all evaluable records and an intersecting completed forward-outcome session.
+2. **Tuesday — discovery audit:** compare observed movers with the frozen universe, preserve every pass/rejection reason and record apparent missed opportunities without changing rules from individual examples.
+3. **Wednesday — outcome comparison:** review pass versus rejected 5-/30-minute after-cost outcomes, score bands, adverse/favorable excursion, news-associated versus price/volume-only observations and matched market context. Conclusions remain insufficient until the predeclared session gates pass.
+4. **Thursday — recovery exercise:** verify disconnect/reconnect, stale-quote failure, service restart, news backfill, duplicate-approval protection, failed background-submission recovery and broker reconciliation without fabricating success or blindly resubmitting uncertain orders.
+5. **Friday — weekly scorecard:** report collection quality, candidate dispositions, measured outcomes, news health, proposal/decision/order lifecycle, Paper P/L, protection, execution quality and cash/QQQ comparisons. Any proposed strategy change must become a frozen forward experiment rather than an immediate production edit.
+
+**Weekend readiness, 2026-09-27:** Full QA passes (TypeScript, 123 Node tests and 224 Python tests). The news collector is running with all three active sources healthy and no reported source error; the weekday intraday capture, 8:45 a.m. profile refresh and 4:30 p.m. evidence archive are loaded with last exit code 0. TWS Paper is not accepting API connections during this check, so Monday must obtain a fresh complete reconciliation before treating Friday's recorded stop/target coverage as current broker truth.
 
 ## Current work — performance feedback loop
 
@@ -22,6 +50,46 @@
 **Priority 5 update, 2026-09-23:** Added an append-only performance-report archive to the weekday collector. Exact reruns are idempotent; revised reports caused by later fee evidence are retained as new versions. The first current report was archived as `COMPLETE_GROSS`; it remains fee-incomplete.
 
 **Mobile workflow update, 2026-09-24:** Confirmed approvals now leave the review deck immediately while the complete Paper validation and submission workflow runs in the background. Success is tracked through Activity and reconciliation; only a failure interrupts review and restores the card for retry. No broker safety gate was removed.
+
+## Bookmarked workstream — authorized social signal research
+
+Plan: `SOCIAL_SIGNAL_PLAN.md`. Monitor X through official API access and transcribe Instagram media only through official scopes, creator authorization or explicit user-provided files. Social signals remain an isolated discovery/shadow lane with no recommendation, sizing, exit or order authority. First milestone: review five X accounts and one Instagram creator, document rights and access, then implement the source registry and immutable event envelope.
+
+## Bookmarked workstream — in-app research assistant
+
+Plan: `IN_APP_RESEARCH_ASSISTANT_PLAN.md`. Add an evidence-grounded chatbot that explains recommendations, scanner exclusions, positions/protection and performance through narrow read-only tools. A later governed workflow may draft and activate explicitly approved shadow experiments, but the model cannot modify production strategy, code, brokerage state or orders. First milestone: implement the mobile chat surface, server conversation endpoint and five read-only evidence tools.
+
+## Bookmarked workstream — intraday volatility recommendations
+
+Development branch: `feature/intraday-volatility-recommendations`
+
+Goal: originate new recommendations from market movement developing during the session rather than repeatedly presenting a queue derived from the prior completed daily bar. Start from the existing research-only intraday evaluator. First connect and validate a consolidated real-time provider, then collect immutable forward observations, measure after-cost outcomes and surface shadow-only cards. Actionable Paper cards require a later explicit promotion decision; `main` remains the stable daily-bar workflow.
+
+**Milestone 1 complete — provider contract:** Alpaca snapshots now expose the timestamps and session fields required by the evaluator. The join refuses a wrong symbol, stale/future context, fewer than 20 volume-profile sessions, unknown halt state or unlabeled feed. Live IEX access works; live SIP access is currently denied.
+
+**Milestone 2 complete — minute-volume baseline:** A read-only job fetches Alpaca one-minute history and builds a 390-point median cumulative-volume curve from the latest 20–30 complete prior sessions. It excludes the current day, rejects duplicate/invalid bars, requires at least 380 observed minutes plus opening/closing minutes per admitted session, retains an exact input digest and writes a git-ignored research artifact atomically. A live IEX run produced 30-session profiles for BMNR, MU, NVDA and MSFT with no failures. Next select an approved halt-status source, then schedule labeled IEX observations into the append-only shadow journal.
+
+**Milestone 3 complete — price movement diagnostics:** Historical profiles now include the median cumulative high/low range for every regular-session minute. The as-known signal layer calculates exact 5-, 15- and 60-minute returns, previous-five-minute momentum, five-minute acceleration, volume-weighted average price and distance, range expansion, pullback from the session high, recent close location and positive-bar share. It rejects future, stale, duplicate, cross-session and insufficient histories and grants no ranking, recommendation or order authority. A live IEX diagnostic completed for BMNR, MU, NVDA and MSFT. Next combine volume and price evidence in a versioned opportunity score after halt provenance is solved.
+
+**Milestone 4 complete — transparent opportunity score:** A versioned 100-point long-direction shadow score now itemizes relative volume (25), multi-horizon momentum (25), acceleration (10), VWAP position (10), range expansion (15) and recent path quality (15). Each component exposes its inputs, points, maximum and plain-language explanation. The score blocks on any failed upstream hard gate, wrong symbol/time, missing feed provenance or missing metric; it cannot average away freshness, halt, spread or liquidity failures. Thresholds and weights are explicitly uncalibrated research hypotheses. Live scoring was kept blocked until the independent halt source in milestone 5 was implemented.
+
+**Milestone 5 complete — safety and quality verdict:** A fixed-host Nasdaq Trader RSS adapter now supplies fresh current-halt evidence for Nasdaq- and other exchange-listed securities, fetching once per scan and resolving exact symbols and resumption times. The safety policy separately reports market blockers and portfolio blockers across evidence identity, upstream gates, halt freshness/status, spread, liquidity, profile depth, VWAP extension, extreme range, pullback, portfolio freshness, position capacity, projected symbol/sector exposure, daily loss and buying power. Single-venue IEX can support labeled shadow research but remains an actionable-promotion blocker, as does missing forward calibration. A live check returned fresh not-halted evidence for BMNR, MU, NVDA and MSFT. Next schedule the complete pipeline into immutable shadow capture; review Nasdaq feed terms before any commercial redistribution.
+
+**Milestone 6 complete — scheduled immutable shadow capture:** A read-only orchestrator now runs the complete profile, snapshot, halt, gate, price-signal, score and safety pipeline every five minutes during regular weekday market hours. Every symbol is recorded atomically as `PASS`, `REJECTED` or `INCOMPLETE` in an append-only SQLite run envelope; exact retries are idempotent and conflicting retries fail. Valid observations also enter the existing replay journal. The installed macOS LaunchAgent completed successfully, and the manual plus scheduled live checks each recorded four legitimate rejections with no incomplete evidence and no orders. The collector performs no network work outside market hours. Next collect forward outcomes, automate daily profile refresh and connect fresh read-only portfolio context; IEX, calibration and data-rights limits still block actionable promotion.
+
+**Milestone 7 complete — immutable forward outcomes:** Every scheduled capture now settles earlier 5- and 30-minute windows when an exact later observation exists within a two-minute tolerance. Each append-only outcome retains the source and target record identities, original pass/reject cohort, score and safety evidence, raw last-price return and a frozen bid/ask-plus-slippage-and-fee estimate. Mature missing windows become explicit `INCOMPLETE` evidence; horizons beyond the regular-session close are excluded. Reports separate cohort completeness, average raw and after-cost return, positive rate and distinct sessions, with review blocked below 20 sessions. The first live settlement produced four complete rejected-cohort five-minute outcomes and preserved eight older missing windows as incomplete. It also exposed and corrected a per-symbol evaluation-clock error that had made sequentially fetched quotes appear fractionally future-dated. Next automate daily profile refresh and connect fresh read-only portfolio context; do not tune thresholds from this one-session sample.
+
+**Milestone 8 complete — automatic profile refresh:** A weekday 8:45 a.m. local LaunchAgent now rebuilds the frozen intraday symbol set before the open from completed prior sessions. The job preserves the current artifact's exact symbols and feed, requires every symbol to produce matching volume/range session histories, refuses any session regression and publishes only through an atomic replacement. A provider or validation failure leaves the previous byte-exact artifact available to the five-minute collector. The installed runner completed with exit code 0, refreshed BMNR, MSFT, MU and NVDA through September 23 on IEX, and cleaned its non-overlap lock. Next connect fresh read-only portfolio context; the IEX, calibration and data-rights promotion blockers remain.
+
+**Milestone 9 complete — read-only Paper portfolio context:** Each five-minute cycle now obtains one complete IBKR TWS Paper snapshot before evaluating symbols and projects the configured research notional against position rows, symbol concentration, a conservative sector-exposure upper bound, daily P&L and available funds. Initial live verification returned six broker position rows, fresh balances and P&L, and produced four complete `REJECTED` records with no incomplete portfolio evidence. Milestone 10 subsequently corrected repeated-row counting and replaced the conservative sector proxy. This is research context only: it cannot create recommendations or orders.
+
+**Milestone 10 complete — reviewed exposure buckets and broker-row aggregation:** The portfolio layer now aggregates repeated TWS position rows by symbol before counting holdings or measuring concentration and resolves every held/candidate symbol through a versioned, explicitly sourced exposure registry. Unknown symbols fail closed rather than inheriting a guessed sector. Live verification correctly reduced six broker rows to four distinct holdings. BMNR passed portfolio checks at a projected 7.5% digital-asset-treasury exposure, while MSFT/NVDA remained blocked by combined technology exposure and MU remained blocked by its existing symbol/technology concentration. All four records had complete portfolio evidence. Next continue the 20-session sample and evaluate consolidated-data options; this mapping does not promote the lane or grant order authority.
+
+**Milestone 11 complete — reproducible market-data readiness gate:** A read-only diagnostic now probes the configured Alpaca credentials separately for IEX and SIP, verifies exact feed/scope provenance and sanitizes provider failures. Live verification found IEX available as single-venue research data and SIP unavailable under the current credentials. The report permits continued shadow collection but keeps `consolidated_market_data_unavailable` as a promotion blocker and grants no recommendation or order authority. Alpaca SIP is the lowest-integration consolidated path; IBKR remains a separate execution quote authority whose API entitlement is unresolved. No subscription was purchased. Next continue the 20-session sample and decide whether to authorize a SIP plan only after current price and commercial data rights are reviewed.
+
+**Milestone 12 complete — collection quality and qualified-session gate:** A journal-only health report now measures expected versus observed five-minute slots, complete versus incomplete symbol records and fresh Paper portfolio coverage for every session. A day counts toward the 20-session review threshold only when it is closed, meets at least 90% capture coverage, at least 95% record completeness, has complete portfolio context for all evaluable records and intersects an actual completed forward-outcome session. The September 24 bootstrapping day is explicitly degraded: 32/77 observed slots, 91.89% record completeness and 57.35% portfolio completeness, so it contributes zero qualified sessions. This prevents partial setup-day evidence from satisfying the promotion gate. Next allow the fully installed collector to begin its first clean session at the next market open.
+
+**Milestone 13 complete — bounded forward-universe expansion:** A tracked research-universe artifact now freezes the symbols and prior completed-session selection boundary before forward collection. An atomic expansion job requires every symbol to produce valid matching volume/range profiles and preserves the previous live artifact byte-for-byte on any failure. The proposed 12-name set exposed insufficient IEX minute coverage for GME, RKLB, RMBS, SHOP and TWLO, so they were excluded rather than weakened through lower quality thresholds. The validated live set expanded from four to seven symbols: BMNR, CRWV, IONQ, MSFT, MU, NVDA and RIOT. All seven have explicit exposure mappings and complete 30-session profiles through September 23. The expansion is shadow-only and begins prospective evaluation on September 25.
 
 ## Today's test plan — 2026-09-22
 
@@ -242,7 +310,7 @@ Evaluate a second, separately packaged offering for technically inclined custome
 
 ### Stock news context — implemented 2026-09-11
 
-- Alpaca/Benzinga headlines are available in the existing Recent news sheet, with ticker search, original links, publication/update times, polling while open and explicit empty/partial/unavailable states.
+- News collection remains an internal research input; the standalone and per-symbol news interfaces were removed from the mobile app to keep the approval workflow focused.
 - Server-only credentials, 60-second bounded memory cache, deduplication and safe link validation; no article bodies, new dependencies or trading-rule changes.
 - News-driven discovery and ranking, intraday movers, multi-publisher aggregation and verified news latency remain pending. These additions do not repair the existing delayed IBKR quotes or incomplete account reconciliation.
 - Validate with `node --test service/stock_news.test.mjs` and `npm run typecheck`.
@@ -426,3 +494,61 @@ Crypto acceptance requires no production credentials or network orders; fresh ex
 - Added the append-only daily forward-evidence collector. It freezes complete baseline and volatile universes plus every pass/fail evaluation, then appends 1-, 5- and 10-session outcomes only as future sessions become available.
 - Captured the first completed-session snapshot for September 18: 500 baseline/22 eligible and 1,721 shadow/63 eligible, with all 255 candidate-horizon outcomes correctly pending. `npm run market:daily` now refreshes both caches and captures the session; host scheduling and market-wide catalyst capture remain next operational work.
 - Installed and live-tested the macOS weekday 4:30 PM LaunchAgent. It sources the ignored local credentials, prevents overlapping runs and logs locally. The live test also verified that a changed refresh for an already frozen session preserves the original evidence, emits a warning and continues outcome processing instead of overwriting or falsely failing.
+
+### Plan change history — 2026-09-24
+
+- Added the sequential global news and event intelligence workstream in `GLOBAL_NEWS_PLAN.md`.
+- Recorded the current boundary: Alpaca/Benzinga is one partial, headline-only U.S. feed; SEC, Fed and BLS coverage is narrow; catalyst classification remains research-only and cannot affect ranking or orders.
+- Selected a layered source strategy: official primary sources for verification, one licensed global financial wire, GDELT as bounded multilingual discovery, a point-in-time consensus/calendar provider, and market data for reaction confirmation.
+- Prioritized the first build slice: provider-neutral source registry and event contract, bounded GDELT discovery, primary verification for AI infrastructure/power/water, energy/commodities and geopolitical/shipping themes, then two weeks of immutable shadow capture.
+- Kept all news-derived output outside recommendation, sizing, exit and execution authority until forward evaluation and an explicit promotion review pass.
+- Split news ingestion into frequency lanes: seconds-level company news, one-minute market halts, near-real-time filings, exact-time scheduled releases, primary verification, 15-minute global discovery and slower thematic research.
+- Made current Alpaca/Benzinga streaming entitlement and reconnect/gap behavior the first implementation check; durable continuous server-side collection follows before adding more providers.
+- Implemented the immutable global-news event journal, versioned source registry, operational source health and continuous all-symbol Alpaca/Benzinga WebSocket collector.
+- Verified the current credentials authenticate and subscribe to all available news; fixture tests cover authorization flow, persistence, deduplication, immutability and research-only authority, and all 116 Node service tests pass.
+- Next: add REST backfill/gap recovery and supervision, observe real headline persistence during an active period, then connect stored events to classification without granting ranking authority.
+
+### Plan change history — 2026-09-25
+
+- Completed the first market-day global-news test slice: 24-hour paginated Alpaca/Benzinga recovery, continuous WebSocket capture, bounded reconnect and macOS LaunchAgent supervision.
+- Added one-minute Nasdaq Trader halt and important SEC EDGAR filing monitors with explicit market-safety and primary-source provenance.
+- Added immutable research-only catalyst signals and 5-/30-minute IEX-bar outcome measurement using a frozen 20-basis-point round-trip cost assumption.
+- Added app-visible News Monitor and authenticated health/feed endpoints. None of these paths can modify candidate rank, sizing, exits or orders.
+- Live validation captured more than 700 unique source events and produced the first measured outcomes. Initial broad-classifier aggregates are mixed/mostly negative after assumed costs, confirming that promotion would be premature.
+- Fixed source-record duplication caused by REST second-level versus WebSocket millisecond timestamps, retained the original journal in a local audit archive and rebuilt the active journal from the recovery window.
+- GDELT global discovery remains pending because its public endpoint rate-limited the implementation check. Licensed global wire, multilingual entity/exposure mapping, economic consensus and data-rights decisions remain future work.
+
+### Plan change history — 2026-09-27
+
+- Froze the daily strategy, intraday research rules, seven-symbol universe and news classifier for the September 28–October 2 forward-test week; only reproducible operational or evidence-integrity defects justify an in-week repair.
+- Recorded daily acceptance goals for clean collection, discovery review, outcome comparison, recovery testing and the Friday scorecard.
+- Re-ran full QA successfully: TypeScript, 123 Node tests and 224 Python tests.
+- Verified the supervised news collector is running with Alpaca/Benzinga, Nasdaq Trader and SEC EDGAR healthy; weekday intraday/profile/evidence jobs are loaded with clean prior exits.
+- Preserved the broker boundary: Sunday TWS API connection failed, so Monday requires a fresh complete Paper reconciliation before Friday's protection state may be treated as current.
+
+### Plan change history — 2026-10-02
+
+- Added the isolated `Catalyst Sprint` backend mode contract for very-high-risk, minutes-to-two-session opportunities.
+- Added a fail-closed composite evaluator in which technical confirmation remains dominant and only fresh primary-source- or licensed-wire-verified news, or a verified scheduled event, can qualify catalyst context.
+- Kept the initial mode research-only and Paper/shadow-only with no recommendation, order or automatic-exit authority.
+- Next: connect immutable intraday and global-news journals to the evaluator, add a separate mode ledger and cost-aware outcomes, then run at least 20 usable market sessions before considering bounded Paper recommendations.
+
+### Plan change history — 2026-10-07
+
+- Expanded the funded Paper strategy from five to a configurable default of eight positions without changing the $10,000 sleeve.
+- Added a $1,500/15% canonical-security cap, 35% sector/theme caps and GOOG/GOOGL exposure grouping.
+- Required complete exposure metadata for funded positions and distinct diversification for slots six through eight rather than merely consuming unused capacity.
+- Added queue recalculation after newly observed broker fills so every next recommendation uses current cash, exposure and slot availability.
+# Protective-exit lifecycle completion
+
+- [x] Diagnose expired DAY protection on current Alpaca Paper holdings.
+- [x] Make future bracket protection persistent with GTC duration.
+- [x] Add a guarded repair workflow using exact recorded exit terms.
+- [x] Restore and verify safe GTC protection for CSCO, GOOGL, INTC, and PLTR.
+- [x] Detect recorded protective-stop breaches without silently loosening risk.
+- [x] Surface breached stops and profitable unprotected rotations as approvable sell cards.
+- [x] Add an idempotent Alpaca Paper direct-exit path with reconciliation.
+- [x] Preserve parent application identity on Alpaca-generated target/stop child legs and replay the INTC stop fill into the ledger.
+- [x] Add focused regression tests and run type checking.
+- [ ] Obtain explicit user approval before submitting the current SMCI or XOM sell.
+- [ ] After any approved fill, reconcile positions, recalculate capacity, and refresh buy recommendations.

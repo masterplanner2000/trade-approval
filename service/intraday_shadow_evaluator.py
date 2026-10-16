@@ -63,6 +63,10 @@ def evaluate_intraday_snapshot(snapshot: Mapping[str, object], *, now: str) -> d
         "orderSubmissionAllowed": False,
         "symbol": str(snapshot.get("symbol") or "").upper(),
         "observedAt": snapshot.get("observedAt"),
+        "dataSource": snapshot.get("dataSource"),
+        "volumeScope": snapshot.get("volumeScope"),
+        "profileSessionCount": snapshot.get("profileSessionCount"),
+        "profileVersion": snapshot.get("profileVersion"),
         "eligible": False,
     }
     if missing:

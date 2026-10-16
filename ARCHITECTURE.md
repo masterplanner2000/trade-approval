@@ -1,10 +1,30 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.10
-**Last updated:** 2026-09-23
+**Current architecture version:** 5.36
+**Last updated:** 2026-10-15
 **Status:** Living source of truth
 
 This document explains the major application components, their responsibilities, and how information moves from research to recommendations, approval, broker execution, reconciliation, and performance evaluation.
+
+### Version 5.36 — 2026-10-15
+
+- Isolated service unit-test imports from private runtime strategy state using temporary simulated fixtures.
+- Corrected GitHub CI Python cache discovery to use `requirements-test.txt`.
+- Replaced unsupported GitHub dependency review with a lockfile-only npm audit comparison that rejects newly introduced high/critical advisory identities and fails closed on audit errors.
+- Existing dependency advisories remain reported; this gate does not certify the full dependency tree free of vulnerabilities.
+
+### Version 5.35 — 2026-10-14
+
+- Connected the existing higher-volatility daily scanner to the Aggressive risk-profile setting as an experimental Alpaca Paper lane.
+- Kept the baseline scanner unchanged for Conservative, Balanced and Growth profiles.
+- Capped aggressive positions and per-trade loss at half the baseline limits, while retaining fresh quote, spread, diversification, protection and broker checks.
+- Labelled aggressive proposals as volatile momentum and shortened their expected holding horizon; no live-trading authority was added.
+
+### Version 5.34 — 2026-10-14
+
+- Classified an empty spread-qualified recommendation scan as a normal, non-fatal recommendation state rather than a broker outage.
+- Added a guarded background-refresh boundary so a post-action scan cannot surface as an unhandled Expo promise error.
+- Preserved the current recommendation card while a later scan has no newly eligible candidate.
 
 The Mermaid source in this file is authoritative. FigJam and other visual exports are derived views and may lag behind this document.
 
@@ -52,7 +72,7 @@ flowchart LR
         validate{"Safety checks pass?"}
         blocked["Return the exact blocked reason"]
         submit["Submit buy and protective stop"]
-        broker["IBKR Paper or Live"]
+        broker["Alpaca Trading API<br/>Paper execution"]
 
         validate -->|"No"| blocked
         validate ==>|"Yes"| submit
@@ -149,14 +169,15 @@ flowchart LR
 |---|---|---|---|
 | Mobile app | Review recommendations and approve or deny decisions | Prototype | Activity and Positions added; enrich with reconciled broker state |
 | Secure application API | Coordinate the mobile client and local services | Prototype | Ledger-backed lifecycle and read APIs integrated; add clearer service health |
-| IBKR adapter | Quotes, account data, validation, and paper orders | Prototype | Reconciliation and recovery |
+| Alpaca broker adapter | API-key authenticated Paper account, quotes, positions, orders, fills, preflight validation, bracket buys and target replacement | Prototype | Run multi-session Paper soak tests and complete automatic-exit release validation |
+| Legacy IBKR adapter | Gateway/TWS fallback retained for migration evidence and rollback; no longer the default execution path | Retained fallback | Remove only after Alpaca ledger migration and Paper soak testing are complete |
 | Market scanner | Identify candidates that pass deterministic rules | Prototype | Being developed with recommendation work |
 | Higher-volatility shadow scanner | Explore a 1,500-stock listed-equity universe plus a thematic watchlist without broker or order authority | Experimental | Validate consolidated liquidity, catalysts, spreads, and out-of-sample outcomes before any proposal integration |
-| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Evaluator, append-only journal, recorded-data importer and observation-outcome report implemented | Add provider integrity checks, scheduled capture and a forward dataset |
+| Intraday shadow evaluator and evidence pipeline | Explain, immutably preserve, replay and measure timestamped price/volume/spread observations and every failed gate without order authority | Seven-symbol frozen forward universe with capture, outcomes, profiles, Paper context, exposure, data readiness and session health | Accumulate 20 qualified sessions and resolve consolidated-data entitlement; actionable use remains blocked |
 | Market and research layer | Normalize market, filing, news, and event data | Partial | Stock-specific Benzinga headlines via Alpaca integrated; intraday/news-driven selection remains pending |
 | Macro/news-event and thematic evidence | Relate timestamped sourced events to economic themes, company exposure, volatility and confirmed market response | Evaluator, journal, source/consensus adapters and immutable exposure-map registry implemented | Curate reviewed mappings, join records, schedule reaction capture and compare forward outcomes |
 | Recommendation engine | Produce all currently qualified, ranked proposed trades with rationale | Prototype | New proposals bind to exact frozen evidence identity; verify the first market-hours proposal/fill lifecycle |
-| Risk and position sizing | Calculate quantity, loss, concentration, and limits | Partial | Pure sizing model implemented; connect reconciled IBKR inputs |
+| Risk and position sizing | Calculate quantity, loss, concentration, and limits | Implemented for the funded Paper queue | Reconciled broker holdings, $10,000 sleeve, $1,500 position cap, eight-position ceiling, and 35% sector/theme caps are checked again before submission |
 | Safety validation | Recheck price, account, approval, limits, and What-If | Prototype | Preserve exact validation results |
 | Order service | Submit approved buys, protective stops, and separately approved ordinary sales | Prototype | Confirm durable broker identifiers |
 | Broker reconciliation | Match app state to IBKR orders, fills, positions, and commission reports | Partial | Complete partial-fill, cancellation, and missing-account-summary handling |
@@ -168,11 +189,35 @@ flowchart LR
 | Web app | Cross-platform account and review experience | Planned | Reuse API after mobile workflow is reliable |
 | Production operations | Authentication, secrets, hosting, monitoring, recovery | Planned | Required before external users or live trading |
 
+## Alpaca Paper execution connector
+
+The application service now defaults to Alpaca Paper. Server-only API credentials authenticate account snapshots, current positions, open and completed orders, fill activity, execution quotes and Paper order requests without a desktop brokerage session. Approved buys are submitted as Alpaca bracket orders with a DAY limit entry and GTC profit-target and protective-stop legs. The durable approval token, preflight, idempotency reservation, reconciliation and ownership gates remain between the mobile client and broker submission.
+
+The mobile application never receives Alpaca credentials and still talks only to the application API. Paper and live endpoints must remain explicitly separated; this release configures only `https://paper-api.alpaca.markets`. Automatic unattended exits remain release-blocked until their full Alpaca lifecycle and recovery behavior is validated.
+
+## Legacy local IBKR execution connector
+
+The local service defaults to IB Gateway Paper on localhost port 4002. All Python broker operations resolve the same fail-closed connection configuration from `service/ibkr_connection.py`; a deliberate `IBKR_APPLICATION=tws` fallback selects TWS Paper port 7497. A custom paper port may be supplied explicitly, but remote socket hosts are rejected so broker credentials and socket authority remain on the Mac.
+
+Gateway improves the runtime footprint and supports IBKR's daily auto-restart behavior, but it does not remove interactive authentication. The user must establish and periodically renew the IBKR session, including after the weekend reset. Loss of Gateway authentication blocks new submissions; broker-native protective orders remain at IBKR. Connection supervision, mobile alerts and remote recovery remain incomplete and must not be represented as available.
+
 ## Stock news context
 
 The experimental higher-volatility lane lives in `service/aggressive_shadow_scanner.py`, with its own SQLite cache. It ranks active, tradable listed U.S. equities by recent venue dollar volume, retains the top 1,500 and adds eligible watchlist or imported discovery-list names. Imported symbols extend observation only and cannot bypass the same security, completed-history, price, venue-liquidity, ATR, momentum or relative-volume checks. Missing and unsupported imports are recorded explicitly. Both daily caches filter incomplete bars before universe selection or persistence, atomically rebuild bar history, record an explicit `completedThrough` boundary and refuse unversioned legacy cache data. A same-day bar is conservatively unavailable until 16:15 ET. Shadow v2 additionally reports realized volatility, recent maximum drawdown and opening gap as non-ranking diagnostics. Its gates are proposed test variables, not a profitability model. The authenticated `GET /shadow/aggressive` route returns research candidates only; it does not feed the recommendation queue, approval flow, portfolio sizing, or broker submission. The current IEX feed is a single-venue observation, not consolidated market liquidity. Verified catalysts, live spread, account and sizing checks are explicitly missing. The existing 500-stock strategy rules are unchanged.
 
-`service/intraday_shadow_evaluator.py` consumes a caller-supplied, timestamped snapshot and evaluates session, freshness, halt state, coherent prices, day movement, opening gap, relative volume, session dollar volume and current spread. It returns every failed check and is hard-coded `research_only` with `orderSubmissionAllowed: false`. `service/intraday_shadow_journal.py` stores exact snapshots and evaluations in an append-only SQLite timeline, deduplicates identical evidence and deterministically replays only a supported versioned ruleset. `service/intraday_shadow_replay.py` validates and imports recorded JSONL evidence, then selects the first eligible observation per symbol/session and measures fixed-horizon, last-observed and excursion outcomes without representing observations as fills. Missing horizons remain incomplete. Its numerical gates and score are proposed test variables. It still has no provider, scheduler, API route, mobile surface, portfolio sizing or broker authority; therefore it cannot discover or recommend a stock in real time yet.
+`service/intraday_shadow_evaluator.py` consumes a caller-supplied, timestamped snapshot and evaluates session, freshness, halt state, coherent prices, day movement, opening gap, relative volume, session dollar volume and current spread. It returns every failed check and is hard-coded `research_only` with `orderSubmissionAllowed: false`. `service/intraday_shadow_journal.py` stores exact valid snapshots and evaluations in an append-only SQLite timeline, deduplicates identical evidence and deterministically replays only a supported versioned ruleset. `service/intraday_shadow_replay.py` selects the first eligible observation per symbol/session and measures fixed-horizon, last-observed and excursion outcomes without representing observations as fills. Missing horizons remain incomplete. `service/intraday_shadow_capture.py` supplies the scheduled read-only provider orchestration, while `service/intraday_capture_journal.py` atomically preserves the complete per-run pass, rejection and incomplete envelope. A local LaunchAgent invokes it every five minutes and the runner exits before network access outside regular weekday hours. `service/intraday_portfolio_context.py` takes one read-only TWS Paper snapshot before the symbol loop, verifies Paper/read-only/completeness/freshness, aggregates repeated position rows by symbol and projects research sizing against account limits without order authority. Sector exposure uses a versioned, explicitly sourced symbol-to-exposure registry; any unknown held or candidate symbol fails closed. The lane still has no API route, mobile surface, recommendation or broker authority; single-venue IEX and inadequate forward calibration prevent actionable use.
+
+`service/intraday_volume_profile.py` provides the point-in-time relative-volume denominator. It admits only complete regular sessions strictly before the as-of date, selects the most recent 20–30 sessions, expands them to all 390 regular-session minutes and takes the median cumulative volume at each minute. `service/intraday_volume_profile_job.py` reads paginated Alpaca one-minute history and writes a local research artifact atomically. The exact included dates, provider scope and input digest remain visible; the current day cannot leak into its own baseline.
+
+The scheduled profile-refresh mode treats the current artifact's symbol set and feed as a frozen input contract. It stages a complete candidate, requires every symbol and matching volume/range session dates, rejects historical regression and then performs one atomic rename. Its weekday 8:45 a.m. local LaunchAgent is deliberately pre-open; any failed attempt leaves the prior complete artifact untouched for the capture process.
+
+`service/intraday_price_signals.py` builds the corresponding cumulative high/low range baseline and computes current-session price movement without interpreting it as a recommendation. Exact 5/15/60-minute returns, acceleration, VWAP distance, range expansion, session-high pullback and recent path-quality metrics remain timestamped diagnostics. Future, stale, sparse, duplicate and cross-session input fails closed.
+
+`service/intraday_opportunity_score.py` is the explainable shadow-ranking boundary. It assigns at most 100 points across six named price/volume components and returns the exact contribution and prose explanation for each. Upstream market gates are prerequisites rather than score inputs: a failed halt, freshness, coherence, liquidity or spread check produces no score. The current bands and weights are frozen hypotheses for forward observation and cannot create proposals or orders.
+
+`service/nasdaq_halt_status.py` provides the independent halt boundary from Nasdaq Trader's current-halts RSS feed. One bounded fixed-host request serves the scan universe; feed publication, halt and resumption timestamps remain explicit and stale or malformed evidence fails closed. `service/intraday_safety_filters.py` combines this evidence with upstream market gates and projected portfolio state while preserving distinct market and portfolio failures. Its result can admit immutable shadow observation only; actionable eligibility is hard-coded false.
+
+`service/intraday_forward_outcomes.py` reads only the append-only capture timeline and settles exact fixed horizons without fetching replacement prices. A first same-symbol observation within two minutes after 5 or 30 minutes completes the window; once the deadline passes, absent evidence is immutably incomplete. The source pass/reject status, score and safety verdict stay attached. Raw last-price movement is reported beside a frozen hypothetical execution model based on source ask, target bid, two basis points of slippage per leg and one basis point of round-trip fees. Cohorts require 20 distinct sessions before review and cannot alter thresholds, recommendations or orders.
 
 `service/stock_catalyst.mjs` classifies normalized Alpaca/Benzinga headlines into bounded research categories and returns evidence, timing, affected symbols, lexical direction, classification confidence, window-relative novelty and secondary-source quality. It is included in the existing stock-news response. Predictive confidence is null, and the component has no ranking, proposal, sizing or order authority. Primary-source verification, source conflict handling, event identity/corrections and outcome testing remain pending.
 
@@ -325,6 +370,84 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Advanced immediately after confirmed approval while preview, What-If, safety checks and broker submission continue in the background.
 - Restored failed submissions to the front of the stack and kept successful progress in Activity/fill reconciliation.
 
+### Version 5.11 — 2026-09-24
+
+- Extended fixed-host Alpaca normalization with quote time and session open/high/low.
+- Added a fail-closed intraday provider contract requiring exact symbol/time, a minimum historical volume profile, known halt state and explicit feed scope.
+- Verified current IEX access and SIP denial; preserved IEX as single-venue shadow evidence with no recommendation or order authority.
+
+### Version 5.12 — 2026-09-24
+
+- Added a deterministic 390-point cumulative minute-volume profile from the latest 20–30 complete prior sessions.
+- Added paginated, read-only Alpaca one-minute collection with atomic local persistence, explicit feed provenance and exact input digests.
+- Verified live IEX profiles for BMNR, MU, NVDA and MSFT; retained all outputs as research-only with no recommendation or order authority.
+
+### Version 5.13 — 2026-09-24
+
+- Added a point-in-time cumulative intraday range baseline from the same prior 20–30 complete sessions.
+- Added exact 5/15/60-minute momentum, acceleration, VWAP, range-expansion, pullback and recent path-quality diagnostics.
+- Verified the diagnostics on current IEX bars for BMNR, MU, NVDA and MSFT while preserving research-only boundaries.
+
+### Version 5.14 — 2026-09-24
+
+- Added a transparent 100-point intraday opportunity score across six capped price/volume components.
+- Required upstream hard-gate success plus exact symbol, timestamp and feed provenance before scoring.
+- Preserved uncalibrated weights as shadow hypotheses and blocked recommendations and orders regardless of score.
+
+### Version 5.15 — 2026-09-24
+
+- Added fixed-host, minute-fresh Nasdaq Trader current-halt evidence with exact halt/resumption semantics and one fetch per scan.
+- Added a fail-closed safety verdict separating market-quality failures from projected portfolio conflicts.
+- Kept IEX acceptable only for labeled shadow research and retained consolidated data, forward calibration and data-rights review as promotion blockers.
+
+### Version 5.16 — 2026-09-24
+
+- Added a complete read-only intraday capture orchestrator scheduled every five minutes during regular weekday market hours.
+- Added atomic append-only run envelopes preserving every pass, rejection and incomplete result with conflict-safe idempotency.
+- Installed and live-verified the non-overlapping macOS runner; retained no recommendation or order authority and left portfolio eligibility fail-closed pending read-only broker context.
+
+### Version 5.17 — 2026-09-24
+
+- Added immutable 5- and 30-minute forward outcomes tied to exact source and target capture records.
+- Added raw and frozen modeled-after-cost returns, explicit missing windows, cohort completeness and a 20-distinct-session review gate.
+- Corrected sequential-fetch evaluation time so a quote obtained after cycle start is not falsely rejected as future evidence.
+
+### Version 5.18 — 2026-09-24
+
+- Added an all-or-nothing daily rebuild of the frozen intraday profile universe and feed.
+- Required matching volume/range histories and non-regressing completed-session coverage before atomic publication.
+- Installed and live-verified the weekday 8:45 a.m. non-overlapping LaunchAgent; partial failure preserves the prior artifact.
+
+### Version 5.19 — 2026-09-24
+
+- Connected one fresh, complete, read-only IBKR Paper reconciliation snapshot to each scheduled intraday capture cycle.
+- Added fail-closed projected position, symbol, sector, daily-loss and buying-power checks without granting recommendation or order authority.
+- Live-verified complete portfolio evidence for four symbols; the initial snapshot exposed six broker rows and intentionally conservative portfolio blocks later corrected in version 5.20.
+
+### Version 5.20 — 2026-09-24
+
+- Added a versioned, source-linked symbol exposure registry and fail-closed handling for unmapped holdings or candidates.
+- Aggregated repeated TWS position rows by symbol before position-count, symbol-exposure and sector-exposure calculations.
+- Live-verified four distinct holdings from six broker rows and differentiated BMNR's passing portfolio context from genuine technology-concentration blocks.
+
+### Version 5.21 — 2026-09-24
+
+- Added a sanitized read-only capability audit for separate Alpaca IEX and SIP feeds.
+- Live-verified single-venue IEX access and current SIP denial without changing subscriptions.
+- Documented Alpaca SIP as the lowest-integration consolidated research path and retained IBKR as a separately entitled execution quote authority.
+
+### Version 5.22 — 2026-09-24
+
+- Added per-session capture-slot, record-completeness and portfolio-context health reporting from immutable journals only.
+- Required a usable closed session to intersect completed forward outcomes before it counts toward the 20-session review gate.
+- Classified the partial September 24 setup session as degraded and excluded it from qualified-session progress.
+
+### Version 5.23 — 2026-09-24
+
+- Added a tracked, versioned forward intraday research universe and an all-or-nothing atomic profile expansion path.
+- Rejected five proposed symbols with insufficient IEX minute coverage without lowering profile-quality requirements.
+- Expanded the live shadow set from four to seven fully profiled and explicitly mapped symbols for prospective collection beginning September 25.
+
 ### Version 3.17 — 2026-09-12
 
 - Added a broker-free CI boundary that runs static, Node and Python safety tests without credentials or network execution authority.
@@ -362,6 +485,19 @@ Closed-trade accounting matches the application entry and exit through the immut
 7. Regenerate derived FigJam diagrams after material source changes.
 
 ## Change history
+
+### Version 5.25 — 2026-10-06
+
+- Changed the default Paper execution broker from desktop-session-dependent IBKR to Alpaca's API-key-authenticated Paper API.
+- Added normalized Alpaca account, quote, position, order, fill, preflight, bracket-submission and order-replacement adapters behind the existing broker contract.
+- Preserved durable approval, idempotency, ledger, reconciliation, ownership, bracket protection and fail-closed Paper boundaries.
+- Retained the IBKR connector as an explicit fallback while historical IBKR records remain in the ledger; automatic unattended exits remain disabled pending Alpaca lifecycle validation.
+
+### Version 5.24 — 2026-09-28
+
+- Changed the local IBKR execution connector to Gateway-first Paper operation on port 4002.
+- Centralized connection configuration across broker scripts and retained an explicit TWS Paper fallback.
+- Recorded that Gateway reduces runtime overhead but does not remove periodic interactive authentication; monitoring and remote recovery remain pending.
 
 ### Version 3.26 — 2026-09-17
 
@@ -469,6 +605,54 @@ Closed-trade accounting matches the application entry and exit through the immut
 - Added a CSV discovery-list extension to the isolated aggressive cache, with explicit inclusion and rejection provenance.
 - Expanded coverage of the supplied volatile-stock list from 28 to 248 observed names without changing any eligibility gate.
 - Added descriptive realized-volatility, maximum-drawdown and opening-gap outputs to shadow ruleset v2. They do not affect orders or core recommendations.
+
+### Version 5.33 — 2026-10-12
+
+- Corrected Alpaca bracket/OCO child-leg normalization to retain the originating application decision reference instead of Alpaca's generated child UUID.
+- Made historical target and protective-stop fills replay into the durable ledger on the next read-only reconciliation, so closed positions release capacity without manual ledger edits.
+- Verified the repair against the current Paper account: the completed INTC stop fill cleared the phantom holding and restored complete ownership; no order was created, replaced or cancelled.
+
+### Version 5.32 — 2026-10-09
+
+- Required every sell card in Recommendations to have a currently enabled approval path.
+- Moved blocked exit candidates and protection failures out of the recommendation deck and into portfolio diagnostics.
+
+### Version 5.31 — 2026-10-09
+
+- Restricted sell cards to holdings explicitly selected by the engine for exit; protection and ownership diagnostics no longer masquerade as recommendations.
+- Made `Keep` clear a sell card for the current scheduled recommendation window, while allowing it to return at the next 9:00 AM, noon or 3:00 PM refresh when still supported by current evidence.
+
+### Version 5.30 — 2026-10-09
+
+- Scheduled read-only recommendation refreshes for 9:00 AM, 12:00 PM and 3:00 PM Eastern on market weekdays.
+- Each run reconciles Alpaca Paper before rebuilding the current queue and compares material changes with earlier runs that day.
+- Scheduled jobs can surface recommendations and blockers but have no broker-order authority.
+
+### Version 5.29 — 2026-10-07
+
+- Scoped recommendation swipe recognition to the informational card body.
+- Kept the decision footer outside the pan responder so Approve and Deny taps cannot be intercepted by minor finger movement.
+
+### Version 5.28 — 2026-10-07
+
+- Made an actionable Alpaca Paper recommendation's `Approve` control the single explicit approval action.
+- Removed the redundant native confirmation dialog so the card dismisses and the exact proposal enters the sequential submission queue on the first tap.
+- Preserved all signed approval, preflight, final safety, idempotency and reconciliation gates; this behavior is not inherited by any future live-trading mode.
+
+### Version 5.27 — 2026-10-07
+
+- Changed buy approval to optimistically remove the approved card and enqueue its Paper order workflow.
+- Serialized queued submissions so each order receives fresh preview, broker preflight, final safety validation and portfolio recalculation before the next dispatch.
+- Kept workflow state keyed by proposal so a pending order cannot make the next card appear to be submitting.
+- Kept a failed approved proposal out of the actionable deck, returned its exact safety blocker, and recalculated fresh candidates without interrupting the card currently under review.
+
+### Version 5.26 — 2026-10-07
+
+- Raised the configurable funded-strategy ceiling to eight positions while preserving the $10,000 sleeve.
+- Enforced a $1,500/15% security cap and 35% sector and theme caps in recommendation creation and the final pre-broker safety check.
+- Canonicalized GOOG and GOOGL as one Alphabet exposure.
+- Required complete exposure metadata for every funded position and a distinct sector/theme combination for positions six through eight; unknown classifications fail closed.
+- Added broker-fill-triggered queue recalculation so cash, deployed capital, exposure and remaining slots refresh after new execution evidence.
 
 ### Version 4.5 — 2026-09-21
 

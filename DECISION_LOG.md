@@ -1,8 +1,16 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-09-24.1 · **Corresponding architecture:** 5.10
+**Log revision:** 2026-10-15.1 · **Corresponding architecture:** 5.36
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
+
+## D-090 — Add an isolated aggressive Paper recommendation lane
+
+**Status:** Provisional and implemented for Paper testing, 2026-10-14.
+
+**Decision:** Preserve the liquid large-cap momentum strategy as the baseline. Selecting **Aggressive** may source cards from the separately cached higher-volatility scanner, clearly label them as experimental volatile momentum, and size them at no more than half the baseline position and loss limits.
+
+**Safety boundary:** The lane is Alpaca Paper-only and retains current quote, spread, portfolio concentration, protection and broker validation. Conservative, Balanced and Growth continue to use the baseline lane. Live promotion still requires consolidated market data and adequate forward validation.
 
 ## How to use this log
 
@@ -91,10 +99,58 @@ This is the living record of product, design, trading-safety, data, and technica
 | D-072 | Compare performance with an exposure-matched QQQ alternative | Confirmed; minimum-sample gate retained | 2026-09-23 |
 | D-073 | Archive one immutable performance report after each daily collection | Confirmed; scheduled path integrated | 2026-09-23 |
 | D-074 | Process approved Paper orders in the background | Confirmed; failure restores the card | 2026-09-24 |
+| D-075 | Develop actionable intraday-volatility recommendations on an isolated branch | In progress; seven-symbol frozen forward universe installed | 2026-09-24 |
+| D-076 | Use IB Gateway as the default local IBKR Paper connector | Configuration implemented; installation and runtime validation pending | 2026-09-28 |
+| D-088 | Use persistent Alpaca protection and explicit breached-stop exits | Confirmed and implemented for Paper | 2026-10-09 |
+| D-089 | Reconcile Alpaca child fills through the parent application identity | Confirmed and implemented | 2026-10-12 |
 
 ---
 
 ## Detailed decisions
+
+### D-076 — Use IB Gateway as the default local IBKR Paper connector
+
+**Decision:** Run the Mac execution service against IB Gateway Paper by default on localhost port 4002. Keep TWS Paper available only as an explicit configuration fallback on port 7497. Resolve every broker script through one validated connection configuration and reject remote socket hosts.
+
+**Reason:** Gateway exposes the same socket API with a smaller long-running footprint and is better aligned with the local execution-service role. A single configuration prevents snapshot, scanner, validation, reconciliation and submission processes from silently targeting different broker applications.
+
+**Operational boundary:** This change does not automate IBKR credentials, remove two-factor authentication or guarantee continuous access across the weekend reset. Gateway installation, Paper login, API configuration, daily auto-restart and a fresh read-only reconciliation must still be completed. New orders fail closed when the connector is unavailable; broker-native protective orders remain at IBKR. Connection monitoring, phone alerts and remote recovery are separate unfinished milestones. No live-trading authority is added.
+
+### D-075 — Isolated intraday-volatility recommendation workstream
+
+**Status:** In progress on `feature/intraday-volatility-recommendations`; scheduled capture is implemented, but it remains research-only and is not connected to recommendations.
+
+**Objective:** Extend discovery beyond completed daily bars so the system can identify volatility, price/volume acceleration, breakouts or reversals developing during the market session. Reuse the existing research-only intraday evaluator, but keep it disconnected from approval cards and broker authority until the data and performance gates pass.
+
+**Required sequence:** approve a real-time consolidated provider and data rights; capture immutable timestamped quotes, spread and volume evidence; validate freshness, halts, expected-volume baselines and catalyst timing; replay and forward-test outcomes including slippage and missed signals; expose shadow cards first; then make a separate promotion decision before any actionable Paper recommendation.
+
+**Boundary:** The stable daily-bar Paper workflow stays on `main`. Creating this branch is a bookmark, not approval to subscribe to data, alter the production queue or submit an intraday order.
+
+**2026-09-24 implementation evidence:** The fixed-host Alpaca snapshot client now preserves the quote timestamp and current session open/high/low required by the evaluator. A fail-closed join requires exact symbol identity, context no more than 60 seconds old, at least 20 historical volume-profile sessions, a known halt state and explicit IEX-versus-SIP provenance. Regular-session classification uses New York time. Tests cover consolidated and single-venue evidence, symbol/time mismatches, insufficient profiles, unknown halt state and outside-session rejection. A live read-only entitlement check succeeded for IEX and was denied for SIP. Therefore IEX may support labeled shadow observations only; actionable promotion remains blocked on consolidated data and the remaining context sources.
+
+**2026-09-24 minute-profile evidence:** The minimum profile is now 20 sessions. The builder uses the median cumulative volume at every one of 390 regular-session minutes from the latest 20–30 complete sessions strictly before the as-of day. A session requires at least 380 observed minutes and both boundary minutes; malformed and duplicate bars fail closed. The artifact records included dates, estimator, provider scope and a deterministic input digest. A live read-only IEX collection produced 30-session profiles for BMNR, MU, NVDA and MSFT without failures. This solves the relative-volume denominator only; IEX remains single-venue, halt evidence is not yet approved, and the output cannot create recommendations or orders.
+
+**2026-09-24 price-diagnostic evidence:** The same admitted prior sessions now produce a median cumulative high/low range for every market minute. Current-session calculations expose 5/15/60-minute momentum, previous-five-minute momentum, acceleration, VWAP distance, time-matched range expansion, session-high pullback, recent close location and positive-bar share. A real IEX check completed for BMNR, MU, NVDA and MSFT and showed materially different paths rather than one generic volatility label. These remain diagnostic inputs to the shadow score described below; no threshold has been promoted and no recommendation or broker authority was added.
+
+**2026-09-24 shadow-score evidence:** The first opportunity score is frozen as `intraday-opportunity-score-v1`: relative volume 25 points, multi-horizon momentum 25, acceleration 10, VWAP position 10, time-matched range expansion 15 and recent path quality 15. Every contribution discloses its exact input, awarded points, cap and explanation. A failed upstream hard gate, mismatched symbol/time, missing feed provenance or missing metric produces no score. The 60-point developing and 75-point strong labels are uncalibrated forward-test hypotheses, not profit estimates. Even a 100-point result remains research-only and cannot create a card or order. Live scoring required the independent halt source implemented below before it could enter scheduled shadow capture.
+
+**2026-09-24 safety evidence:** Nasdaq Trader's official current-halts RSS feed is the prototype halt source. The fixed-host adapter fetches once per scan, requires publication within two minutes, resolves exact symbols and halt/resumption times, rejects malformed/oversized XML and provides no recommendation authority. The versioned safety policy separately reports market and portfolio failures, including overextension and projected exposure. A live check returned fresh `halted: false` evidence for BMNR, MU, NVDA and MSFT. This removes the unknown-halt blocker for labeled personal shadow observations only. IEX single-venue scope, uncalibrated performance, scheduled forward evidence and commercial-feed-terms review still block promotion and distribution.
+
+**2026-09-24 scheduled-capture evidence:** The complete read-only pipeline now runs every five minutes during regular weekday market hours under a non-overlapping macOS LaunchAgent. Each cycle atomically appends one immutable run plus one `PASS`, `REJECTED` or `INCOMPLETE` record per symbol; exact retries are idempotent and conflicting payloads are refused. Valid observations are also stored for deterministic replay. The manual and first scheduled live cycles each completed with four legitimate market-gate rejections, zero incomplete records and zero order authority. Outside-hours invocations exit before network access. Portfolio eligibility remains blocked until fresh read-only IBKR context is connected; IEX scope, forward calibration and commercial data-rights review still block promotion.
+
+**2026-09-24 forward-outcome evidence:** Each capture now settles earlier 5- and 30-minute windows only from exact later records no more than two minutes after the target. The append-only outcome preserves source/target identity, original pass/reject cohort, raw movement and a versioned estimate using entry ask, exit bid, two basis points of slippage per leg and one basis point of round-trip fees. Missing mature evidence is permanently incomplete and after-close horizons are excluded. The first live settlement produced four complete rejected-cohort five-minute outcomes; average raw movement was `+0.0272%`, while the modeled after-cost result was `-0.6516%`, with only one distinct session and therefore no calibration conclusion. Eight older windows lacking scheduled follow-up were preserved as incomplete. The run also exposed and fixed a per-symbol clock error that briefly labeled sequentially fetched quotes as future-dated. No threshold, recommendation or order behavior changed.
+
+**2026-09-24 profile-refresh evidence:** The current artifact now defines the exact scheduled symbol set and feed. A weekday 8:45 a.m. local runner rebuilds all profiles from completed prior sessions, requires identical volume/range session dates, rejects coverage regression and publishes through an atomic replace only when every symbol passes. Partial failure leaves the previous artifact byte-exact. The installed LaunchAgent completed successfully for BMNR, MSFT, MU and NVDA on IEX, with all four histories through September 23, and cleaned its lock. This automates baseline freshness but does not resolve single-venue scope, performance calibration, portfolio context or commercial data rights.
+
+**2026-09-24 portfolio-context evidence:** The scheduled lane now reads one complete TWS Paper reconciliation snapshot before evaluating its symbol set. It requires the Paper environment, read-only collection, complete account evidence and a fresh timestamp; missing P&L or balances fail closed. It initially projected a bounded research notional against raw position rows, symbol exposure, daily loss, buying power and an explicitly conservative all-positions-same-sector upper bound. Live evidence returned six broker rows and complete balances/P&L, then produced four complete rejections with zero incomplete records. The later exposure-registry milestone identified repeated MU/TQQQ rows, corrected capacity to four distinct holdings and replaced the conservative sector proxy. This supplies portfolio research evidence only and does not remove the single-venue, 20-session calibration or data-rights promotion blockers.
+
+**2026-09-24 exposure-registry evidence:** TWS may return repeated position rows for the same symbol, so position capacity and concentration must aggregate by symbol rather than count callbacks. The intraday portfolio context now performs that aggregation and uses an explicit, versioned, source-linked exposure bucket for every held and candidate symbol. Unknown symbols fail closed. Live evidence reduced six broker rows to four distinct holdings; BMNR passed portfolio checks at 7.5% projected digital-asset-treasury exposure, while MSFT/NVDA failed combined technology exposure and MU failed existing symbol/technology concentration. The registry is a safety classification, not an investment thesis, and grants no recommendation or order authority.
+
+**2026-09-24 market-data readiness evidence:** Provider capability must be tested from the credentials used by the scheduled collector rather than inferred from a dashboard plan name. A new sanitized diagnostic verifies exact feed/scope provenance for Alpaca IEX and SIP. The live check found IEX available and SIP denied, so the lane may continue labeled single-venue shadow research but cannot pass the consolidated-data promotion gate. Alpaca SIP is the smallest engineering change because the existing pipeline already supports it; IBKR would remain the independent pre-trade quote source and currently still lacks the required live API entitlement. No subscription was purchased, and a future feed change must rebuild profiles without mixing IEX and SIP cohorts.
+
+**2026-09-24 collection-health evidence:** Raw distinct outcome sessions cannot by themselves satisfy the review sample because a partial or operationally degraded day can still produce some outcomes. A session now counts only if the market is closed, at least 90% of expected five-minute slots exist, at least 95% of symbol records are complete, every evaluable record has complete Paper portfolio context and the same date has completed forward outcomes. The September 24 setup day has one raw outcome session but only 32/77 capture slots, 91.89% complete records and 57.35% portfolio coverage, so its qualified contribution is zero. This quality gate changes research admissibility only; it cannot create recommendations or orders.
+
+**2026-09-24 universe-expansion evidence:** A broad volatility lane cannot be evaluated credibly from four handpicked symbols, but expanding by weakening data-quality rules would contaminate the forward sample. The tracked v1 universe was selected from information completed through September 23 and is frozen before its September 25 effective date. Atomic profile validation admitted BMNR, CRWV, IONQ, MSFT, MU, NVDA and RIOT. GME, RKLB, RMBS, SHOP and TWLO lacked the required complete IEX minute histories and were excluded. The seven admitted symbols have complete profiles and explicit exposure mappings. Universe membership is research scope, not a recommendation, and cannot grant broker authority.
 
 ### D-074 — Background Paper submission during continued review
 
@@ -957,3 +1013,163 @@ Review [CRYPTO_DESIGN.md](./CRYPTO_DESIGN.md): Coinbase Exchange/Gemini sandbox 
 **Record:** Permit reject/archive, revise/repeat, continue-observation or approve-bounded-ranking. Require a named approver, timestamp, attestation, change-control ID and rationale. Store one immutable, idempotent decision per assessment. A conflicting decision or database mutation fails closed.
 **Release boundary:** Only a valid approval may generate the `macroBoundedRankingEnabled` manifest. It defaults off, remains capped at five ranking points, requires shadow-versus-active comparison and separate integration tests, and provides no automatic or general order authority. Manifest generation is not activation.
 **Current outcome:** No real Stage 12 report or complete production dossier exists, and the user has not made a Stage 13 product decision. No decision record or manifest was created. The feature remains research-only and disabled.
+
+## D-042 — Build global news as a verified event pipeline
+
+**Status:** Plan approved for implementation sequencing; no ranking or order authority, 2026-09-24.
+**Decision:** Expand beyond the current Alpaca/Benzinga, SEC, Fed and BLS inputs with a provider-neutral global event pipeline. Use broad multilingual media only for discovery, authoritative primary sources for verification, a reviewed versioned exposure graph for symbol mapping, fresh market data for reaction confirmation, and immutable forward evidence for evaluation.
+**Provider approach:** Preserve Benzinga for U.S. company context; evaluate GDELT for bounded research-only global discovery; evaluate Reuters/LSEG and Dow Jones/Factiva for a licensed global financial wire; and separately evaluate a point-in-time economic calendar/consensus provider. No subscription or commercial terms are authorized by this decision.
+**Safety boundary:** All new sources default to research-only. Unverified or indirectly mapped news cannot create a recommendation, alter size, bypass liquidity/risk/protection/portfolio controls, trigger an automatic exit, or submit an order. Full-text storage and redistribution require explicit provider rights.
+**Evidence gate:** Implement source registry, immutable event contract, correction/retraction handling, clustering, multilingual entity resolution, reviewed exposure mapping, shadow scoring and chronological matched-control outcomes before any promotion review. See `GLOBAL_NEWS_PLAN.md`.
+
+## D-043 — Operate the first live news lane as measured shadow research
+
+**Status:** Implemented and running for market-hours observation, 2026-09-25.
+**Decision:** Continuously collect Alpaca/Benzinga company news with a 24-hour recovery window, Nasdaq Trader halts and important SEC EDGAR filings into the immutable local journal. Keep the collector supervised independently of the app and expose its health and recent feed in the app.
+
+**Measurement:** Freeze deterministic catalyst classifications as research-only signals and measure signed 5- and 30-minute Alpaca IEX returns after a fixed 20-basis-point round-trip cost assumption. Preserve source, timestamps, event identity and classifier version so results can be reproduced. These are headline-response diagnostics, not trades or a profitability claim.
+**Boundary:** News has no recommendation, ranking, sizing, exit or order authority. GDELT was rate-limited during implementation and is not an active source; a commercial global wire, multilingual discovery, entity/exposure mapping, exact economic consensus and redistribution rights remain unresolved provider/product decisions.
+
+## D-044 — Isolate social media as an authorized, measured discovery lane
+
+**Status:** Architecture planned; no collector, ranking influence or order authority, 2026-09-29.
+
+**Decision:** Monitor selected X accounts through official API access and process Instagram videos only through official scopes, creator-authorized delivery or explicit user-provided media. Do not build an authenticated scraper or bypass platform controls. Normalize posts and transcripts into timestamped claims, verify factual assertions against stronger sources, join them to contemporaneous market evidence and measure them prospectively in a separate shadow lane.
+
+**Recommendation boundary:** Social content may initially expand the research universe only. It cannot establish eligibility, change size, loosen risk limits, trigger an exit or create an order. Any later experiment is limited to a plus/minus three-point shadow-rank adjustment for candidates that already pass every hard gate and requires an explicit promotion review.
+
+**Record:** See `SOCIAL_SIGNAL_PLAN.md` for acquisition paths, transcription, claim extraction, compliance lifecycle, data model, evaluation gates and staged delivery.
+
+## D-045 — Add an evidence-grounded in-app research assistant
+
+**Status:** Architecture planned; no assistant endpoint or engine-change authority, 2026-09-29.
+
+**Decision:** Add an in-app conversational assistant that answers questions through narrow, typed, evidence-returning tools and may draft versioned shadow experiments. “Self-improvement” means a governed diagnose/propose/shadow-test/evaluate/decide loop. The model may not edit the active ruleset, production code, deployment configuration, brokerage state or orders.
+
+**Initial scope:** Implement read-only system status, recommendation explanation, symbol diagnosis, positions/protection and performance questions first. Use server-side OpenAI Responses API calls with structured outputs, streamed mobile responses, explicit evidence citations and freshness. Keep credentials out of Expo and record tool-call audit data.
+
+**Experiment boundary:** Later drafts require a strict manifest and explicit user approval before shadow activation. Production promotion remains a separate deterministic release process. Chat wording can never authorize or imply deployment or trading authority.
+
+**Record:** See `IN_APP_RESEARCH_ASSISTANT_PLAN.md` for tool contracts, schemas, security boundaries, staged implementation and acceptance gates.
+
+## D-077 — Keep the approved strategy sleeve authoritative
+
+**Status:** Confirmed and implemented, 2026-10-02.
+
+**Decision:** The funded recommendation queue uses the strategy's explicit capital and position limits as its portfolio-capacity boundary. A separate risk-policy percentage must not silently replace the approved $10,000 Paper sleeve with a smaller effective sleeve or retroactively classify existing holdings as over-deployed.
+
+**Preserved controls:** Reconciliation, ownership, broker protection, per-trade sizing, stop-loss risk, daily and total open-risk budgets, concentration, liquidity and the strategy's explicit position limit continue to fail closed. This change does not authorize live trading or automatic exits.
+
+## D-078 — Add explicit Paper-only approval for ordinary exits
+
+**Status:** Implemented behind existing Paper submission controls, 2026-10-02.
+
+**Decision:** A profitable, strategy-owned holding may expose an `Approve sell` action when a stronger replacement makes it an ordinary rotation candidate. Approval is specific to one current exit review; unattended automatic selling remains disabled.
+
+**Execution boundary:** Before dispatch, the service requires a new complete IBKR Paper reconciliation, current scan eligibility, exact strategy ownership and quantity, one linked active profit target, one linked active protective stop and an execution-grade quote. A current IBKR type-1 bid/ask is preferred; while this account lacks that entitlement, a timestamped Alpaca IEX bid/ask may price this Paper-only supervised action when it is no more than 15 seconds old and its spread is within the existing 0.25% cap. Delayed SIP/IBKR data is never accepted. The service modifies the existing app-owned profit target to a marketable limit while leaving the protective stop active. A durable single-dispatch outbox is committed before broker contact, and the UI reports success only after fresh broker evidence confirms the changed target or the completed exit. Unknown, rejected, stale, duplicated or differently owned orders fail closed.
+
+**Loss boundary:** Ordinary rotations remain blocked below average cost. Protective stops may still realize a loss when their broker-hosted risk threshold is reached; this approval path does not weaken or replace them.
+
+## D-079 — Add a separate Catalyst Sprint mode
+
+**Status:** Initial backend contract and shadow evaluator implemented, 2026-10-02; no recommendation or order authority.
+
+**Decision:** Add a distinct very-high-risk, short-horizon mode for liquid volatile stocks whose price/volume behavior confirms either fresh verified news or a known scheduled event. The mode is separate from the existing core momentum strategy, with its own version, proposed risk envelope, future ledger and performance comparison.
+
+**Interpretation of anticipation:** The engine may study observable positioning ahead of a publicly scheduled event. It must not infer, fabricate or trade on unpublished information. Unverified headlines can provide context but cannot qualify a setup, and catalyst evidence can never rescue failed liquidity, freshness, halt, spread or technical gates.
+
+**Initial boundary:** `catalyst-sprint-shadow-v1` is research-only and Paper/shadow-only. It cannot create recommendations, submit orders or exit automatically. Promotion requires point-in-time capture, cost-aware forward outcomes, separate drawdown statistics and an explicit approval decision. Riskier selection must use smaller exposure and faster invalidation rather than a larger loss budget.
+
+## D-080 — Make Alpaca the default Paper execution broker
+
+**Status:** Confirmed and implemented for Paper, 2026-10-06.
+
+**Decision:** Replace the desktop-session-dependent IBKR execution path with Alpaca Paper as the application's default broker. The service uses server-only API credentials for account state, quotes, positions, orders, fills, preflight checks, bracket buys and approved profit-target replacement. The mobile client has no broker credentials or direct order authority.
+
+**Preserved controls:** Explicit user approval for buys, signed short-lived receipts, final price/account/size checks, durable idempotency before transmission, bracket protection, reconciliation, ownership checks, the trading ledger and Paper-only enforcement remain required. Broker normalization must preserve exact Alpaca order and fill identities. Automatic unattended sells remain disabled until the Alpaca-specific protected-exit lifecycle passes Paper soak and recovery testing.
+
+**Migration boundary:** Existing IBKR holdings and order history do not transfer into the Alpaca Paper account. Historical IBKR records remain immutable evidence, while new Alpaca activity is broker-namespaced. The IBKR adapter remains an explicit rollback option during migration and is not the default runtime.
+
+## D-081 — Expand the funded sleeve to eight diversified positions
+
+**Status:** Confirmed and implemented for Paper, 2026-10-07.
+
+**Decision:** Keep the funded strategy sleeve at $10,000, permit the whole sleeve to be deployed when qualified opportunities exist, and make eight the configurable default and hard maximum for simultaneous positions. Limit one canonical security exposure to 15%/$1,500 and each sector and theme to 35%/$3,500. GOOG and GOOGL are one Alphabet security exposure.
+
+**Diversification boundary:** Every funded position requires complete versioned sector/theme metadata so the 35% limits can be measured. Positions six through eight must additionally add a different sector/theme combination; missing metadata or a matching combination fails closed. Raising the count does not create an entitlement to fill every slot.
+
+**Execution boundary:** Recommendation creation and the final pre-broker check enforce the limits. New broker execution evidence triggers queue recalculation from refreshed cash, deployed capital, holdings and remaining slots. Settings may lower the position count but cannot raise it above eight.
+
+## D-082 — Queue approved Paper buys without blocking card review
+
+**Status:** Confirmed and implemented, 2026-10-07.
+
+**Decision:** After the user confirms a Paper buy, remove its card from the active deck immediately and enqueue the exact proposal for sequential processing. The next card remains independently reviewable and never inherits the prior proposal's submitting state.
+
+**Safety boundary:** Queuing is not broker acceptance. Each item still performs its own signed approval, preview, Alpaca preflight, final price/account/capital/concentration checks and durable idempotent submission. Orders are dispatched sequentially so each later item uses recalculated portfolio capacity. An approved proposal that fails a later safety check cannot be presented as pending again; the app reports the exact blocker and recalculates fresh candidates without interrupting the currently visible card.
+
+## D-083 — Make Paper approval a single explicit action
+
+**Status:** Confirmed and implemented, 2026-10-07.
+
+**Decision:** On an actionable Alpaca Paper recommendation, tapping `Approve` immediately records and queues that exact proposal, dismisses its card and begins the existing sequential validation and submission workflow. Remove the redundant native confirmation dialog, which made the first approval tap look unsuccessful.
+
+**Safety boundary:** This applies only to Paper recommendations. It does not bypass signed short-lived approval receipts, Alpaca preflight, final account/price/size/capital/concentration checks, durable idempotency or reconciliation. A future live-trading mode requires its own explicit confirmation policy and cannot inherit this Paper behavior automatically.
+
+## D-084 — Keep card gestures out of the decision footer
+
+**Status:** Confirmed and implemented, 2026-10-07.
+
+**Decision:** Attach the recommendation-card pan responder only to the card body. The Approve and Deny footer remains outside the swipe responder so ordinary finger movement cannot convert a decision-button tap into an intercepted card gesture.
+
+**Interaction boundary:** The card remains swipeable and tappable through its informational body. Decision controls retain their existing disabled, queued and in-flight safeguards and are never treated as swipe surfaces.
+
+## D-085 — Refresh recommendations three times each trading day
+
+**Status:** Confirmed and scheduled, 2026-10-09.
+
+**Decision:** Run the recommendation workflow at 9:00 AM, 12:00 PM and 3:00 PM Eastern on market weekdays. Every run reconciles Alpaca Paper first, refreshes the recommendation queue from the evidence available at that timestamp and compares material changes with earlier runs that day.
+
+**Execution boundary:** Scheduled refreshes have no order authority. They may report and surface current buy/sell recommendations and blockers, but cannot approve, submit, replace or cancel broker orders. A refresh may legitimately return the same recommendations when the qualifying evidence has not changed.
+
+## D-086 — Keep diagnostics out of the recommendation deck
+
+**Status:** Confirmed and implemented, 2026-10-09.
+
+**Decision:** The recommendation deck shows only holdings the engine actually recommends selling. Protection gaps, ownership conflicts and other portfolio diagnostics remain visible in Positions and portfolio status, but do not create sell cards on their own. Choosing `Keep` clears that sell recommendation for the current 9:00 AM, noon or 3:00 PM refresh window.
+
+**Refresh boundary:** A kept symbol may return at the next scheduled refresh if current evidence still recommends the exit. Hiding a card does not change broker state, engine evidence or order history.
+
+## D-087 — Recommendation cards must offer a real decision
+
+**Status:** Confirmed and implemented, 2026-10-09.
+
+**Decision:** Show a sell card only when the engine recommends that exit and the current reconciled broker evidence allows the user to approve it. If `Keep` would be the only enabled action, do not surface the item as a recommendation card.
+
+**Diagnostic boundary:** Blocked candidates, missing protection and other reasons an otherwise interesting trade cannot execute remain portfolio diagnostics. They may inform status and Positions, but must not look like an actionable trade recommendation.
+# D088 — Persistent Alpaca protection and breached-stop exits
+
+- New Alpaca Paper brackets use GTC duration so their target and protective stop do not expire at the session boundary.
+- Existing strategy-owned positions may be repaired only from their exact recorded target and stop terms, after fresh ownership, quantity, quote, and competing-order checks.
+- A recorded stop that is already breached is never moved downward automatically. It becomes an explicitly approvable direct-exit recommendation.
+- A profitable recommended rotation with missing protection may also use the explicitly approved direct-exit path.
+- Direct exits require fresh broker reconciliation, exact strategy ownership, no working sell, a bounded execution quote, in-process duplicate suppression, a deterministic broker reference, and post-submit reconciliation.
+- These changes apply to Alpaca Paper only. They do not authorize live trading or automatic sells.
+
+## D-089 — Reconcile Alpaca child fills through the parent application identity
+
+**Status:** Confirmed and implemented, 2026-10-12.
+
+**Decision:** For Alpaca bracket and OCO child legs, use the parent's deterministic `trade-approval-…` client-order identity and derive the child's target or stop role from it. Do not treat Alpaca's generated UUID-like child `client_order_id` as application provenance.
+
+**Reason:** The broker can assign an independent identifier to a child stop or target even though the order belongs to an application-created parent. Using the child identifier caused a valid INTC protective-stop fill to appear external, leaving a closed position open in the local ledger and incorrectly blocking portfolio capacity.
+
+**Recovery boundary:** A fresh read-only reconciliation may replay already-observed child fills into the ledger only when their parent carries an unambiguous application decision reference. Symbol and quantity alone never establish ownership. The recovery creates, changes and cancels no broker orders.
+
+## D-091 — Keep dependency regression checks available in GitHub CI
+
+**Status:** Implemented, 2026-10-15.
+
+**Decision:** Because GitHub dependency review is unsupported by the repository security configuration, compare lockfile-only npm audits for the PR base and head. Reject newly introduced high/critical advisory identities and fail on unavailable or malformed audit evidence. Run no dependency installation scripts in this job. Existing advisories remain visible and require a separate remediation effort; a passing regression gate is not a clean security audit.
+
+**Validation boundary:** The normal TypeScript, service/safety, Python and secret-scan checks remain separate required evidence before merging this app integration.

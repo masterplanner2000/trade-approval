@@ -133,7 +133,7 @@ test("HTTP lifecycle resolves disconnect-after-transmission without resubmitting
   await request("/__test/broker-events", { method: "POST", json: { type: "disconnect_after_submit" } });
   const uncertain = await request("/orders/submit-paper", { method: "POST", json: { token: prepared.token } });
   assert.equal(uncertain.status, 503);
-  assert.equal(uncertain.payload.error, "ibkr_unavailable_submission_outcome_unknown");
+  assert.equal(uncertain.payload.error, "broker_unavailable_submission_outcome_unknown");
 
   await request("/__test/broker-events", { method: "POST", json: { type: "reconnect" } });
   const reconciliation = await request("/broker/reconcile", { method: "POST" });

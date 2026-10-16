@@ -13,11 +13,13 @@ from ibapi.client import EClient
 from ibapi.contract import Contract
 from ibapi.wrapper import EWrapper
 
+from ibkr_connection import paper_connection
 from risk import calculate_equity_market_risk
 
 
-HOST = "127.0.0.1"
-PAPER_PORT = 7497
+CONNECTION = paper_connection()
+HOST = CONNECTION.host
+PAPER_PORT = CONNECTION.port
 CLIENT_ID = 75
 MINIMUM_BARS = 240
 RULESET_VERSION = "liquid-growth-momentum-mvp-v2"

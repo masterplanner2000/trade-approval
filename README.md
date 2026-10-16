@@ -38,12 +38,12 @@ The app menu includes an accessible Settings page for the paper trading sleeve a
 
 1. Install dependencies with `npm install`.
 2. Add Alpaca data credentials to `.env.local`, then run `npm run market:refresh` after the market close.
-3. Open TWS in the IBKR paper account with the API enabled on port 7497.
+3. Open IB Gateway in the IBKR paper account with socket clients enabled on port 4002. TWS remains an explicit fallback: set `IBKR_APPLICATION=tws` and omit `IBKR_PAPER_PORT` to use its paper default, 7497.
 4. Start the local service with `npm run service:phone` (or `npm run service` for localhost-only use).
 5. In a second terminal, start with `npm start`.
 6. Open the project with Expo Go, or press `w` for the browser preview.
 
-If TWS or historical daily data is unavailable, the scanner fails closed and the app displays no fabricated recommendation.
+If the configured IBKR connector or historical daily data is unavailable, the scanner fails closed and the app displays no fabricated recommendation.
 
 ## Current acceptance criteria
 
