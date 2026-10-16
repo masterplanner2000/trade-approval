@@ -1,6 +1,6 @@
 # Trade Approval — Decision Log
 
-**Log revision:** 2026-10-14.1 · **Corresponding architecture:** 5.35
+**Log revision:** 2026-10-15.1 · **Corresponding architecture:** 5.36
 
 This is the living record of product, design, trading-safety, data, and technical decisions for the Trade Approval app.
 
@@ -1165,3 +1165,11 @@ Review [CRYPTO_DESIGN.md](./CRYPTO_DESIGN.md): Coinbase Exchange/Gemini sandbox 
 **Reason:** The broker can assign an independent identifier to a child stop or target even though the order belongs to an application-created parent. Using the child identifier caused a valid INTC protective-stop fill to appear external, leaving a closed position open in the local ledger and incorrectly blocking portfolio capacity.
 
 **Recovery boundary:** A fresh read-only reconciliation may replay already-observed child fills into the ledger only when their parent carries an unambiguous application decision reference. Symbol and quantity alone never establish ownership. The recovery creates, changes and cancels no broker orders.
+
+## D-091 — Keep dependency regression checks available in GitHub CI
+
+**Status:** Implemented, 2026-10-15.
+
+**Decision:** Because GitHub dependency review is unsupported by the repository security configuration, compare lockfile-only npm audits for the PR base and head. Reject newly introduced high/critical advisory identities and fail on unavailable or malformed audit evidence. Run no dependency installation scripts in this job. Existing advisories remain visible and require a separate remediation effort; a passing regression gate is not a clean security audit.
+
+**Validation boundary:** The normal TypeScript, service/safety, Python and secret-scan checks remain separate required evidence before merging this app integration.

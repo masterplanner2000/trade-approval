@@ -1,10 +1,16 @@
 # Trade Approval — Application Architecture
 
-**Current architecture version:** 5.35
-**Last updated:** 2026-10-14
+**Current architecture version:** 5.36
+**Last updated:** 2026-10-15
 **Status:** Living source of truth
 
 This document explains the major application components, their responsibilities, and how information moves from research to recommendations, approval, broker execution, reconciliation, and performance evaluation.
+
+### Version 5.36 — 2026-10-15
+
+- Corrected GitHub CI Python cache discovery to use `requirements-test.txt`.
+- Replaced unsupported GitHub dependency review with a lockfile-only npm audit comparison that rejects newly introduced high/critical advisory identities and fails closed on audit errors.
+- Existing dependency advisories remain reported; this gate does not certify the full dependency tree free of vulnerabilities.
 
 ### Version 5.35 — 2026-10-14
 
