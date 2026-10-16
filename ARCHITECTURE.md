@@ -8,6 +8,7 @@ This document explains the major application components, their responsibilities,
 
 ### Version 5.36 — 2026-10-15
 
+- Isolated service unit-test imports from private runtime strategy state using temporary simulated fixtures.
 - Corrected GitHub CI Python cache discovery to use `requirements-test.txt`.
 - Replaced unsupported GitHub dependency review with a lockfile-only npm audit comparison that rejects newly introduced high/critical advisory identities and fails closed on audit errors.
 - Existing dependency advisories remain reported; this gate does not certify the full dependency tree free of vulnerabilities.

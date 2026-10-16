@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPortfolioReview, eligibleQueueCandidates, normalizeAggressiveScan, recommendationTtlMs, wasDeniedForSignal } from "./server.mjs";
+import { unitService } from "./testing/unit_service.mjs";
+const { buildPortfolioReview, eligibleQueueCandidates, normalizeAggressiveScan, recommendationTtlMs, wasDeniedForSignal } = unitService;
 import { chooseActiveRecommendationVersions, createQueueSerialExecutor } from "./recommendation_queue.mjs";
 
 test("recommendation expiry shortens as volatility rises", () => {
