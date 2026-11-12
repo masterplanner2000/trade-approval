@@ -4,7 +4,7 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemeProvider } from "@shopify/restyle";
-import { CaretDownIcon, CaretUpIcon, CheckCircleIcon, CircleIcon, ClockCounterClockwiseIcon, ClockIcon, DotsThreeIcon, GaugeIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, WifiSlashIcon, XIcon } from "phosphor-react-native";
+import { CheckCircleIcon, CircleIcon, ClockCounterClockwiseIcon, ClockIcon, DotsThreeIcon, GaugeIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, WifiSlashIcon, XIcon } from "phosphor-react-native";
 import {
   Alert,
   Animated,
@@ -701,32 +701,12 @@ const COMPANY_DOMAINS: Record<string, string> = {
   QQQ: "invesco.com",
   IWM: "ishares.com",
   AAPL: "apple.com",
-  AMD: "amd.com",
   MSFT: "microsoft.com",
   NVDA: "nvidia.com",
   AMZN: "amazon.com",
-  AVGO: "broadcom.com",
-  COST: "costco.com",
-  CRM: "salesforce.com",
-  CRWD: "crowdstrike.com",
-  CVX: "chevron.com",
-  DE: "deere.com",
-  HOOD: "robinhood.com",
-  JPM: "jpmorganchase.com",
-  LLY: "lilly.com",
   META: "meta.com",
-  MRK: "merck.com",
-  MU: "micron.com",
   GOOGL: "google.com",
-  GOOG: "google.com",
-  PLTR: "palantir.com",
-  SMCI: "supermicro.com",
-  STX: "seagate.com",
   TSLA: "tesla.com",
-  UNH: "unitedhealthgroup.com",
-  V: "visa.com",
-  WMT: "walmart.com",
-  XOM: "exxonmobil.com",
 };
 
 const COMPANY_NAMES: Record<string, string> = {
@@ -857,27 +837,85 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function PreviewCardFace({ proposal }: { proposal: Proposal }) {
-  const { styles } = useVisualTheme();
+  const { colors, styles } = useVisualTheme();
   const previewState: Decision = proposal.decision === "expired" || Date.now() >= proposal.expiresAt ? "expired" : proposal.decision;
+  const previewExpiringSoon = previewState === "pending" && proposal.expiresAt - Date.now() <= 60_000;
   return (
-    <View style={styles.visualProposalCard}>
-      <View style={styles.visualCardBody}>
-        <View style={styles.visualLogo}><CompanyMark symbol={proposal.symbol} size={52} /></View>
-        <Text style={styles.visualSide}>{proposal.side}</Text>
-        <Text style={styles.visualAmount}>{money(proposal.positionValue)}</Text>
-        <Text style={styles.visualSymbol}>{proposal.symbol}</Text>
-        <Text style={styles.visualSummary}>{proposal.quantity} shares · {money(proposal.limitPrice)} limit</Text>
-        <View style={styles.visualDetailsCollapsed}>
-          <Text style={styles.visualDetailsTitle}>Details</Text>
-          <View style={styles.visualDetailsMeta}>
-            <Text style={styles.visualDetailsHint}>{previewState === "pending" ? `Valid ${countdown(proposal.expiresAt)}` : previewState.toUpperCase()}</Text>
-            <CaretDownIcon size={18} color="#FFFFFF" weight="regular" />
+    <View style={styles.proposalCard}>
+      <View style={styles.cardBody}>
+        <View style={styles.companyIdentity}>
+          <CompanyMark symbol={proposal.symbol} size={42} />
+          <Text style={styles.company} numberOfLines={1}>{proposal.company}</Text>
+        </View>
+        <Text style={styles.tradeHeadline}>
+          {proposal.side === "BUY" ? "Buy" : "Sell"} {money(proposal.positionValue)} of {proposal.symbol}
+        </Text>
+        <Text style={styles.tradePrice}>at current price {money(proposal.currentPrice)}</Text>
+        <View style={styles.tradeTerms}>
+          <View style={styles.tradeTermRow}>
+            <Text style={styles.tradeTermLabel}>{proposal.side === "BUY" ? "Receive" : "Sell"}</Text>
+            <Text style={styles.tradeTermValue}>{proposal.quantity} shares</Text>
           </View>
+          <View style={styles.tradeTermRow}>
+            <Text style={styles.tradeTermLabel}>Limit price</Text>
+            <Text style={styles.tradeTermValue}>{money(proposal.limitPrice)}</Text>
+          </View>
+          <View style={styles.tradeTermRow}>
+            <Text style={styles.tradeTermLabel}>Risk</Text>
+            <View style={styles.riskChip}>
+              <Text style={styles.riskChipText}>{proposalRiskLabel(proposal)}</Text>
+            </View>
+          </View>
+          <View style={styles.tradeTermRow}>
+            <Text style={styles.tradeTermLabel}>{previewState === "pending" ? "Expires in" : "Status"}</Text>
+            <View style={[
+              styles.timer,
+              previewExpiringSoon && styles.timerWarning,
+              previewState === "expired" && styles.timerExpired,
+              previewState !== "pending" && previewState !== "expired" && styles.timerClosed,
+            ]}>
+              <ClockIcon size={15} color={previewState === "expired" ? "#B42318" : previewExpiringSoon ? "#854D0E" : colors.muted} weight="regular" />
+              <Text style={[
+                styles.timerValue,
+                previewExpiringSoon && styles.timerWarningText,
+                previewState === "expired" && styles.timerExpiredText,
+                previewState !== "pending" && previewState !== "expired" && styles.timerClosedText,
+              ]}>
+                {previewState === "pending" ? countdown(proposal.expiresAt) : previewState.toUpperCase()}
+              </Text>
+            </View>
+          </View>
+          {proposal.automaticExits && (
+            <>
+              <View style={styles.tradeTermRow}>
+                <Text style={styles.tradeTermLabel}>Profit target</Text>
+                <Text style={styles.tradeTermValue}>Sell at {money(proposal.targetPrice)}</Text>
+              </View>
+              <View style={styles.tradeTermRow}>
+                <Text style={styles.tradeTermLabel}>Total profit</Text>
+                <Text style={styles.tradeTermValue}>+{money(proposal.potentialUpside)}</Text>
+              </View>
+              <View style={styles.tradeTermRow}>
+                <Text style={styles.tradeTermLabel}>Time horizon</Text>
+                <Text style={styles.tradeTermValue}>{proposal.targetTimeframe}</Text>
+              </View>
+              <View style={styles.tradeTermRow}>
+                <Text style={styles.tradeTermLabel}>Protective stop</Text>
+                <Text style={styles.tradeTermValue}>Trigger at {money(proposal.stopPrice)}</Text>
+              </View>
+            </>
+          )}
+        </View>
+        <View style={styles.infoCard}>
+          <Text style={styles.infoCardTitle}>Why this trade</Text>
+          <Text style={styles.infoCardBody} numberOfLines={2} ellipsizeMode="tail">{firstTwoSentences(proposal.companyCatalyst)}</Text>
         </View>
       </View>
-      <View style={styles.visualFooter}>
-        <View style={styles.visualDenyButton}><Text style={styles.visualDenyText}>DENY</Text></View>
-        <View style={styles.visualApproveButton}><Text style={styles.visualApproveText}>APPROVE</Text></View>
+      <View style={styles.cardFooter}>
+        <View style={styles.actions}>
+          <ActionButton label="Deny" tone="secondary" onPress={() => {}} />
+          <ActionButton label="Approve" tone="primary" onPress={() => {}} />
+        </View>
       </View>
     </View>
   );
@@ -3012,12 +3050,12 @@ export default function App() {
     <VisualThemeContext.Provider value={{ colors, styles }}>
     <ThemeProvider theme={activeTheme}>
     <SafeAreaProvider>
-    <SafeAreaView style={[styles.safe, activePage === "review" && styles.visualSafe]} edges={["top", "left", "right"]}>
-      <StatusBar barStyle={activePage === "review" || darkMode ? "light-content" : "dark-content"} />
-      <ScrollView contentContainerStyle={[styles.page, activePage === "review" && styles.visualPage]} showsVerticalScrollIndicator={false}>
-        <View style={[styles.appHeader, activePage === "review" && styles.visualAppHeader]}>
+    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+      <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
+      <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
+        <View style={styles.appHeader}>
           <Pressable accessibilityRole="button" accessibilityLabel="Open menu" accessibilityState={{ expanded: menuOpen }} onPress={() => setMenuOpen((value) => !value)} style={styles.menuButton}>
-            <ListIcon size={23} color={activePage === "review" ? "#FFFFFF" : colors.ink} weight="regular" />
+            <ListIcon size={23} color={colors.ink} weight="regular" />
           </Pressable>
           <View style={styles.headerActions}>
             {activePage === "review" ? (
@@ -3026,18 +3064,18 @@ export default function App() {
                 accessibilityLabel={`Risk profile: ${RISK_PROFILES.find((profile) => profile.id === recommendationMode)?.label ?? "Conservative"}`}
                 accessibilityHint="Opens the risk profile dial"
                 onPress={() => setRiskDialOpen(true)}
-                style={({ pressed }) => [styles.riskDialCompact, activePage === "review" && styles.visualHeaderButton, pressed && styles.riskDialPressed]}
+                style={({ pressed }) => [styles.riskDialCompact, pressed && styles.riskDialPressed]}
               >
-                <GaugeIcon size={23} color={activePage === "review" ? "#FFFFFF" : colors.ink} weight="regular" />
+                <GaugeIcon size={23} color={colors.ink} weight="regular" />
               </Pressable>
             ) : null}
-            <View style={[styles.marketPill, activePage === "review" && styles.visualHeaderPill]}>
+            <View style={styles.marketPill}>
               <CircleIcon
                 size={8}
                 weight="fill"
                 color={headerStatusColor}
               />
-              <Text style={[styles.marketText, activePage === "review" && styles.visualHeaderPillText]}>{headerStatusLabel}</Text>
+              <Text style={styles.marketText}>{headerStatusLabel}</Text>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -3047,7 +3085,7 @@ export default function App() {
               onPress={() => setHeaderMenuOpen(true)}
               style={({ pressed }) => [styles.themeToggle, pressed && styles.themeTogglePressed]}
             >
-              <DotsThreeIcon size={22} color={activePage === "review" ? "#FFFFFF" : colors.ink} weight="bold" />
+              <DotsThreeIcon size={22} color={colors.ink} weight="bold" />
             </Pressable>
           </View>
         </View>
@@ -3374,30 +3412,30 @@ export default function App() {
         )}
 
         {!proposal.shadowMode && !sampleDeckComplete && !realDeckComplete && (
-          <View style={[styles.deckStage, { height: Math.max(560, viewportHeight - 145) }]}>
+          <View style={[styles.deckStage, { height: Math.max(460, viewportHeight - 250) }]}>
             {!transitionCard && backPreviewCard && (
-              <Animated.View pointerEvents="none" style={[styles.visualProposalCard, styles.stackCardLayer, styles.stackCardBack]}>
+              <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardBack]}>
                 <PreviewCardFace proposal={backPreviewCard} />
               </Animated.View>
             )}
             {!transitionCard && nextPreviewCard && (
-              <Animated.View pointerEvents="none" style={[styles.visualProposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: nextCardOpacity }]}>
+              <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: nextCardOpacity }]}>
                 <PreviewCardFace proposal={nextPreviewCard} />
               </Animated.View>
             )}
             {!transitionCard && previousPreviewCard && previousPreviewCard.id !== nextPreviewCard?.id && (
-              <Animated.View pointerEvents="none" style={[styles.visualProposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: previousCardOpacity }]}>
+              <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardNext, { opacity: previousCardOpacity }]}>
                 <PreviewCardFace proposal={previousPreviewCard} />
               </Animated.View>
             )}
             {transitionCard && (
-              <Animated.View pointerEvents="none" style={[styles.visualProposalCard, styles.stackCardLayer, styles.stackCardTransition]}>
+              <Animated.View pointerEvents="none" style={[styles.proposalCard, styles.stackCardLayer, styles.stackCardTransition]}>
                 <PreviewCardFace proposal={transitionCard} />
               </Animated.View>
             )}
             <Animated.View
             style={[
-              styles.visualProposalCard,
+              styles.proposalCard,
               {
                 opacity: cardEntryOpacity,
                 transform: [
@@ -3420,55 +3458,92 @@ export default function App() {
                 if (event.nativeEvent.locationX >= cardWidth / 2) navigateSampleCard(1, 1);
                 else navigateSampleCard(1, -1);
               }}
-              style={styles.visualCardBody}
+              style={styles.cardBody}
             >
-              <View style={styles.visualLogo}><CompanyMark symbol={proposal.symbol} size={52} /></View>
-              <Text style={styles.visualSide}>{proposal.side}</Text>
-              <Text style={styles.visualAmount}>{money(proposal.positionValue)}</Text>
-              <Text style={styles.visualSymbol}>{proposal.symbol}</Text>
-              <Text style={styles.visualSummary}>{proposal.quantity} shares · {money(proposal.limitPrice)} limit</Text>
+              <View style={styles.companyIdentity}>
+                <CompanyMark symbol={proposal.symbol} size={42} />
+                <Text style={styles.company} numberOfLines={1}>{proposal.company}</Text>
+              </View>
+              <Text style={styles.tradeHeadline}>
+                {proposal.side === "BUY" ? "Buy" : "Sell"} {money(proposal.positionValue)} of {proposal.symbol}
+              </Text>
+              <Text style={styles.tradePrice}>at current price {money(proposal.currentPrice)}</Text>
 
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ expanded: detailsOpen }}
-                accessibilityLabel={`${detailsOpen ? "Hide" : "Show"} recommendation details`}
-              onPress={(event) => { event.stopPropagation(); setDetailsOpen((open) => !open); }}
-                style={styles.visualDetails}
-              >
-                <View style={styles.visualDetailsHeader}>
-                  <Text style={styles.visualDetailsTitle}>Details</Text>
-                  <View style={styles.visualDetailsMeta}>
-                    <Text style={styles.visualDetailsHint}>{state === "pending" ? `Valid ${timer}` : state.toUpperCase()}</Text>
-                    {detailsOpen
-                      ? <CaretUpIcon size={18} color="#FFFFFF" weight="regular" />
-                      : <CaretDownIcon size={18} color="#FFFFFF" weight="regular" />}
+              <View style={styles.tradeTerms}>
+                <View style={styles.tradeTermRow}>
+                  <Text style={styles.tradeTermLabel}>{proposal.side === "BUY" ? "Receive" : "Sell"}</Text>
+                  <Text style={styles.tradeTermValue}>{proposal.quantity} shares</Text>
+                </View>
+                <View style={styles.tradeTermRow}>
+                  <Text style={styles.tradeTermLabel}>Limit price</Text>
+                  <Text style={styles.tradeTermValue}>{money(proposal.limitPrice)}</Text>
+                </View>
+                <View style={styles.tradeTermRow}>
+                  <Text style={styles.tradeTermLabel}>Risk</Text>
+                  <View style={styles.riskChip}>
+                    <Text style={styles.riskChipText}>{proposalRiskLabel(proposal)}</Text>
                   </View>
                 </View>
-                {detailsOpen ? (
-                  <View style={styles.visualDetailsBody}>
-                    <View style={styles.visualDetailRow}><Text style={styles.visualDetailKey}>Profit target</Text><Text style={styles.visualDetailValue}>{money(proposal.targetPrice)}</Text></View>
-                    <View style={styles.visualDetailRow}><Text style={styles.visualDetailKey}>Maximum loss</Text><Text style={styles.visualDetailValue}>{money(proposal.maxLoss)}</Text></View>
-                    <View style={styles.visualDetailRow}><Text style={styles.visualDetailKey}>Time horizon</Text><Text style={styles.visualDetailValue}>{proposal.targetTimeframe}</Text></View>
-                    <Text style={styles.visualWhyTitle}>Why this trade</Text>
-                    <Text style={styles.visualWhyBody} numberOfLines={2}>{firstTwoSentences(proposal.companyCatalyst)}</Text>
+                <View style={styles.tradeTermRow}>
+                  <Text style={styles.tradeTermLabel}>{state === "pending" ? "Expires in" : "Status"}</Text>
+                  <View style={[
+                    styles.timer,
+                    expiringSoon && styles.timerWarning,
+                    state === "expired" && styles.timerExpired,
+                    state !== "pending" && state !== "expired" && styles.timerClosed,
+                  ]}>
+                    <ClockIcon size={15} color={state === "expired" ? "#B42318" : expiringSoon ? "#854D0E" : colors.muted} weight="regular" />
+                    <Text style={[
+                      styles.timerValue,
+                      expiringSoon && styles.timerWarningText,
+                      state === "expired" && styles.timerExpiredText,
+                      state !== "pending" && state !== "expired" && styles.timerClosedText,
+                    ]}>{state === "pending" ? timer : state.toUpperCase()}</Text>
                   </View>
-                ) : null}
+                </View>
+                {proposal.automaticExits && (
+                  <>
+                    <View style={styles.tradeTermRow}>
+                      <Text style={styles.tradeTermLabel}>Profit target</Text>
+                      <Text style={styles.tradeTermValue}>Sell at {money(proposal.targetPrice)}</Text>
+                    </View>
+                    <View style={styles.tradeTermRow}>
+                      <Text style={styles.tradeTermLabel}>Total profit</Text>
+                      <Text style={styles.tradeTermValue}>+{money(proposal.potentialUpside)}</Text>
+                    </View>
+                    <View style={styles.tradeTermRow}>
+                      <Text style={styles.tradeTermLabel}>Time horizon</Text>
+                      <Text style={styles.tradeTermValue}>{proposal.targetTimeframe}</Text>
+                    </View>
+                    <View style={styles.tradeTermRow}>
+                      <Text style={styles.tradeTermLabel}>Protective stop</Text>
+                      <Text style={styles.tradeTermValue}>Trigger at {money(proposal.stopPrice)}</Text>
+                    </View>
+                  </>
+                )}
+              </View>
+
+              <View style={styles.infoCard}>
+                <Text style={styles.infoCardTitle}>Why this trade</Text>
+                <Text style={styles.infoCardBody} numberOfLines={2} ellipsizeMode="tail">{proposal.companyCatalyst}</Text>
+              </View>
             </Pressable>
-            </Pressable>
-            <View style={styles.visualFooter}>
-              {state === "pending" ? <View style={styles.visualActions}>
-                <Pressable
-                  accessibilityRole="button"
+            <View style={styles.cardFooter}>
+              {state === "pending" ? <View style={styles.actions}>
+                <ActionButton
+                  label={activeDecisionInFlight === "denied" ? "Denying…" : "Deny"}
+                  tone="secondary"
+                  pending={activeDecisionInFlight === "denied"}
                   disabled={!uiPreview && (!actionable || activeDecisionInFlight !== null)}
                   onPress={() => uiPreview ? animateSampleDecision("denied") : decide("denied")}
-                  style={({ pressed }) => [styles.visualDenyButton, pressed && styles.pressed, (!uiPreview && (!actionable || activeDecisionInFlight !== null)) && styles.disabled]}
-                ><Text style={styles.visualDenyText}>{activeDecisionInFlight === "denied" ? "DENYING…" : "DENY"}</Text></Pressable>
-                <Pressable
-                  accessibilityRole="button"
+                />
+                <ActionButton
+                  label={activeDecisionInFlight === "approved" ? "Submitting…" : "Approve"}
+                  tone="primary"
+                  pending={activeDecisionInFlight === "approved"}
                   disabled={!uiPreview && (!actionable || activeDecisionInFlight !== null)}
                   onPress={() => uiPreview ? animateSampleDecision("approved") : decide("approved")}
-                  style={({ pressed }) => [styles.visualApproveButton, pressed && styles.pressed, (!uiPreview && (!actionable || activeDecisionInFlight !== null)) && styles.disabled]}
-                ><Text style={styles.visualApproveText}>{activeDecisionInFlight === "approved" ? "SUBMITTING…" : "APPROVE"}</Text></Pressable>
+                />
               </View> : state === "expired" ? (
                 <View style={styles.actions}>
                   <ActionButton
@@ -3567,13 +3642,7 @@ const cream = colors.canvas;
 return StyleSheet.create({
   safe: { flex: 1, backgroundColor: cream },
   page: { flexGrow: 1, width: "100%", maxWidth: 680, alignSelf: "center", paddingHorizontal: spacing.large, paddingTop: spacing.small, paddingBottom: spacing.large },
-  visualSafe: { backgroundColor: "#0E5DE7" },
-  visualPage: { maxWidth: 520, paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, backgroundColor: "#0E5DE7" },
   appHeader: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  visualAppHeader: { minHeight: 52, paddingHorizontal: 20, backgroundColor: "#0E5DE7" },
-  visualHeaderButton: { backgroundColor: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.24)" },
-  visualHeaderPill: { backgroundColor: "#FFFFFF", borderColor: "#FFFFFF" },
-  visualHeaderPillText: { color: "#111114" },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   riskDialCompact: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: colors.surfaceMuted, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   riskDialPressed: { opacity: 0.68 },
@@ -3814,31 +3883,6 @@ return StyleSheet.create({
   stackCardNext: { zIndex: 2 },
   stackCardTransition: { zIndex: 2 },
   proposalCard: { flex: 1, zIndex: 3, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 28, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.055, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
-  visualProposalCard: { flex: 1, zIndex: 3, backgroundColor: "#0E5DE7", overflow: "hidden" },
-  visualCardBody: { flex: 1, minHeight: 0, paddingHorizontal: 28, paddingTop: 8, paddingBottom: 0 },
-  visualLogo: { width: 52, height: 52, marginTop: 26, marginBottom: 18, alignItems: "center", justifyContent: "center" },
-  visualSide: { color: "#FFFFFF", fontSize: 64, lineHeight: 68, fontWeight: "600", letterSpacing: -2.1 },
-  visualAmount: { color: "#FFFFFF", fontSize: 40, lineHeight: 46, fontWeight: "400", letterSpacing: -1.1 },
-  visualSymbol: { color: "#FFFFFF", fontSize: 28, lineHeight: 35, fontWeight: "500", letterSpacing: -0.4, marginTop: 2 },
-  visualSummary: { color: "rgba(255,255,255,0.72)", fontSize: 16, lineHeight: 22, fontWeight: "400", marginTop: 7 },
-  visualDetailsCollapsed: { marginTop: "auto", minHeight: 58, borderTopWidth: 1, borderBottomWidth: 1, borderColor: "rgba(255,255,255,0.30)", flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  visualDetails: { marginTop: "auto", borderTopWidth: 1, borderBottomWidth: 1, borderColor: "rgba(255,255,255,0.30)" },
-  visualDetailsHeader: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  visualDetailsTitle: { color: "#FFFFFF", fontSize: 15, lineHeight: 20, fontWeight: "500" },
-  visualDetailsMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
-  visualDetailsHint: { color: "rgba(255,255,255,0.72)", fontSize: 13, lineHeight: 18, fontWeight: "400" },
-  visualDetailsBody: { paddingTop: 2, paddingBottom: 16, gap: 7 },
-  visualDetailRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 18 },
-  visualDetailKey: { color: "rgba(255,255,255,0.72)", fontSize: 13, lineHeight: 18, fontWeight: "400" },
-  visualDetailValue: { flexShrink: 1, color: "#FFFFFF", fontSize: 13, lineHeight: 18, fontWeight: "500", textAlign: "right" },
-  visualWhyTitle: { color: "#FFFFFF", fontSize: 13, lineHeight: 18, fontWeight: "500", marginTop: 4 },
-  visualWhyBody: { color: "rgba(255,255,255,0.72)", fontSize: 13, lineHeight: 18, fontWeight: "400" },
-  visualFooter: { height: 112, flexDirection: "row", backgroundColor: "#0E5DE7", borderTopWidth: 1, borderTopColor: "#FFFFFF", padding: 0 },
-  visualActions: { flex: 1, flexDirection: "row", gap: 0 },
-  visualDenyButton: { flex: 1, height: "100%", alignItems: "center", justifyContent: "center", borderRightWidth: 1, borderRightColor: "#FFFFFF", backgroundColor: "transparent" },
-  visualApproveButton: { flex: 1, height: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
-  visualDenyText: { color: "#FFFFFF", fontSize: 16, lineHeight: 20, fontWeight: "600", letterSpacing: 0.4 },
-  visualApproveText: { color: "#0E5DE7", fontSize: 16, lineHeight: 20, fontWeight: "600", letterSpacing: 0.4 },
   skeletonIdentityRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   skeletonLogo: { width: 42, height: 42, borderRadius: radius.pill, backgroundColor: colors.surfaceMuted },
   skeletonLine: { backgroundColor: colors.surfaceMuted, borderRadius: radius.pill },
